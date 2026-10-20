@@ -18,7 +18,7 @@ object LocationHelper {
             else -> { onResult(null); return }
         }
         try {
-            LocationManagerCompat.getCurrentLocation(lm, provider, null, ContextCompat.getMainExecutor(context)) { location -> onResult(location) }
+            LocationManagerCompat.getCurrentLocation(lm, provider, android.os.CancellationSignal(), ContextCompat.getMainExecutor(context)) { location: Location? -> onResult(location) }
         } catch (e: SecurityException) {
             onResult(null)
         }

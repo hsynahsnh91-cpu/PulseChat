@@ -182,7 +182,7 @@ enum class AttachOption { GALLERY, CAMERA_PHOTO, CAMERA_VIDEO, DOCUMENT, CONTACT
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AttachmentSheet(showPoll: Boolean, showAi: Boolean, onPick: (AttachOption) -> Unit, onDismiss: () -> Unit) {
+fun AttachmentSheet(showPoll: Boolean, showAi: Boolean, onDismiss: () -> Unit, onPick: (AttachOption) -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val options = buildList {
             add(Triple(AttachOption.GALLERY, Icons.Default.Image, R.string.attach_gallery))

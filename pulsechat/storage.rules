@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// PulseChat Cloud Storage rules.
+// Uploads are only allowed into the uploader's own path segment, with size/type limits.
+// Limitation: Storage rules cannot query PulseChat's *named* Firestore database, so reads are
+// limited to signed-in users holding an unguessable object path (conversation ID + random UUID).
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function isUser(userId) { return signedIn() && request.auth.uid == userId; }
+
+    match /chat-media/{conversationId}/{senderId}/{fileName} {
+      allow read: if signedIn();
+      allow create: if isUser(senderId) && request.resource.size < 100 * 1024 * 1024;
+      allow update: if false;
+      allow delete: if isUser(senderId);
+    }
+
+    match /profile-photos/{userId}/{fileName} {
+      allow read: if signedIn();
+      allow create: if isUser(userId) && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow update: if false;
+      allow delete: if isUser(userId);
+    }
+
+    match /group-photos/{conversationId}/{userId}/{fileName} {
+      allow read: if signedIn();
+      allow create: if isUser(userId) && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow update: if false;
+      allow delete: if isUser(userId);
+    }
+
+    match /status-media/{userId}/{fileName} {
+      allow read: if signedIn();
+      allow create: if isUser(userId) && request.resource.size < 64 * 1024 * 1024 && request.resource.contentType.matches('(image|video)/.*');
+      allow update: if false;
+      allow delete: if isUser(userId);
+    }
+  }
+}

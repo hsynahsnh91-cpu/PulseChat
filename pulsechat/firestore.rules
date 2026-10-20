@@ -1,25 +1,386 @@
 rules_version = '2';
+
+// PulseChat Firestore security rules.
+//
+// Every read and write is authorised against the Firebase Auth UID. The Android client mirrors
+// these rules (domain/*Policy.kt) only to hide actions the server would reject; this file is the
+// real enforcement point. Tests: pulsechat/firebase/rules-tests.
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isAuthenticated() {
-      return request.auth != null;
+
+    // ------------------------------------------------------------------ helpers
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function isOwner(userId) { return signedIn() && uid() == userId; }
+
+    function validUsername(n) { return n is string && n.matches('^[a-z][a-z0-9._]{2,19}$'); }
+    function validName(n) { return n is string && n.size() > 0 && n.size() <= 50; }
+    function validVisibility(v) { return v in ['everyone', 'contacts', 'nobody']; }
+    function validTimer(s) { return s in [0, 86400, 604800, 7776000]; }
+
+    function userData(userId) { return get(/databases/$(database)/documents/users/$(userId)).data; }
+    function isContactOf(ownerId) { return exists(/databases/$(database)/documents/users/$(ownerId)/contacts/$(uid())); }
+    function hasBlocked(ownerId, otherId) { return exists(/databases/$(database)/documents/users/$(ownerId)/blocked/$(otherId)); }
+
+    // Owner's visibility setting for a profile field ('lastSeenVisibility', 'photoVisibility', 'aboutVisibility').
+    function visibilityAllows(ownerId, settingField) {
+      let vis = userData(ownerId).get(settingField, 'everyone');
+      return uid() == ownerId || vis == 'everyone' || (vis == 'contacts' && isContactOf(ownerId));
     }
 
+    function convPath(cid) { return /databases/$(database)/documents/conversations/$(cid); }
+    function isParticipantNow(cid) { return signedIn() && uid() in get(convPath(cid)).data.participants; }
+
+    // ------------------------------------------------------------------ users
     match /users/{userId} {
-      allow read: if true;
-      allow create, update, delete: if isAuthenticated();
+      // Public profile (name, username, 10-digit ID, visibility settings). No photo/about/PII here.
+      allow get, list: if signedIn();
+
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['uid', 'username', 'uniqueId10', 'displayName', 'displayNameLower',
+             'avatarColorHex', 'lastSeenVisibility', 'photoVisibility', 'aboutVisibility', 'createdAt'])
+        && request.resource.data.uid == userId
+        && validUsername(request.resource.data.username)
+        && request.resource.data.uniqueId10 is string && request.resource.data.uniqueId10.matches('^[1-9][0-9]{9}$')
+        && validName(request.resource.data.displayName)
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.username)).data.uid == userId
+        && getAfter(/databases/$(database)/documents/uniqueIds/$(request.resource.data.uniqueId10)).data.uid == userId;
+
+      // Username, ID and creation time are immutable.
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'displayNameLower', 'avatarColorHex',
+             'lastSeenVisibility', 'photoVisibility', 'aboutVisibility'])
+        && validName(request.resource.data.displayName)
+        && validVisibility(request.resource.data.get('lastSeenVisibility', 'everyone'))
+        && validVisibility(request.resource.data.get('photoVisibility', 'everyone'))
+        && validVisibility(request.resource.data.get('aboutVisibility', 'everyone'));
+
+      allow delete: if false;
+
+      // Privacy-controlled profile fields: users/{uid}/restricted/{photo|about}.
+      match /restricted/{field} {
+        allow get: if signedIn() && field in ['photo', 'about']
+          && visibilityAllows(userId, field + 'Visibility')
+          && (uid() == userId || !hasBlocked(userId, uid()));
+        allow list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && field in ['photo', 'about']
+          && (field != 'photo' || (request.resource.data.keys().hasOnly(['url', 'updatedAt'])
+                && (request.resource.data.url == null || (request.resource.data.url is string && request.resource.data.url.size() < 2048))))
+          && (field != 'about' || (request.resource.data.keys().hasOnly(['text', 'updatedAt'])
+                && request.resource.data.text is string && request.resource.data.text.size() <= 140));
+        allow delete: if isOwner(userId);
+      }
+
+      match /contacts/{contactId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && contactId != userId
+          && request.resource.data.keys().hasOnly(['nickname', 'addedAt'])
+          && (request.resource.data.nickname == null || (request.resource.data.nickname is string && request.resource.data.nickname.size() <= 50));
+      }
+      match /blocked/{blockedId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && blockedId != userId && request.resource.data.keys().hasOnly(['blockedAt']);
+      }
+      match /private/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /devices/{deviceId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && request.resource.data.token is string && request.resource.data.token.size() < 4096;
+      }
+      match /chatPrefs/{cid} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
-    match /conversations/{conversationId} {
-      allow read, write: if isAuthenticated();
+    // ------------------------------------------------------------------ unique handles
+    // Readable without auth so sign-up can check availability and sign-in can resolve an ID.
+    match /usernames/{name} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if signedIn() && validUsername(name)
+        && request.resource.data.keys().hasOnly(['uid']) && request.resource.data.uid == uid()
+        && getAfter(/databases/$(database)/documents/users/$(uid())).data.username == name;
+      allow update, delete: if false;
+    }
+    match /uniqueIds/{id} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if signedIn() && id.matches('^[1-9][0-9]{9}$')
+        && request.resource.data.keys().hasOnly(['uid', 'username']) && request.resource.data.uid == uid()
+        && getAfter(/databases/$(database)/documents/users/$(uid())).data.uniqueId10 == id
+        && getAfter(/databases/$(database)/documents/users/$(uid())).data.username == request.resource.data.username;
+      allow update, delete: if false;
     }
 
-    match /messages/{messageId} {
-      allow read, write: if isAuthenticated();
+    // ------------------------------------------------------------------ presence
+    // Readable only if the owner's last-seen setting allows it, the reader shares their own last
+    // seen (reciprocity) and the owner has not blocked the reader.
+    match /presence/{userId} {
+      allow get: if signedIn() && (uid() == userId || (
+        visibilityAllows(userId, 'lastSeenVisibility')
+        && userData(uid()).get('lastSeenVisibility', 'everyone') != 'nobody'
+        && !hasBlocked(userId, uid())));
+      allow list: if false;
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['online', 'heartbeatAt', 'lastSeen'])
+        && request.resource.data.online is bool;
+      allow delete: if isOwner(userId);
     }
 
-    match /statuses/{statusId} {
-      allow read, write: if isAuthenticated();
+    // ------------------------------------------------------------------ conversations
+    match /conversations/{cid} {
+      function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+      function isAdmin() { return uid() in resource.data.get('admins', []); }
+
+      function ownKeyOnly(field) {
+        return !changed().hasAny([field]) || request.resource.data.get(field, {}).diff(resource.data.get(field, {})).affectedKeys().hasOnly([uid()]);
+      }
+
+      // Sending a message / mutating one bumps preview + timestamps; receipts and typing are per user.
+      function activityUpdate() {
+        return changed().hasOnly(['lastMessage', 'lastMessageAt', 'updatedAt', 'typing', 'receipts'])
+          && (!changed().hasAny(['lastMessage']) || request.resource.data.lastMessage.senderId == uid())
+          && ownKeyOnly('typing')
+          && ownKeyOnly('receipts');
+      }
+
+      function directSettingsUpdate() {
+        return resource.data.type == 'direct'
+          && changed().hasOnly(['disappearingSeconds', 'updatedAt', 'lastMessage', 'lastMessageAt', 'typing'])
+          && validTimer(request.resource.data.get('disappearingSeconds', 0))
+          && (!changed().hasAny(['lastMessage']) || request.resource.data.lastMessage.senderId == uid())
+          && ownKeyOnly('typing');
+      }
+
+      function groupInfoUpdate() {
+        return resource.data.type == 'group'
+          && (isAdmin() || !resource.data.get('onlyAdminsCanEditInfo', true))
+          && changed().hasOnly(['title', 'description', 'photoUrl', 'disappearingSeconds', 'updatedAt', 'lastMessage', 'lastMessageAt'])
+          && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 100
+          && request.resource.data.get('description', '').size() <= 512
+          && validTimer(request.resource.data.get('disappearingSeconds', 0))
+          && (!changed().hasAny(['lastMessage']) || request.resource.data.lastMessage.senderId == uid());
+      }
+
+      // Admin-only: settings, adding/removing members, promoting/demoting admins.
+      function groupAdminUpdate() {
+        let before = resource.data;
+        let after = request.resource.data;
+        let removed = before.participants.toSet().difference(after.participants.toSet());
+        return before.type == 'group' && isAdmin()
+          && changed().hasOnly(['participants', 'admins', 'onlyAdminsCanSend', 'onlyAdminsCanEditInfo', 'updatedAt', 'lastMessage', 'lastMessageAt'])
+          && after.participants.size() <= 256
+          && after.admins.toSet().difference(after.participants.toSet()).size() == 0
+          && after.admins.size() > 0
+          && !(uid() in removed)
+          && !(before.createdBy in removed)
+          && (!(before.createdBy in before.admins) || before.createdBy in after.admins || uid() == before.createdBy)
+          && (!changed().hasAny(['lastMessage']) || after.lastMessage.senderId == uid());
+      }
+
+      // Any member may leave. The last admin must hand admin rights to a remaining member.
+      function leaveUpdate() {
+        let before = resource.data;
+        let after = request.resource.data;
+        return before.type == 'group'
+          && changed().hasOnly(['participants', 'admins', 'typing', 'updatedAt', 'lastMessage', 'lastMessageAt'])
+          && before.participants.toSet().difference(after.participants.toSet()) == [uid()].toSet()
+          && after.participants.toSet().difference(before.participants.toSet()).size() == 0
+          && !(uid() in after.admins)
+          && (after.admins.toSet() == before.admins.toSet().difference([uid()].toSet())
+              || (before.admins.toSet() == [uid()].toSet() && after.admins.size() == 1 && after.admins[0] in after.participants))
+          && (after.participants.size() == 0 || after.admins.size() > 0)
+          && (!changed().hasAny(['lastMessage']) || after.lastMessage.senderId == uid());
+      }
+
+      allow read: if signedIn() && uid() in resource.data.participants;
+
+      allow create: if signedIn() && uid() in request.resource.data.participants && (
+        // Direct chat: deterministic ID dm_<lowerUid>_<higherUid> prevents duplicates.
+        (request.resource.data.type == 'direct'
+          && request.resource.data.participants.size() == 2
+          && request.resource.data.participants[0] < request.resource.data.participants[1]
+          && cid == 'dm_' + request.resource.data.participants[0] + '_' + request.resource.data.participants[1]
+          && request.resource.data.keys().hasOnly(['type', 'participants', 'lastMessage', 'lastMessageAt', 'updatedAt', 'typing', 'receipts', 'disappearingSeconds'])
+          && !hasBlocked(request.resource.data.participants[0], uid())
+          && !hasBlocked(request.resource.data.participants[1], uid()))
+        ||
+        // Group: the creator is the only initial admin.
+        (request.resource.data.type == 'group'
+          && request.resource.data.createdBy == uid()
+          && request.resource.data.admins == [uid()]
+          && request.resource.data.participants.size() >= 2 && request.resource.data.participants.size() <= 256
+          && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 100
+          && request.resource.data.get('description', '').size() <= 512
+          && validTimer(request.resource.data.get('disappearingSeconds', 0))
+          && request.resource.data.keys().hasOnly(['type', 'participants', 'admins', 'createdBy', 'createdAt', 'updatedAt', 'title', 'description',
+               'photoUrl', 'onlyAdminsCanSend', 'onlyAdminsCanEditInfo', 'disappearingSeconds', 'lastMessageAt', 'lastMessage']))
+      );
+
+      allow update: if signedIn() && uid() in resource.data.participants
+        && (activityUpdate() || directSettingsUpdate() || groupInfoUpdate() || groupAdminUpdate() || leaveUpdate());
+
+      allow delete: if false;
+
+      // ---------------------------------------------------------------- messages
+      match /messages/{mid} {
+        function mchanged() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+        function validNewMessage() {
+          let m = request.resource.data;
+          let after = getAfter(convPath(cid)).data;
+          return m.senderId == uid()
+            // Participant after this write (new direct chats are created in the same batch), or a
+            // system message written by a member who is leaving in the same batch.
+            && (uid() in after.participants
+                || (m.type == 'SYSTEM' && exists(convPath(cid)) && uid() in get(convPath(cid)).data.participants))
+            && m.keys().hasOnly(['senderId', 'type', 'text', 'createdAt', 'updatedAt', 'clientCreatedAt', 'editedAt', 'deletedForEveryone',
+                 'forwarded', 'mentions', 'reactions', 'replyTo', 'media', 'contact', 'location', 'poll', 'expiresAt', 'system'])
+            && m.type in ['TEXT', 'IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT', 'LOCATION', 'POLL', 'CONTACT', 'SYSTEM']
+            && m.text is string && m.text.size() <= 4096
+            && m.createdAt == request.time && m.updatedAt == request.time
+            && m.editedAt == null && m.deletedForEveryone == false
+            && m.reactions.size() == 0
+            && m.get('mentions', []).size() <= 50
+            && (m.type != 'SYSTEM' || m.system.actor == uid())
+            && (m.type == 'SYSTEM' || after.type != 'group' || !after.get('onlyAdminsCanSend', false) || uid() in after.get('admins', []))
+            && (after.type != 'direct' || (!hasBlocked(after.participants[0], uid()) && !hasBlocked(after.participants[1], uid())))
+            && (!('poll' in m) || (m.poll.votes.size() == 0 && m.poll.options.size() >= 2 && m.poll.options.size() <= 12))
+            && (m.get('expiresAt', null) == null || m.expiresAt > request.time);
+        }
+
+        // Authors may edit their own text messages for 15 minutes.
+        function editByAuthor() {
+          return resource.data.senderId == uid() && resource.data.type == 'TEXT' && resource.data.deletedForEveryone == false
+            && mchanged().hasOnly(['text', 'editedAt', 'updatedAt', 'mentions'])
+            && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 4096
+            && request.resource.data.editedAt == request.time && request.resource.data.updatedAt == request.time
+            && request.time < resource.data.createdAt + duration.value(15, 'm');
+        }
+
+        // Authors may delete for everyone within 48 hours; content must actually be removed.
+        function deleteForEveryone() {
+          return resource.data.senderId == uid() && resource.data.deletedForEveryone == false
+            && mchanged().hasOnly(['deletedForEveryone', 'text', 'media', 'replyTo', 'poll', 'contact', 'location', 'mentions', 'reactions', 'updatedAt'])
+            && request.resource.data.deletedForEveryone == true && request.resource.data.text == ''
+            && !('media' in request.resource.data) && !('poll' in request.resource.data) && !('contact' in request.resource.data)
+            && !('location' in request.resource.data) && !('replyTo' in request.resource.data)
+            && request.resource.data.reactions.size() == 0
+            && request.resource.data.updatedAt == request.time
+            && request.time < resource.data.createdAt + duration.value(48, 'h');
+        }
+
+        // Each participant controls only their own reaction.
+        function reactionUpdate() {
+          return resource.data.deletedForEveryone == false
+            && mchanged().hasOnly(['reactions', 'updatedAt'])
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.reactions.diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([uid()])
+            && (!(uid() in request.resource.data.reactions)
+                || (request.resource.data.reactions[uid()] is string && request.resource.data.reactions[uid()].size() <= 16));
+        }
+
+        // Each participant controls only their own poll vote.
+        function voteUpdate() {
+          return resource.data.type == 'POLL' && resource.data.deletedForEveryone == false
+            && mchanged().hasOnly(['poll', 'updatedAt'])
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.poll.diff(resource.data.poll).affectedKeys().hasOnly(['votes'])
+            && request.resource.data.poll.votes.diff(resource.data.poll.votes).affectedKeys().hasOnly([uid()])
+            && (!(uid() in request.resource.data.poll.votes)
+                || (request.resource.data.poll.votes[uid()] is int && request.resource.data.poll.votes[uid()] >= 0
+                    && request.resource.data.poll.votes[uid()] < resource.data.poll.options.size()));
+        }
+
+        allow read: if isParticipantNow(cid);
+        allow create: if signedIn() && validNewMessage();
+        allow update: if isParticipantNow(cid) && (editByAuthor() || deleteForEveryone() || reactionUpdate() || voteUpdate());
+        // Expired disappearing messages may be cleaned up by participants (TTL also removes them).
+        allow delete: if isParticipantNow(cid) && resource.data.get('expiresAt', null) != null && resource.data.expiresAt < request.time;
+      }
+    }
+
+    // ------------------------------------------------------------------ statuses
+    match /statuses/{sid} {
+      allow get: if signedIn() && (resource.data.ownerId == uid()
+        || (uid() in resource.data.audience && resource.data.expiresAt > request.time && !hasBlocked(resource.data.ownerId, uid())));
+      allow list: if signedIn() && (resource.data.ownerId == uid() || uid() in resource.data.audience);
+      allow create: if signedIn() && request.resource.data.ownerId == uid()
+        && request.resource.data.keys().hasOnly(['ownerId', 'type', 'text', 'bgColor', 'font', 'media', 'createdAt', 'expiresAt', 'audience'])
+        && request.resource.data.type in ['TEXT', 'IMAGE', 'VIDEO']
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt <= request.time + duration.value(25, 'h')
+        && request.resource.data.audience is list && request.resource.data.audience.size() <= 500
+        && (request.resource.data.text == null || (request.resource.data.text is string && request.resource.data.text.size() <= 700));
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.ownerId == uid();
+
+      match /views/{viewerId} {
+        allow create: if signedIn() && viewerId == uid()
+          && uid() in get(/databases/$(database)/documents/statuses/$(sid)).data.audience
+          && request.resource.data.keys().hasOnly(['viewedAt']) && request.resource.data.viewedAt == request.time;
+        allow read: if signedIn() && (viewerId == uid() || get(/databases/$(database)/documents/statuses/$(sid)).data.ownerId == uid());
+        allow update, delete: if false;
+      }
+    }
+
+    // ------------------------------------------------------------------ calls (WebRTC signalling)
+    match /calls/{callId} {
+      function cchanged() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+      function calleeUpdate() {
+        return resource.data.calleeId == uid() && (
+          (resource.data.state == 'ringing' && request.resource.data.state == 'accepted' && cchanged().hasOnly(['state', 'answer', 'answeredAt']))
+          || (resource.data.state == 'ringing' && request.resource.data.state in ['rejected', 'busy', 'failed'] && cchanged().hasOnly(['state', 'endedAt', 'endedBy']))
+          || (resource.data.state == 'accepted' && request.resource.data.state in ['ended', 'failed'] && cchanged().hasOnly(['state', 'endedAt', 'endedBy']))
+        );
+      }
+
+      function callerUpdate() {
+        return resource.data.callerId == uid() && (
+          (resource.data.state == 'ringing' && request.resource.data.state in ['cancelled', 'missed', 'failed'] && cchanged().hasOnly(['state', 'endedAt', 'endedBy']))
+          || (resource.data.state == 'accepted' && request.resource.data.state in ['ended', 'failed'] && cchanged().hasOnly(['state', 'endedAt', 'endedBy']))
+        );
+      }
+
+      allow get: if signedIn() && (resource.data.callerId == uid() || resource.data.calleeId == uid());
+      allow list: if signedIn() && resource.data.calleeId == uid();
+      allow create: if signedIn()
+        && request.resource.data.callerId == uid() && request.resource.data.calleeId != uid()
+        && request.resource.data.keys().hasOnly(['callerId', 'calleeId', 'video', 'state', 'offer', 'createdAt'])
+        && request.resource.data.state == 'ringing' && request.resource.data.video is bool
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.calleeId))
+        && !hasBlocked(request.resource.data.calleeId, uid());
+      allow update: if signedIn() && (calleeUpdate() || callerUpdate());
+      allow delete: if false;
+
+      match /candidates/{candidateId} {
+        function call() { return get(/databases/$(database)/documents/calls/$(callId)).data; }
+        allow read: if signedIn() && (call().callerId == uid() || call().calleeId == uid());
+        allow create: if signedIn() && request.resource.data.from == uid()
+          && (call().callerId == uid() || call().calleeId == uid())
+          && request.resource.data.keys().hasOnly(['from', 'candidate', 'sdpMid', 'sdpMLineIndex', 'createdAt']);
+        allow update, delete: if false;
+      }
+    }
+
+    // ------------------------------------------------------------------ abuse reports (write-only)
+    match /reports/{reportId} {
+      allow create: if signedIn() && request.resource.data.reporterId == uid()
+        && request.resource.data.keys().hasOnly(['reporterId', 'targetUserId', 'conversationId', 'messageIds', 'reason', 'createdAt'])
+        && request.resource.data.reason is string && request.resource.data.reason.size() <= 500
+        && request.resource.data.messageIds is list && request.resource.data.messageIds.size() <= 20
+        && request.resource.data.createdAt == request.time;
+      allow read, update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------ admin-managed config (e.g. TURN servers)
+    match /config/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
     }
   }
 }

@@ -38,7 +38,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /** Manual dependency container (application scoped). */
@@ -116,7 +115,7 @@ class AppContainer(val app: Application) {
             }
         }
         appScope.launch {
-            connectivity.network.distinctUntilChanged().collect { kind ->
+            connectivity.network.collect { kind ->
                 if (kind != NetworkKind.NONE && uid() != null) runCatching { chatRepository.resendPending() }
             }
         }
