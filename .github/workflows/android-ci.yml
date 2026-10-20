@@ -63,6 +63,19 @@ jobs:
             if [ -f .env.example ]; then cp .env.example .env; else printf 'GEMINI_API_KEY=\nAI_API_KEY=\n' > .env; fi
           fi
 
+      - name: Probe dependency versions (diagnostic only)
+        continue-on-error: true
+        run: |
+          mkdir -p "$LOG_DIR"
+          {
+          for coord in io/getstream/stream-webrtc-android; do
+            echo "central $coord: $(curl -sf https://repo1.maven.org/maven2/$coord/maven-metadata.xml | grep -oE '<version>[^<]+' | sed 's/<version>//' | tail -8 | tr '\n' ' ')"
+          done
+          for coord in androidx/lifecycle/lifecycle-process androidx/work/work-runtime-ktx androidx/biometric/biometric com/google/firebase/firebase-bom androidx/compose/compose-bom androidx/media3/media3-exoplayer com/google/firebase/firebase-appcheck-playintegrity com/google/firebase/firebase-messaging com/google/firebase/firebase-storage; do
+            echo "google $coord: $(curl -sf https://dl.google.com/android/maven2/$coord/maven-metadata.xml | grep -oE '<version>[^<]+' | sed 's/<version>//' | grep -vE 'alpha|beta|rc' | tail -6 | tr '\n' ' ')"
+          done
+          } 2>&1 | tee "$LOG_DIR/0-versions.log"
+
       - name: Assemble debug
         run: |
           set -o pipefail
@@ -100,6 +113,10 @@ jobs:
               for i, l in enumerate(lines):
                   if "What went wrong" in l:
                       wrong.extend(lines[i:i + 25])
+              if name.startswith("0-"):
+                  parts.append(f"## {name}")
+                  parts.extend(lines[:80])
+                  continue
               status = "OK" if "BUILD SUCCESSFUL" in "\n".join(lines[-30:]) else "FAILED/INCOMPLETE"
               parts.append(f"## {name}: {status} (errors={len(errs)}, kotlin warnings={len(warns)})")
               parts.extend(errs[:250])
