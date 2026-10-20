@@ -6,6 +6,9 @@ name: Android CI
 # CI-only artifacts (debug keystore, throw-away upload key, empty .env) are generated on the
 # runner and are never committed. Real release signing keeps using KEYSTORE_PATH /
 # STORE_PASSWORD / KEY_PASSWORD exactly as configured in app/build.gradle.kts.
+#
+# A compact "CI log digest" check run (compiler errors, failing tests, log tails) is published
+# for every run so failures can be inspected through the GitHub API without downloading logs.
 
 on:
   push:
@@ -17,19 +20,26 @@ concurrency:
   group: android-ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
-  build:
+  android:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     defaults:
       run:
         working-directory: pulsechat
+        shell: bash
+    env:
+      LOG_DIR: ${{ github.workspace }}/ci-logs
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -41,6 +51,7 @@ jobs:
 
       - name: Prepare CI-only signing material and secrets file
         run: |
+          mkdir -p "$LOG_DIR"
           # signingConfigs.debugConfig expects ${rootDir}/debug.keystore (not committed).
           if [ ! -f debug.keystore ]; then
             keytool -genkeypair -keystore debug.keystore -storepass android \
@@ -53,18 +64,86 @@ jobs:
           fi
 
       - name: Assemble debug
-        run: gradle --no-daemon --stacktrace assembleDebug
+        run: |
+          set -o pipefail
+          gradle --no-daemon --console=plain assembleDebug 2>&1 | tee "$LOG_DIR/1-assembleDebug.log"
 
       - name: JVM unit tests
-        run: gradle --no-daemon testDebugUnitTest
+        run: |
+          set -o pipefail
+          gradle --no-daemon --console=plain testDebugUnitTest 2>&1 | tee "$LOG_DIR/2-testDebugUnitTest.log"
 
       - name: Assemble release (throw-away upload key, verifies release config still builds)
         run: |
+          set -o pipefail
           keytool -genkeypair -keystore "$RUNNER_TEMP/ci-upload.jks" -storepass ci-store-pass \
             -alias upload -keypass ci-store-pass -keyalg RSA -keysize 2048 -validity 1 \
             -dname "CN=PulseChat CI,O=CI,C=US"
           KEYSTORE_PATH="$RUNNER_TEMP/ci-upload.jks" STORE_PASSWORD=ci-store-pass KEY_PASSWORD=ci-store-pass \
-            gradle --no-daemon assembleRelease
+            gradle --no-daemon --console=plain assembleRelease 2>&1 | tee "$LOG_DIR/3-assembleRelease.log"
+
+      - name: Publish CI log digest
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, re, xml.etree.ElementTree as ET
+          log_dir = os.environ["LOG_DIR"]
+          parts = []
+          for path in sorted(glob.glob(os.path.join(log_dir, "*.log"))):
+              lines = open(path, errors="replace").read().splitlines()
+              name = os.path.basename(path)
+              errs = [l for l in lines if re.match(r"^(e: |ERROR|FAILURE|> Task .*FAILED|.*error:)", l)]
+              warns = [l for l in lines if l.startswith("w: ")]
+              wrong = []
+              for i, l in enumerate(lines):
+                  if "What went wrong" in l:
+                      wrong.extend(lines[i:i + 25])
+              status = "OK" if "BUILD SUCCESSFUL" in "\n".join(lines[-30:]) else "FAILED/INCOMPLETE"
+              parts.append(f"## {name}: {status} (errors={len(errs)}, kotlin warnings={len(warns)})")
+              parts.extend(errs[:250])
+              if wrong:
+                  parts.append("### What went wrong")
+                  parts.extend(wrong[:120])
+              if status != "OK":
+                  parts.append("### tail")
+                  parts.extend(lines[-60:])
+          # Failing unit tests (JUnit XML)
+          failures = []
+          for xml_path in glob.glob("app/build/test-results/**/*.xml", recursive=True):
+              try:
+                  root = ET.parse(xml_path).getroot()
+              except Exception:
+                  continue
+              for tc in root.iter("testcase"):
+                  for f in list(tc.findall("failure")) + list(tc.findall("error")):
+                      msg = (f.get("message") or "")[:400]
+                      body = (f.text or "")[:1500]
+                      failures.append(f"- {tc.get('classname')}.{tc.get('name')}: {msg}\n{body}")
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          for xml_path in glob.glob("app/build/test-results/**/*.xml", recursive=True):
+              try:
+                  root = ET.parse(xml_path).getroot()
+                  for k in totals:
+                      totals[k] += int(root.get(k, 0))
+              except Exception:
+                  pass
+          parts.append(f"## Unit test totals: {totals}")
+          parts.extend(failures[:60])
+          text = "\n".join(parts)
+          if len(text) > 64000:
+              text = text[:64000] + "\n...[truncated]"
+          payload = {
+              "name": "CI log digest (Android)",
+              "head_sha": os.environ["GITHUB_SHA"],
+              "status": "completed",
+              "conclusion": "neutral",
+              "output": {"title": "Android build digest", "summary": f"Unit tests: {totals}", "text": text or "no logs"},
+          }
+          json.dump(payload, open("/tmp/digest.json", "w"))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/digest.json > /dev/null || echo "digest publish failed"
 
       - name: Upload unit test reports
         if: always()

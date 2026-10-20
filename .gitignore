@@ -1,0 +1,32 @@
+# --- Android / Gradle ---
+.gradle/
+**/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# --- IDE ---
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# --- Secrets: never commit ---
+# The Secrets Gradle Plugin reads pulsechat/.env (see pulsechat/.env.example).
+.env
+**/.env
+*.jks
+*.keystore
+service-account*.json
+
+# --- Firebase backend (pulsechat/firebase) ---
+node_modules/
+**/functions/lib/
+.firebase/
+*-debug.log
+firebase-debug.*.log
