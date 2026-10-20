@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -42,7 +43,8 @@ class AppLaunchTest {
         compose.onNodeWithTag("register_username").performTextInput("tester")
         compose.onNodeWithTag("register_password").performTextInput("abcdefg1")
         compose.onNodeWithTag("register_confirm").performTextInput("abcdefg2")
-        compose.onNodeWithTag("register_button").performClick()
+        // The form scrolls (small screens, soft keyboard open): bring the button into view before tapping it.
+        compose.onNodeWithTag("register_button").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Passwords don't match.").fetchSemanticsNodes().isNotEmpty() }
     }
 }

@@ -15,6 +15,9 @@ import com.example.domain.Ids
 import com.example.domain.model.MessageStatus
 import com.example.domain.model.MessageType
 import com.example.util.EmulatorConfig
+import com.google.firebase.firestore.FieldPath
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Source
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -73,6 +76,12 @@ class MessagingE2ETest {
         await("signed out") { c.authRepository.session.value == SessionState.SignedOut }
         delay(1_500) // let queued sync work drain before wiping
         withContext(Dispatchers.IO) { c.db.clearAllTables() }
+    }
+
+    /** The server (emulator running this repo's firestore.rules) must reject [block] with PERMISSION_DENIED. */
+    private suspend fun assertDenied(what: String, block: suspend () -> Unit) {
+        val error = runCatching { block() }.exceptionOrNull()
+        assertEquals("security rules must deny: $what (got $error)", FirebaseFirestoreException.Code.PERMISSION_DENIED, (error as? FirebaseFirestoreException)?.code)
     }
 
     private fun testImage(): Uri {
@@ -140,7 +149,18 @@ class MessagingE2ETest {
         await("read receipt reached the sender") { c.db.messageDao().get(text.messageId)?.status == MessageStatus.READ }
         await("reaction reached the sender") { c.db.messageDao().get(text.messageId)?.reactionMap()?.get(alice) == "👍" }
 
-        // 5. Author edit and delete-for-everyone are accepted by the server rules.
+        // 5. The production rules are enforced in this run: Bob cannot write Alice's profile, read her
+        //    private settings or change her reaction.
+        val users = c.firestore.collection("users")
+        assertDenied("writing another user's profile") { users.document(alice).update("displayName", "Mallory").await() }
+        assertDenied("reading another user's private settings") { users.document(alice).collection("private").document("settings").get(Source.SERVER).await() }
+        assertDenied("changing another user's reaction") {
+            // Same shape as ChatRepository.react (incl. updatedAt) - only the reaction owner differs.
+            c.firestore.collection("conversations").document(cid).collection("messages").document(text.messageId)
+                .update(FieldPath.of("reactions", alice), "😡", FieldPath.of("updatedAt"), FieldValue.serverTimestamp()).await()
+        }
+
+        // 6. Author edit and delete-for-everyone are accepted by the server rules.
         c.chatRepository.editMessage(text.messageId, "Hello Alice!")
         c.chatRepository.deleteForEveryone(listOf(photoId))
         c.firestore.waitForPendingWrites().await()
@@ -152,7 +172,7 @@ class MessagingE2ETest {
         assertEquals(true, remotePhoto.getBoolean("deletedForEveryone"))
         assertFalse("media removed for everyone", remotePhoto.contains("media"))
 
-        // 6. The real UI shows the conversation in the chat list.
+        // 7. The real UI shows the conversation in the chat list.
         compose.waitUntil(30_000) { compose.onAllNodesWithText("Alice").fetchSemanticsNodes().isNotEmpty() }
 
         c.authRepository.signOut()
