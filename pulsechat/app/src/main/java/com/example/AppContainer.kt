@@ -25,6 +25,7 @@ import com.example.notifications.PushTokenManager
 import com.example.security.AppLockManager
 import com.example.util.AppForeground
 import com.example.util.ConnectivityMonitor
+import com.example.util.EmulatorConfig
 import com.example.util.ServerClock
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -52,11 +53,18 @@ class AppContainer(val app: Application) {
     val firebaseAvailable: Boolean = FirebaseApp.getApps(app).isNotEmpty()
 
     val firestore: FirebaseFirestore by lazy {
-        FirebaseFirestore.getInstance(FirebaseApp.getInstance(), app.getString(R.string.firestore_database_id))
+        FirebaseFirestore.getInstance(FirebaseApp.getInstance(), app.getString(R.string.firestore_database_id)).also { fs ->
+            EmulatorConfig.host?.let { fs.useEmulator(it, EmulatorConfig.FIRESTORE_PORT) }
+        }
     }
-    private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+    private val auth: FirebaseAuth by lazy {
+        FirebaseAuth.getInstance().also { a -> EmulatorConfig.host?.let { a.useEmulator(it, EmulatorConfig.AUTH_PORT) } }
+    }
+    private val storage: FirebaseStorage by lazy {
+        FirebaseStorage.getInstance().also { st -> EmulatorConfig.host?.let { st.useEmulator(it, EmulatorConfig.STORAGE_PORT) } }
+    }
 
-    val media = MediaRepository(app) { FirebaseStorage.getInstance() }
+    val media = MediaRepository(app) { storage }
     val authRepository: AuthRepository by lazy {
         AuthRepository(auth, firestore, db, prefs, FirebaseApp.getInstance().options.projectId ?: "pulsechat", appScope)
     }
