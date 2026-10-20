@@ -256,6 +256,13 @@
     <string name="draft_prefix">Draft: %1$s</string>
     <string name="edited">edited</string>
     <string name="editing_message">Edit message</string>
+    <string name="emoji_cat_faces">Smileys</string>
+    <string name="emoji_cat_flags">Flags</string>
+    <string name="emoji_cat_food">Food</string>
+    <string name="emoji_cat_gestures">Gestures</string>
+    <string name="emoji_cat_hearts">Hearts and symbols</string>
+    <string name="emoji_cat_nature">Nature and animals</string>
+    <string name="emoji_flags_banner">The new Syrian flag (revolution flag 🟢⚪⚫ ⭐️⭐️⭐️) and the official flag are available below</string>
     <string name="empty_chats_body">Find people by username or 10-digit ID and start a conversation.</string>
     <string name="empty_chats_title">No chats yet</string>
     <string name="empty_filter_body">No chats match this filter.</string>

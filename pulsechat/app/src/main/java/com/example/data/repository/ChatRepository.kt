@@ -660,7 +660,7 @@ class ChatRepository(
         if (c != null && !c.isLocalOnly) sync.writeChatPref(me, cid, mapOf("clearedAt" to now, "markedUnread" to false))
     }
 
-    /** Deletes the chat for me. Groups must be exited first (as in WhatsApp). */
+    /** Deletes the chat for me. Groups must be exited first. */
     suspend fun deleteChat(cid: String) {
         val me = requireUid()
         val c = db.conversationDao().get(cid) ?: return

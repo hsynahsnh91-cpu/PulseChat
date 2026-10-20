@@ -32,7 +32,7 @@ object DeliveryPolicy {
     /**
      * State of an acknowledged outgoing message derived from recipients' receipt watermarks
      * (the newest message timestamp each recipient has delivered/read). In groups every
-     * recipient must have delivered/read the message, as in WhatsApp.
+     * recipient must have delivered/read the message.
      */
     fun fromReceipts(
         messageCreatedAt: Long,

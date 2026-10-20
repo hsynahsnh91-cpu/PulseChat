@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.PrimaryIndigo
 
 data class EmojiCategory(
-    val title: String,
+    @androidx.annotation.StringRes val titleRes: Int,
     val icon: ImageVector,
     val emojis: List<String>
 )
@@ -56,7 +56,7 @@ fun EmojiPickerView(
     val categories = remember {
         listOf(
             EmojiCategory(
-                title = "الوجوه",
+                titleRes = com.example.R.string.emoji_cat_faces,
                 icon = Icons.Default.EmojiEmotions,
                 emojis = listOf(
                     "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊", "😇", "🥰", "😍", "🤩",
@@ -68,7 +68,7 @@ fun EmojiPickerView(
                 )
             ),
             EmojiCategory(
-                title = "الإيماءات",
+                titleRes = com.example.R.string.emoji_cat_gestures,
                 icon = Icons.Default.PanTool,
                 emojis = listOf(
                     "👋", "🤚", "🖐", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉",
@@ -77,7 +77,7 @@ fun EmojiPickerView(
                 )
             ),
             EmojiCategory(
-                title = "القلوب والرموز",
+                titleRes = com.example.R.string.emoji_cat_hearts,
                 icon = Icons.Default.Favorite,
                 emojis = listOf(
                     "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❤️‍🔥", "❤️‍🩹", "❣️", "💕", "💞", "💓",
@@ -87,7 +87,7 @@ fun EmojiPickerView(
                 )
             ),
             EmojiCategory(
-                title = "الطبيعة والحيوانات",
+                titleRes = com.example.R.string.emoji_cat_nature,
                 icon = Icons.Default.Nature,
                 emojis = listOf(
                     "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
@@ -97,7 +97,7 @@ fun EmojiPickerView(
                 )
             ),
             EmojiCategory(
-                title = "الأطعمة",
+                titleRes = com.example.R.string.emoji_cat_food,
                 icon = Icons.Default.Fastfood,
                 emojis = listOf(
                     "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝",
@@ -107,7 +107,7 @@ fun EmojiPickerView(
                 )
             ),
             EmojiCategory(
-                title = "الأعلام",
+                titleRes = com.example.R.string.emoji_cat_flags,
                 icon = Icons.Default.EmojiFlags,
                 emojis = listOf(
                     // Prominently featured: New Syrian Revolution Flag (Green-White-Black with 3 red stars) & official flag
@@ -140,7 +140,7 @@ fun EmojiPickerView(
                     icon = {
                         Icon(
                             imageVector = cat.icon,
-                            contentDescription = cat.title,
+                            contentDescription = androidx.compose.ui.res.stringResource(cat.titleRes),
                             modifier = Modifier.size(20.dp),
                             tint = if (selectedCategoryIndex == index) PrimaryIndigo else MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -158,7 +158,7 @@ fun EmojiPickerView(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = "علم سوريا الجديد (علم الثورة 🟢⚪⚫ ⭐️⭐️⭐️) والعلم الرسمي متوفران بالأسفل",
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.emoji_flags_banner),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = PrimaryIndigo

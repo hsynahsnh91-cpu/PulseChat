@@ -91,7 +91,7 @@ fun UserAvatar(
                 )
             }
         } else {
-            // Standard photo icon placeholder like WhatsApp
+            // Neutral placeholder when no photo or name is available
             Box(
                 modifier = Modifier
                     .size(size)

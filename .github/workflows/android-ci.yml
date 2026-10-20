@@ -162,6 +162,17 @@ jobs:
           PY
           gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/digest.json > /dev/null || echo "digest publish failed"
 
+      - name: Publish Room schema (for review/commit)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          f=$(ls app/schemas/com.example.data.db.AppDatabase/*.json 2>/dev/null | sort -V | tail -1)
+          if [ -n "$f" ]; then
+            python3 -c "import json,sys,os; t=open('$f').read(); json.dump({'name':'CI artifact: Room schema','head_sha':os.environ['GITHUB_SHA'],'status':'completed','conclusion':'neutral','output':{'title':os.path.basename('$f'),'summary':'Exported Room schema','text':t[:65000]}}, open('/tmp/schema.json','w'))"
+            gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/schema.json > /dev/null || echo "schema publish failed"
+          fi
+
       - name: Upload unit test reports
         if: always()
         uses: actions/upload-artifact@v4
