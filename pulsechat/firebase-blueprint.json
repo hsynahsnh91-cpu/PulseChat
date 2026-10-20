@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "User": {
+      "path": "users/{userId}",
+      "fields": {
+        "userId": { "type": "string" },
+        "uniqueId10": { "type": "string" },
+        "username": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "statusMessage": { "type": "string" },
+        "createdAt": { "type": "number" }
+      }
+    },
+    "Message": {
+      "path": "messages/{messageId}",
+      "fields": {
+        "messageId": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "number" }
+      }
+    },
+    "Status": {
+      "path": "statuses/{statusId}",
+      "fields": {
+        "statusId": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "text": { "type": "string" },
+        "mediaType": { "type": "string" },
+        "createdAt": { "type": "number" }
+      }
+    }
+  }
+}

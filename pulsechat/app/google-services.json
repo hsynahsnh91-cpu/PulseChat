@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "677612835092",
+    "project_id": "gen-lang-client-0426516505",
+    "storage_bucket": "gen-lang-client-0426516505.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:677612835092:android:38fa7a7589df41a7c4f201",
+        "android_client_info": {
+          "package_name": "com.aistudio.pulsechat.kxmpzq"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "677612835092-btuckmacbop059qlik2t05sms3rn2ntd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.pulsechat.kxmpzq",
+            "certificate_hash": "a71455657cdcd2fe3e382440c9996fe5d8eba746"
+          }
+        },
+        {
+          "client_id": "677612835092-p44t8l18e15kn53g9kgrq643a3aq74oc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCox4qFQOxXR2gtRNQVLOOnF_HQvjcckBs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "677612835092-p44t8l18e15kn53g9kgrq643a3aq74oc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

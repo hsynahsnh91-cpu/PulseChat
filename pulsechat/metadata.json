@@ -1,0 +1,6 @@
+{
+  "name": "PulseChat",
+  "description": "منصة تراسل ومحادثات متقدمة متعددة المستخدمين مع مكالمات ومساعد ذكي مدعوم بـ Gemini",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
