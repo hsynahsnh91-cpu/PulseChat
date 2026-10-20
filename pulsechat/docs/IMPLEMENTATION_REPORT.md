@@ -22,15 +22,15 @@ documented gap; **Missing** = not implemented.
 | 13 | Reply with navigable original-message preview | Verified | `ComponentsUiTest.replyQuoteNavigatesToOriginal`, `DaoTest` jump position |
 | 14 | Reactions (one per user, counts, who reacted) | Verified | UI test + rules `reactions … own entry` + `MessagePolicyTest` |
 | 15 | Forwarding to multiple chats with "Forwarded" label | Partial | Implemented; not tested |
-| 16 | Starred messages (toggle, screen, jump to message) | Partial | Implemented; screen not tested |
+| 16 | Starred messages (toggle, screen, jump to message) | Partial | Starred query DAO-tested; screen not UI-tested |
 | 17 | Edit within 15 minutes with "edited" label (server-enforced) | Verified | `MessagePolicyTest`, rules `only the author can edit … 15 minutes`, footer UI test |
 | 18 | Delete for me / delete for everyone (48 h, content wiped) | Verified | `MessagePolicyTest`, rules test, `DaoTest` |
-| 19 | Typing indicators (throttled, expiring) | Partial | Timeout logic unit-tested; not live-tested |
+| 19 | Typing indicators (throttled, expiring) | Partial | Timeout logic + rules ownership tested; not live-tested |
 | 20 | Online presence / last seen with privacy and reciprocity | Verified | rules `last seen honours visibility, contacts and reciprocity`, `PoliciesTest` |
 | 21 | Unread counters, read receipts (toggle + reciprocity), unread separator, jump to latest | Verified | `DaoTest.unreadCountsOnlyIncomingAfterWatermark`, `MessagePolicyTest` separator |
 | 22 | @mentions by stable user IDs (notify even when muted) | Verified | `MentionsAndTextTest`, functions `muted chats notify only on mention` |
-| 23 | Disappearing messages per chat (24 h / 7 d / 90 d) | Partial | Policy unit-tested; TTL/purge need deployment |
-| 24 | In-chat search with highlighting and result navigation; global message search with filters | Partial | In-chat search + jump DAO-tested; global search not tested |
+| 23 | Disappearing messages per chat (24 h / 7 d / 90 d) | Partial | Policy + expiry query + rules clean-up tested; TTL/scheduled purge need deployment |
+| 24 | In-chat search with highlighting and result navigation; global message search with filters | Verified | `DaoTest` (in-chat search, jump position, global search with type/link filters), `MentionsAndTextTest.occurrences` |
 | 25 | Draft persistence, duplicate and out-of-order event handling | Verified | `DaoTest`, `MessagePolicyTest.timelineOrderingAndDedupe` |
 | 26 | Attachments: gallery, camera photo/video, documents, contact, current location, polls | Partial | Poll UI + rules tested; pickers need a device |
 | 27 | Media upload/download with progress, cancel, retry; viewer; auto-download rules; storage screen | Partial | Auto-download policy unit-tested; Firebase Storage transfers not tested |
@@ -52,9 +52,9 @@ group calls, live location sharing, phone-contact import.
 ## Test results (CI)
 
 * `assembleDebug`, `assembleRelease` (with lint-vital): passing.
-* JVM/Robolectric unit tests: domain policies, Room migration v2→v3, DAO queries, Compose UI
-  components, Arabic/RTL.
-* Firestore rules (official emulator): 21 tests.
+* JVM/Robolectric unit tests (64): domain policies, Room migration v2→v3, DAO queries, Compose UI
+  components and message types, Arabic/RTL.
+* Firestore rules (official emulator): 24 tests.
 * Cloud Functions: TypeScript build + 4 unit tests.
 * Not run: instrumented tests on a device/emulator (no device available in CI), end-to-end tests
   against the real Firebase project.
