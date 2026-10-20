@@ -96,4 +96,28 @@ class DaoTest {
         assertTrue(a.isMuted())
         assertEquals("draft", a.draftText)
     }
+
+    @Test
+    fun starredGlobalSearchAndExpiry() = runBlocking {
+        db.userDao().upsert(User(userId = "bob", displayName = "Bob"))
+        db.conversationDao().upsert(Conversation(conversationId = "c", participantIds = "me,bob", peerId = "bob"))
+        db.conversationDao().upsert(Conversation(conversationId = "other", participantIds = "x,y"))
+        db.messageDao().upsertAll(listOf(
+            msg("1", "c", "bob", 10).copy(content = "see https://example.com"),
+            msg("2", "c", "bob", 20, type = MessageType.IMAGE).copy(content = "beach photo"),
+            msg("3", "c", "me", 30).copy(expiresAt = 35),
+            msg("4", "other", "x", 40).copy(content = "photo of someone else"),
+        ))
+        db.messageDao().setStarred(listOf("2"), true)
+        val starred = db.messageDao().observeStarred("me").first()
+        assertEquals(listOf("2"), starred.map { it.message.messageId })
+        assertEquals("Bob", starred.single().senderName)
+
+        assertEquals(listOf("2"), db.messageDao().searchAll("me", "photo", "", false).map { it.message.messageId })
+        assertEquals(listOf("2"), db.messageDao().searchAll("me", "", MessageType.IMAGE.name, false).map { it.message.messageId })
+        assertEquals(listOf("1"), db.messageDao().searchAll("me", "", "", true).map { it.message.messageId })
+
+        assertEquals(listOf("3"), db.messageDao().expired(36).map { it.messageId })
+        assertTrue(db.messageDao().expired(34).isEmpty())
+    }
 }

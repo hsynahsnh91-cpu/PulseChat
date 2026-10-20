@@ -259,3 +259,33 @@ describe("statuses, calls and reports", () => {
     await assertFails(getDoc(ref));
   });
 });
+
+describe("ownership and housekeeping", () => {
+  test("typing markers and chat preferences belong to their owner", async () => {
+    await seedPeople();
+    await seedDm();
+    await assertSucceeds(updateDoc(doc(db("bob"), `conversations/${DM}`), { "typing.bob": serverTimestamp() }));
+    await assertFails(updateDoc(doc(db("bob"), `conversations/${DM}`), { "typing.alice": serverTimestamp() }));
+    await assertSucceeds(setDoc(doc(db("alice"), `users/alice/chatPrefs/${DM}`), { pinned: true, pinnedAt: 1 }));
+    await assertFails(getDoc(doc(db("bob"), `users/alice/chatPrefs/${DM}`)));
+    await assertFails(setDoc(doc(db("bob"), `users/alice/chatPrefs/${DM}`), { pinned: false }));
+  });
+
+  test("profiles are searchable only by signed-in users", async () => {
+    await seedPeople();
+    const search = (fs) => getDocs(query(collection(fs, "users"), where("username", ">=", "a"), where("username", "<=", "a\uf8ff")));
+    await assertSucceeds(search(db("bob")));
+    await assertFails(search(anon()));
+  });
+
+  test("only expired disappearing messages can be deleted", async () => {
+    await seedPeople();
+    await seedDm();
+    await seedMessage(DM, "gone", "alice", 0, { expiresAt: Timestamp.fromMillis(Date.now() - 1000) });
+    await seedMessage(DM, "live", "alice", 0, { expiresAt: Timestamp.fromMillis(Date.now() + 3600_000) });
+    const { deleteDoc } = await import("firebase/firestore");
+    await assertSucceeds(deleteDoc(doc(db("bob"), `conversations/${DM}/messages/gone`)));
+    await assertFails(deleteDoc(doc(db("bob"), `conversations/${DM}/messages/live`)));
+    await assertFails(deleteDoc(doc(db("carol"), `conversations/${DM}/messages/live`)));
+  });
+});

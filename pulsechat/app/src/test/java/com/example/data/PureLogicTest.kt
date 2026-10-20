@@ -51,4 +51,11 @@ class PureLogicTest {
         assertEquals(MessageType.DOCUMENT, MediaRepository.typeForMime("application/pdf"))
         assertEquals("pdf", MediaRepository.extensionFor("application/pdf", "file.pdf"))
     }
+
+    @Test
+    fun legacyHashMatchesPreviousLocalAccountsFormat() {
+        // SHA-256 hex of "password" - the format earlier versions stored for device-local accounts.
+        assertEquals("5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+            com.example.data.repository.AuthRepository.legacyHash("password"))
+    }
 }
