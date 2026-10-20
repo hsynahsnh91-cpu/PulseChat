@@ -2,17 +2,9 @@ package com.example.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.example.domain.model.CallState
 
-enum class CallState {
-    IDLE,
-    CALLING,
-    RINGING,
-    ACCEPTED,
-    REJECTED,
-    ENDED,
-    FAILED
-}
-
+/** Call history entry (one per call). States are stored by name; see [CallState]. */
 @Entity(tableName = "calls")
 data class CallRecord(
     @PrimaryKey

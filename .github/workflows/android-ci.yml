@@ -1,0 +1,355 @@
+name: Android CI
+
+# Builds the PulseChat Android project (located in ./pulsechat), runs JVM unit tests and
+# verifies that the release variant still compiles/packages with the existing signing setup.
+#
+# CI-only artifacts (debug keystore, throw-away upload key, empty .env) are generated on the
+# runner and are never committed. Real release signing keeps using KEYSTORE_PATH /
+# STORE_PASSWORD / KEY_PASSWORD exactly as configured in app/build.gradle.kts.
+#
+# A compact "CI log digest" check run (compiler errors, failing tests, log tails) is published
+# for every run so failures can be inspected through the GitHub API without downloading logs.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: pulsechat
+        shell: bash
+    env:
+      LOG_DIR: ${{ github.workspace }}/ci-logs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle 9.3.1 (matches gradle-wrapper.properties)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Prepare CI-only signing material and secrets file
+        run: |
+          mkdir -p "$LOG_DIR"
+          # signingConfigs.debugConfig expects ${rootDir}/debug.keystore (not committed).
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -keystore debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          # Secrets Gradle Plugin reads .env (falls back to .env.example). Never commit .env.
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then cp .env.example .env; else printf 'GEMINI_API_KEY=\nAI_API_KEY=\n' > .env; fi
+          fi
+
+      - name: Probe dependency versions (diagnostic only)
+        continue-on-error: true
+        run: |
+          mkdir -p "$LOG_DIR"
+          {
+          for coord in io/getstream/stream-webrtc-android; do
+            echo "central $coord: $(curl -sf https://repo1.maven.org/maven2/$coord/maven-metadata.xml | grep -oE '<version>[^<]+' | sed 's/<version>//' | tail -8 | tr '\n' ' ')"
+          done
+          for coord in androidx/lifecycle/lifecycle-process androidx/work/work-runtime-ktx androidx/biometric/biometric com/google/firebase/firebase-bom androidx/compose/compose-bom androidx/media3/media3-exoplayer com/google/firebase/firebase-appcheck-playintegrity com/google/firebase/firebase-messaging com/google/firebase/firebase-storage; do
+            echo "google $coord: $(curl -sf https://dl.google.com/android/maven2/$coord/maven-metadata.xml | grep -oE '<version>[^<]+' | sed 's/<version>//' | grep -vE 'alpha|beta|rc' | tail -6 | tr '\n' ' ')"
+          done
+          } 2>&1 | tee "$LOG_DIR/0-versions.log"
+
+      - name: Assemble debug
+        run: |
+          set -o pipefail
+          gradle --no-daemon --console=plain assembleDebug 2>&1 | tee "$LOG_DIR/1-assembleDebug.log"
+
+      - name: JVM unit tests
+        run: |
+          set -o pipefail
+          gradle --no-daemon --console=plain testDebugUnitTest 2>&1 | tee "$LOG_DIR/2-testDebugUnitTest.log"
+
+      - name: Assemble release (throw-away upload key, verifies release config still builds)
+        run: |
+          set -o pipefail
+          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-upload.jks" -storepass ci-store-pass \
+            -alias upload -keypass ci-store-pass -keyalg RSA -keysize 2048 -validity 1 \
+            -dname "CN=PulseChat CI,O=CI,C=US"
+          KEYSTORE_PATH="$RUNNER_TEMP/ci-upload.jks" STORE_PASSWORD=ci-store-pass KEY_PASSWORD=ci-store-pass \
+            gradle --no-daemon --console=plain assembleRelease 2>&1 | tee "$LOG_DIR/3-assembleRelease.log"
+
+      - name: Publish CI log digest
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, re, xml.etree.ElementTree as ET
+          log_dir = os.environ["LOG_DIR"]
+          parts = []
+          for path in sorted(glob.glob(os.path.join(log_dir, "*.log"))):
+              lines = open(path, errors="replace").read().splitlines()
+              name = os.path.basename(path)
+              errs = [l for l in lines if re.match(r"^(e: |ERROR|FAILURE|> Task .*FAILED|.*error:)", l)]
+              warns = [l for l in lines if l.startswith("w: ")]
+              wrong = []
+              for i, l in enumerate(lines):
+                  if "What went wrong" in l:
+                      wrong.extend(lines[i:i + 25])
+              if name.startswith("0-"):
+                  parts.append(f"## {name}")
+                  parts.extend(lines[:80])
+                  continue
+              status = "OK" if "BUILD SUCCESSFUL" in "\n".join(lines[-30:]) else "FAILED/INCOMPLETE"
+              parts.append(f"## {name}: {status} (errors={len(errs)}, kotlin warnings={len(warns)})")
+              parts.extend(errs[:250])
+              if wrong:
+                  parts.append("### What went wrong")
+                  parts.extend(wrong[:120])
+              if status != "OK":
+                  parts.append("### tail")
+                  parts.extend(lines[-60:])
+          # Failing unit tests (JUnit XML)
+          failures = []
+          for xml_path in glob.glob("app/build/test-results/**/*.xml", recursive=True):
+              try:
+                  root = ET.parse(xml_path).getroot()
+              except Exception:
+                  continue
+              for tc in root.iter("testcase"):
+                  for f in list(tc.findall("failure")) + list(tc.findall("error")):
+                      msg = (f.get("message") or "")[:400]
+                      body = (f.text or "")[:1500]
+                      failures.append(f"- {tc.get('classname')}.{tc.get('name')}: {msg}\n{body}")
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          for xml_path in glob.glob("app/build/test-results/**/*.xml", recursive=True):
+              try:
+                  root = ET.parse(xml_path).getroot()
+                  for k in totals:
+                      totals[k] += int(root.get(k, 0))
+              except Exception:
+                  pass
+          parts.append(f"## Unit test totals: {totals}")
+          parts.extend(failures[:60])
+          text = "\n".join(parts)
+          if len(text) > 64000:
+              text = text[:64000] + "\n...[truncated]"
+          payload = {
+              "name": "CI log digest (Android)",
+              "head_sha": os.environ["GITHUB_SHA"],
+              "status": "completed",
+              "conclusion": "neutral",
+              "output": {"title": "Android build digest", "summary": f"Unit tests: {totals}", "text": text or "no logs"},
+          }
+          json.dump(payload, open("/tmp/digest.json", "w"))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/digest.json > /dev/null || echo "digest publish failed"
+
+      - name: Publish Room schema (for review/commit)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          f=$(ls app/schemas/com.example.data.db.AppDatabase/*.json 2>/dev/null | sort -V | tail -1)
+          if [ -n "$f" ]; then
+            python3 -c "import json,sys,os; t=open('$f').read(); json.dump({'name':'CI artifact: Room schema','head_sha':os.environ['GITHUB_SHA'],'status':'completed','conclusion':'neutral','output':{'title':os.path.basename('$f'),'summary':'Exported Room schema','text':t[:65000]}}, open('/tmp/schema.json','w'))"
+            gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/schema.json > /dev/null || echo "schema publish failed"
+          fi
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            pulsechat/app/build/reports/tests/
+            pulsechat/app/build/test-results/
+          if-no-files-found: ignore
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulsechat-debug-apk
+          path: pulsechat/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+
+  backend:
+    # Firestore security rules tests (official emulator) + Cloud Functions build and unit tests.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LOG_DIR: ${{ github.workspace }}/ci-logs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up JDK 21 (Firestore emulator)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cloud Functions build and unit tests
+        working-directory: pulsechat/firebase/functions
+        run: |
+          set -o pipefail
+          mkdir -p "$LOG_DIR"
+          { npm ci --no-audit --no-fund && npm run build && npm test; } 2>&1 | tee "$LOG_DIR/functions.log"
+
+      - name: Firestore rules tests (emulator)
+        working-directory: pulsechat
+        run: |
+          set -o pipefail
+          npm install -g firebase-tools@14 --no-audit --no-fund
+          npm --prefix firebase/rules-tests ci --no-audit --no-fund
+          firebase emulators:exec --only firestore --project demo-pulsechat "npm --prefix firebase/rules-tests test" 2>&1 | tee "$LOG_DIR/rules.log"
+
+      - name: Publish backend digest
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          parts = []
+          for path in sorted(glob.glob(os.path.join(os.environ["LOG_DIR"], "*.log"))):
+              lines = open(path, errors="replace").read().splitlines()
+              keep = [l for l in lines if any(k in l for k in ("# tests", "# pass", "# fail", "not ok", "Error", "error", "✖", "failed", "FAIL"))]
+              parts.append(f"## {os.path.basename(path)}")
+              parts.extend(keep[:200])
+              parts.append("### tail")
+              parts.extend(lines[-80:])
+          text = "\n".join(parts)[:64000] or "no logs"
+          json.dump({"name": "CI log digest (Backend)", "head_sha": os.environ["GITHUB_SHA"], "status": "completed",
+                     "conclusion": "neutral", "output": {"title": "Backend digest", "summary": "rules + functions", "text": text}},
+                    open("/tmp/backend-digest.json", "w"))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/backend-digest.json > /dev/null || echo "digest publish failed"
+
+  e2e:
+    # Instrumented tests on an Android emulator: app launch smoke test + end-to-end messaging
+    # against the Firebase emulators (Auth, Firestore with firestore.rules, Storage). Non-blocking.
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    continue-on-error: true
+    env:
+      LOG_DIR: ${{ github.workspace }}/ci-logs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Start Firebase emulators
+        working-directory: pulsechat
+        run: |
+          mkdir -p "$LOG_DIR"
+          npm install -g firebase-tools@14 --no-audit --no-fund
+          nohup firebase emulators:start --only auth,firestore,storage --project gen-lang-client-0426516505 > "$LOG_DIR/emulators.log" 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -s -o /dev/null localhost:8080 && curl -s -o /dev/null localhost:9099 && curl -s -o /dev/null localhost:9199; then echo "emulators up"; break; fi
+            sleep 2
+          done
+          tail -20 "$LOG_DIR/emulators.log"
+
+      - name: Prepare CI-only signing material and secrets file
+        working-directory: pulsechat
+        run: |
+          keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          cp .env.example .env
+
+      - name: Instrumented tests on Android emulator (API 34)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          working-directory: pulsechat
+          script: |
+            bash -c 'set -o pipefail; gradle --no-daemon --console=plain connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2 2>&1 | tee "$LOG_DIR/4-connected.log"; rc=$?; adb logcat -d "*:E" | tail -400 > "$LOG_DIR/logcat.txt"; exit $rc'
+
+      - name: Publish instrumented-test digest
+        if: always()
+        working-directory: pulsechat
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, xml.etree.ElementTree as ET
+          log_dir = os.environ["LOG_DIR"]
+          parts = []
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          for path in glob.glob("app/build/outputs/androidTest-results/**/*.xml", recursive=True):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              for k in totals:
+                  totals[k] += int(root.get(k, 0) or 0)
+              for tc in root.iter("testcase"):
+                  status = "PASS"
+                  for tag in ("failure", "error", "skipped"):
+                      node = tc.find(tag)
+                      if node is not None:
+                          status = tag.upper()
+                          parts.append(f"{status} {tc.get('classname')}.{tc.get('name')}: {(node.get('message') or '')[:300]}\n{(node.text or '')[:2500]}")
+                          break
+                  if status == "PASS":
+                      parts.append(f"PASS {tc.get('classname')}.{tc.get('name')}")
+          for name, limit in (("4-connected.log", 120), ("emulators.log", 60), ("logcat.txt", 200)):
+              p = os.path.join(log_dir, name)
+              if os.path.exists(p):
+                  lines = open(p, errors="replace").read().splitlines()
+                  parts.append(f"## {name} (tail)")
+                  parts.extend(lines[-limit:])
+          text = "\n".join(parts)[:64000] or "no output"
+          json.dump({"name": "CI log digest (Instrumented)", "head_sha": os.environ["GITHUB_SHA"], "status": "completed", "conclusion": "neutral",
+                     "output": {"title": "Instrumented tests", "summary": f"Instrumented: {totals}", "text": text}}, open("/tmp/e2e-digest.json", "w"))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/e2e-digest.json > /dev/null || echo "digest publish failed"

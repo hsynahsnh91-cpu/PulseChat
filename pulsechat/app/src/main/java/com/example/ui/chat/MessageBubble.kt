@@ -1,0 +1,602 @@
+package com.example.ui.chat
+
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Poll
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shortcut
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.R
+import com.example.data.model.Message
+import com.example.domain.DurationFormat
+import com.example.domain.MediaLimits
+import com.example.domain.Mentions
+import com.example.domain.TextTools
+import com.example.domain.model.MessageStatus
+import com.example.domain.model.MessageType
+import com.example.domain.model.TransferState
+import com.example.media.VoicePlayer
+import com.example.ui.common.AiBadge
+import com.example.ui.common.DeliveryTicks
+import com.example.ui.common.Formatters
+import com.example.ui.common.typeLabel
+import com.example.ui.theme.PulseTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import kotlin.math.roundToInt
+
+class BubbleCallbacks(
+    val onClick: (Message) -> Unit,
+    val onLongClick: (Message) -> Unit,
+    val onSwipeReply: (Message) -> Unit,
+    val onReplyQuote: (String) -> Unit,
+    val onRetry: (Message) -> Unit,
+    val onDownload: (Message) -> Unit,
+    val onCancel: (Message) -> Unit,
+    val onOpenMedia: (Message) -> Unit,
+    val onOpenDocument: (Message) -> Unit,
+    val onOpenLocation: (Message) -> Unit,
+    val onDialContact: (Message) -> Unit,
+    val onToggleVoice: (Message) -> Unit,
+    val onSeekVoice: (Message, Float) -> Unit,
+    val onVoiceSpeed: () -> Unit,
+    val onVote: (Message, Int) -> Unit,
+    val onReactions: (Message) -> Unit,
+)
+
+private val REACTION_SHAPE = RoundedCornerShape(12.dp)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MessageRow(
+    item: MessageItem,
+    me: String,
+    names: Map<String, String>,
+    isGroup: Boolean,
+    isAi: Boolean,
+    hideTicks: Boolean,
+    selected: Boolean,
+    selectionMode: Boolean,
+    highlighted: Boolean,
+    searchQuery: String,
+    voice: VoicePlayer.State,
+    showReadReceipts: Boolean,
+    canSwipeReply: Boolean,
+    callbacks: BubbleCallbacks,
+) {
+    val m = item.message
+    if (m.type == MessageType.SYSTEM) { SystemChip(m, me, names); return }
+    val mine = m.senderId == me
+    val pulse = PulseTheme.colors
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    var drag by remember(m.messageId) { mutableFloatStateOf(0f) }
+    val animatedDrag by animateFloatAsState(drag, label = "swipe")
+    val rowBackground = when {
+        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        highlighted -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+        else -> Color.Transparent
+    }
+    Box(
+        Modifier.fillMaxWidth().background(rowBackground)
+            .combinedClickable(onClick = { callbacks.onClick(m) }, onLongClick = { callbacks.onLongClick(m) })
+            .let { mod ->
+                if (!canSwipeReply || selectionMode || m.deletedForEveryone) mod
+                else mod.pointerInput(m.messageId) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = { if (kotlin.math.abs(drag) > 140f) callbacks.onSwipeReply(m); drag = 0f },
+                        onDragCancel = { drag = 0f },
+                    ) { change, amount ->
+                        val directed = if (rtl) -amount else amount
+                        drag = if (rtl) (drag - directed).coerceIn(-220f, 0f) else (drag + directed).coerceIn(0f, 220f)
+                        change.consume()
+                    }
+                }
+            }
+            .padding(horizontal = 8.dp, vertical = if (item.groupedWithOlder) 1.dp else 4.dp),
+    ) {
+        if (animatedDrag != 0f) {
+            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = pulse.metaText,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).size(22.dp))
+        }
+        Row(
+            Modifier.fillMaxWidth().offset { IntOffset(animatedDrag.roundToInt(), 0) },
+            horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+        ) {
+            BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+                val maxBubble = maxWidth * 0.82f
+                Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, modifier = Modifier.widthIn(max = maxBubble)) {
+                    Bubble(item, mine, names, isGroup, isAi, hideTicks, searchQuery, voice, showReadReceipts, callbacks, me)
+                    val reactions = m.reactionMap()
+                    if (reactions.isNotEmpty()) {
+                        Surface(
+                            shape = REACTION_SHAPE, color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp, shadowElevation = 1.dp,
+                            modifier = Modifier.offset(y = (-6).dp).padding(horizontal = 8.dp).clip(REACTION_SHAPE).clickable { callbacks.onReactions(m) },
+                        ) {
+                            val distinct = reactions.values.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }
+                            Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                distinct.take(3).forEach { Text(it.key, fontSize = 14.sp) }
+                                if (reactions.size > 1) Text(" ${reactions.size}", style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+                            }
+                        }
+                    }
+                    if (mine && m.status == MessageStatus.FAILED) {
+                        TextButton(onClick = { callbacks.onRetry(m) }) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(stringResource(if (m.failureReason == "denied") R.string.message_not_allowed_retry else R.string.message_failed_retry),
+                                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Bubble(
+    item: MessageItem, mine: Boolean, names: Map<String, String>, isGroup: Boolean, isAi: Boolean, hideTicks: Boolean,
+    searchQuery: String, voice: VoicePlayer.State, showReadReceipts: Boolean, callbacks: BubbleCallbacks, me: String,
+) {
+    val m = item.message
+    val pulse = PulseTheme.colors
+    val container = when {
+        m.type == MessageType.AI_RESPONSE -> pulse.aiBubble
+        mine -> pulse.outgoingBubble
+        else -> pulse.incomingBubble
+    }
+    val content = if (mine) pulse.onOutgoingBubble else pulse.onIncomingBubble
+    val shape = if (item.groupedWithOlder) RoundedCornerShape(16.dp) else if (mine)
+        RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+    else RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+    Surface(shape = shape, color = container, contentColor = content, shadowElevation = 0.5.dp) {
+        Column(Modifier.padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 5.dp)) {
+            if (item.showSender) {
+                val name = names[m.senderId] ?: stringResource(R.string.unknown_user)
+                Text(name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = senderColor(m.senderId), maxLines = 1)
+            }
+            if (m.type == MessageType.AI_RESPONSE) { AiBadge(); Spacer(Modifier.height(4.dp)) }
+            if (m.isForwarded && !m.deletedForEveryone) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Shortcut, contentDescription = null, tint = pulse.metaText, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text(stringResource(R.string.forwarded), style = MaterialTheme.typography.labelSmall, fontStyle = FontStyle.Italic, color = pulse.metaText)
+                }
+            }
+            if (m.replyToMessageId != null && !m.deletedForEveryone) {
+                ReplyQuote(
+                    senderName = if (m.replyToSenderId == me) stringResource(R.string.you) else names[m.replyToSenderId] ?: stringResource(R.string.unknown_user),
+                    senderId = m.replyToSenderId.orEmpty(), type = m.replyToType ?: MessageType.TEXT, preview = m.replyToPreview.orEmpty(),
+                    onClick = { callbacks.onReplyQuote(m.replyToMessageId) },
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            if (m.deletedForEveryone) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Block, contentDescription = null, tint = pulse.metaText, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(if (mine) R.string.message_deleted_by_you else R.string.message_deleted), fontStyle = FontStyle.Italic, color = pulse.metaText)
+                }
+            } else {
+                when (m.type) {
+                    MessageType.IMAGE, MessageType.VIDEO -> VisualMedia(m, mine, callbacks)
+                    MessageType.AUDIO -> VoiceMessage(m, mine, voice, callbacks)
+                    MessageType.DOCUMENT -> DocumentContent(m, mine, callbacks)
+                    MessageType.LOCATION -> LocationContent(m, callbacks)
+                    MessageType.CONTACT -> ContactContent(m, callbacks)
+                    MessageType.POLL -> PollContent(m, me, callbacks)
+                    else -> Unit
+                }
+                val caption = if (m.type == MessageType.POLL || m.type == MessageType.CONTACT || m.type == MessageType.DOCUMENT && m.content == m.fileName) "" else m.content
+                if (caption.isNotBlank()) {
+                    if (m.type.isMedia) Spacer(Modifier.height(4.dp))
+                    RichText(caption, m, names, searchQuery)
+                }
+            }
+            Footer(m, mine, hideTicks || isAi, showReadReceipts)
+        }
+    }
+}
+
+@Composable
+private fun senderColor(id: String): Color {
+    val palette = listOf(Color(0xFF6366F1), Color(0xFF0D9488), Color(0xFFDB2777), Color(0xFFEA580C), Color(0xFF7C3AED), Color(0xFF2563EB), Color(0xFF059669), Color(0xFFB45309))
+    return palette[(id.hashCode() and 0x7fffffff) % palette.size]
+}
+
+@Composable
+private fun RichText(text: String, m: Message, names: Map<String, String>, searchQuery: String) {
+    val pulse = PulseTheme.colors
+    val emojiOnly = TextTools.isEmojiOnly(text)
+    val mentionRanges = Mentions.highlightRanges(text, m.mentionList().mapNotNull { id -> names[id]?.let { Mentions.Candidate(id, it) } })
+    val searchRanges = if (searchQuery.isBlank()) emptyList() else TextTools.occurrences(text, searchQuery)
+    val links = TextTools.findLinks(text)
+    val annotated: AnnotatedString = buildAnnotatedString {
+        append(text)
+        mentionRanges.forEach { r -> addStyle(SpanStyle(color = pulse.mention, fontWeight = FontWeight.SemiBold), r.first, r.last + 1) }
+        searchRanges.forEach { r -> addStyle(SpanStyle(background = Color(0x66FACC15)), r.first, r.last + 1) }
+        links.forEach { l ->
+            addLink(LinkAnnotation.Url(l.url, TextLinkStyles(style = SpanStyle(color = pulse.mention, textDecoration = TextDecoration.Underline))), l.range.first, l.range.last + 1)
+        }
+    }
+    Text(annotated, fontSize = if (emojiOnly) 34.sp else 15.5.sp, lineHeight = if (emojiOnly) 40.sp else 21.sp)
+}
+
+@Composable
+private fun ColumnScope.Footer(m: Message, mine: Boolean, hideTicks: Boolean, showReadReceipts: Boolean) {
+    val context = LocalContext.current
+    val pulse = PulseTheme.colors
+    Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+        if (m.expiresAt > 0) Icon(Icons.Default.Timer, contentDescription = stringResource(R.string.disappearing_title), tint = pulse.metaText, modifier = Modifier.size(12.dp).padding(end = 2.dp))
+        if (m.isStarred) Icon(Icons.Default.Star, contentDescription = stringResource(R.string.starred), tint = pulse.metaText, modifier = Modifier.size(12.dp).padding(end = 2.dp))
+        if (m.editedAt > 0 && !m.deletedForEveryone) Text(stringResource(R.string.edited) + " ", style = MaterialTheme.typography.labelSmall, color = pulse.metaText, fontStyle = FontStyle.Italic)
+        Text(Formatters.time(context, m.createdAt), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+        if (mine && !hideTicks && !m.deletedForEveryone) {
+            Spacer(Modifier.width(3.dp))
+            DeliveryTicks(m.status, size = 15.dp, showRead = showReadReceipts)
+        }
+    }
+}
+
+@Composable
+fun ReplyQuote(senderName: String, senderId: String, type: MessageType, preview: String, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
+    val accent = senderColor(senderId)
+    Row(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(accent.copy(alpha = 0.12f))
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }.heightIn(min = 40.dp),
+    ) {
+        Box(Modifier.width(4.dp).fillMaxHeight().background(accent))
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Text(senderName, color = accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+            val label = typeLabel(type)
+            Text(
+                listOfNotNull(label, preview.ifBlank { null }).joinToString(" · ").ifBlank { stringResource(R.string.message_unavailable) },
+                style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------- media
+
+@Composable
+private fun TransferOverlay(m: Message, mine: Boolean, callbacks: BubbleCallbacks, modifier: Modifier = Modifier) {
+    val local = m.localMediaPath?.let { File(it).exists() } == true
+    Box(modifier, contentAlignment = Alignment.Center) {
+        when {
+            m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING -> Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(progress = { m.transferProgress / 100f }, modifier = Modifier.size(48.dp), color = Color.White, trackColor = Color.White.copy(alpha = 0.3f))
+                Box(Modifier.size(40.dp).clip(CircleShape).clickable { callbacks.onCancel(m) }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel), tint = Color.White)
+                }
+            }
+            mine && m.status == MessageStatus.FAILED && m.mediaUrl == null -> RoundAction(Icons.Default.Refresh, stringResource(R.string.action_retry)) { callbacks.onRetry(m) }
+            !local && m.mediaUrl != null -> RoundAction(Icons.Default.Download, stringResource(R.string.action_download) + " · " + MediaLimits.humanSize(m.mediaSizeBytes)) { callbacks.onDownload(m) }
+        }
+    }
+}
+
+@Composable
+private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(24.dp)).background(Color.Black.copy(alpha = 0.55f)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = Color.White, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
+private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
+    val local = m.localMediaPath?.takeIf { File(it).exists() }
+    val ratio = if (m.mediaWidth > 0 && m.mediaHeight > 0) (m.mediaWidth.toFloat() / m.mediaHeight).coerceIn(0.6f, 1.7f) else 1f
+    Box(
+        Modifier.widthIn(min = 180.dp, max = 280.dp).aspectRatio(ratio).clip(RoundedCornerShape(10.dp)).background(Color(0xFF1E293B))
+            .clickable(enabled = local != null || m.type == MessageType.VIDEO && m.mediaUrl != null) { callbacks.onOpenMedia(m) },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (m.type == MessageType.IMAGE) {
+            if (local != null) AsyncImage(model = File(local), contentDescription = m.content.ifBlank { stringResource(R.string.preview_photo) }, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            else Icon(Icons.Default.Download, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(64.dp))
+        } else {
+            val thumb by produceState<Bitmap?>(null, local) {
+                value = if (local == null) null else withContext(Dispatchers.IO) {
+                    runCatching {
+                        val r = MediaMetadataRetriever()
+                        try { r.setDataSource(local); r.getFrameAtTime(0) } finally { r.release() }
+                    }.getOrNull()
+                }
+            }
+            thumb?.let { androidx.compose.foundation.Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            if (m.transferState != TransferState.UPLOADING && m.transferState != TransferState.DOWNLOADING && (local != null || m.mediaUrl != null)) {
+                Box(Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.action_play), tint = Color.White, modifier = Modifier.size(32.dp))
+                }
+            }
+            if (m.mediaDurationSeconds > 0) {
+                Text(DurationFormat.clock(m.mediaDurationSeconds * 1000L), color = Color.White, style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp))
+            }
+        }
+        if (m.type == MessageType.IMAGE || local == null) TransferOverlay(m, mine, callbacks)
+    }
+}
+
+@Composable
+private fun VoiceMessage(m: Message, mine: Boolean, voice: VoicePlayer.State, callbacks: BubbleCallbacks) {
+    val pulse = PulseTheme.colors
+    val current = voice.messageId == m.messageId
+    val duration = if (current && voice.durationMs > 0) voice.durationMs else m.mediaDurationSeconds * 1000L
+    val progress = if (current && duration > 0) (voice.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val available = m.localMediaPath?.let { File(it).exists() } == true || m.mediaUrl != null
+    val bars = remember(m.waveform) { m.waveform?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.isNotEmpty() } ?: List(32) { 20 } }
+    Row(Modifier.widthIn(min = 220.dp).padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            when {
+                m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING -> {
+                    CircularProgressIndicator(progress = { m.transferProgress / 100f }, modifier = Modifier.size(36.dp))
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel), modifier = Modifier.size(18.dp).clickable { callbacks.onCancel(m) })
+                }
+                mine && m.status == MessageStatus.FAILED && m.mediaUrl == null ->
+                    Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_retry), modifier = Modifier.size(32.dp).clickable { callbacks.onRetry(m) })
+                current && voice.preparing -> CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                available -> Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).clickable { callbacks.onToggleVoice(m) }, contentAlignment = Alignment.Center) {
+                    Icon(if (current && voice.playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = stringResource(if (current && voice.playing) R.string.action_pause else R.string.action_play), tint = MaterialTheme.colorScheme.onPrimary)
+                }
+                else -> Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = pulse.metaText)
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Row(
+                Modifier.fillMaxWidth().height(32.dp).pointerInput(m.messageId, current) {
+                    detectTapGestures { offset -> if (current) callbacks.onSeekVoice(m, offset.x / size.width) }
+                },
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                bars.forEachIndexed { i, level ->
+                    val played = (i.toFloat() / bars.size) < progress
+                    Box(Modifier.weight(1f).height((4 + level * 0.26f).dp).clip(RoundedCornerShape(2.dp))
+                        .background(if (played) MaterialTheme.colorScheme.primary else pulse.metaText.copy(alpha = 0.45f)))
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(DurationFormat.clock(if (current && voice.positionMs > 0) voice.positionMs else duration), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+                if (current) {
+                    val speedLabel = stringResource(R.string.voice_speed)
+                    Spacer(Modifier.width(8.dp))
+                    Text("${if (voice.speed == 1f) "1" else voice.speed.toString().removeSuffix(".0")}×", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(pulse.metaText.copy(alpha = 0.2f)).clickable { callbacks.onVoiceSpeed() }
+                            .padding(horizontal = 6.dp, vertical = 1.dp).semantics { contentDescription = speedLabel })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DocumentContent(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
+    val pulse = PulseTheme.colors
+    val local = m.localMediaPath?.let { File(it).exists() } == true
+    Row(
+        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(10.dp)).background(pulse.metaText.copy(alpha = 0.12f))
+            .clickable { if (local) callbacks.onOpenDocument(m) else if (m.mediaUrl != null) callbacks.onDownload(m) }.padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(m.fileName ?: stringResource(R.string.preview_document), maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            val ext = m.fileName?.substringAfterLast('.', "")?.uppercase().orEmpty()
+            Text(listOf(MediaLimits.humanSize(m.mediaSizeBytes), ext).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+            if (m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING) {
+                LinearProgressIndicator(progress = { m.transferProgress / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+            }
+        }
+        when {
+            m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING ->
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel), modifier = Modifier.size(24.dp).clickable { callbacks.onCancel(m) })
+            mine && m.status == MessageStatus.FAILED && m.mediaUrl == null ->
+                Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_retry), modifier = Modifier.size(24.dp).clickable { callbacks.onRetry(m) })
+            !local && m.mediaUrl != null -> Icon(Icons.Default.Download, contentDescription = stringResource(R.string.action_download), modifier = Modifier.size(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun LocationContent(m: Message, callbacks: BubbleCallbacks) {
+    val pulse = PulseTheme.colors
+    Row(
+        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(10.dp)).background(pulse.metaText.copy(alpha = 0.12f)).clickable { callbacks.onOpenLocation(m) }.padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp))
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(stringResource(R.string.location_shared), fontWeight = FontWeight.Medium)
+            Text(String.format(java.util.Locale.US, "%.5f, %.5f", m.locationLat ?: 0.0, m.locationLng ?: 0.0), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+            Text(stringResource(R.string.location_open_maps), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun ContactContent(m: Message, callbacks: BubbleCallbacks) {
+    val pulse = PulseTheme.colors
+    Column(Modifier.widthIn(min = 220.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(m.contactName ?: m.content, fontWeight = FontWeight.SemiBold)
+                if (!m.contactPhone.isNullOrBlank()) Text(m.contactPhone, style = MaterialTheme.typography.labelMedium, color = pulse.metaText)
+            }
+        }
+        if (!m.contactPhone.isNullOrBlank()) {
+            TextButton(onClick = { callbacks.onDialContact(m) }) { Text(stringResource(R.string.contact_call_number)) }
+        }
+    }
+}
+
+@Composable
+private fun PollContent(m: Message, me: String, callbacks: BubbleCallbacks) {
+    val pulse = PulseTheme.colors
+    val options = m.pollOptionList()
+    val counts = m.pollCounts()
+    val total = counts.sum()
+    val myVote = m.pollVoteMap()[me]
+    val canVote = !(m.senderId == me && (m.status == MessageStatus.PENDING || m.status == MessageStatus.SENDING || m.status == MessageStatus.FAILED))
+    Column(Modifier.widthIn(min = 230.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Poll, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(m.pollQuestion ?: m.content, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(6.dp))
+        options.forEachIndexed { i, option ->
+            val count = counts.getOrElse(i) { 0 }
+            val fraction = if (total > 0) count.toFloat() / total else 0f
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = canVote) { callbacks.onVote(m, i) }.padding(vertical = 6.dp, horizontal = 4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(18.dp).clip(CircleShape).background(if (myVote == i) MaterialTheme.colorScheme.primary else pulse.metaText.copy(alpha = 0.25f)),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(option, modifier = Modifier.weight(1f))
+                    Text(count.toString(), style = MaterialTheme.typography.labelMedium, color = pulse.metaText)
+                }
+                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 26.dp))
+            }
+        }
+        Text(pluralStringResource(R.plurals.poll_votes, total, total), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+    }
+}
+
+// ---------------------------------------------------------------------- system messages
+
+@Composable
+fun systemText(m: Message, me: String, names: Map<String, String>): String {
+    val context = LocalContext.current
+    val json = runCatching { JSONObject(m.systemEvent ?: "{}") }.getOrDefault(JSONObject())
+    fun who(id: String) = if (id == me) context.getString(R.string.you) else names[id] ?: context.getString(R.string.unknown_user)
+    val actor = who(json.optString("actor", m.senderId))
+    val targetsArray = json.optJSONArray("targets")
+    val targets = (0 until (targetsArray?.length() ?: 0)).map { who(targetsArray!!.getString(it)) }.joinToString(", ")
+    val value = json.optString("value", "")
+    return when (json.optString("event")) {
+        "created" -> context.getString(R.string.system_created, actor, value)
+        "added" -> context.getString(R.string.system_added, actor, targets)
+        "removed" -> context.getString(R.string.system_removed, actor, targets)
+        "left" -> if (targets.isBlank()) context.getString(R.string.system_left, actor) else context.getString(R.string.system_left_promoted, actor, targets)
+        "promoted" -> context.getString(R.string.system_promoted, actor, targets)
+        "demoted" -> context.getString(R.string.system_demoted, actor, targets)
+        "title" -> context.getString(R.string.system_title, actor, value)
+        "description" -> context.getString(R.string.system_description, actor)
+        "photo" -> context.getString(R.string.system_photo, actor)
+        "settings" -> context.getString(R.string.system_settings, actor)
+        "disappearing" -> {
+            val seconds = value.toLongOrNull() ?: 0L
+            if (seconds <= 0) context.getString(R.string.system_disappearing_off, actor)
+            else context.getString(R.string.system_disappearing_on, actor, Formatters.disappearingLabel(context, seconds))
+        }
+        else -> context.getString(R.string.preview_group_update)
+    }
+}
+
+@Composable
+private fun SystemChip(m: Message, me: String, names: Map<String, String>) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Text(
+            systemText(m, me, names), style = MaterialTheme.typography.labelMedium, color = PulseTheme.colors.metaText,
+            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(PulseTheme.colors.systemChip).padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}

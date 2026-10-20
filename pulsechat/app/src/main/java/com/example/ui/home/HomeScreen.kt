@@ -1,0 +1,344 @@
+package com.example.ui.home
+
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.outlined.AddComment
+import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Update
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.R
+import com.example.data.repository.SyncState
+import com.example.domain.NetworkKind
+import com.example.ui.calls.rememberCallStarter
+import com.example.ui.common.Banner
+import com.example.ui.common.ChoiceDialog
+import com.example.ui.common.ConfirmDialog
+import com.example.ui.common.chatErrorText
+import com.example.ui.common.containerFactory
+import com.example.ui.components.UserAvatar
+import com.example.ui.status.MediaCaptionDialog
+import com.example.ui.status.StatusTextComposer
+import kotlinx.coroutines.launch
+
+/** Navigation callbacks used by the home screen. */
+data class HomeNav(
+    val openChat: (String) -> Unit,
+    val openPeer: (String) -> Unit,
+    val openNewChat: () -> Unit,
+    val openNewGroup: () -> Unit,
+    val openCallPicker: () -> Unit,
+    val openSettings: () -> Unit,
+    val openProfile: () -> Unit,
+    val openStarred: () -> Unit,
+    val openArchived: () -> Unit,
+    val openSearch: (String) -> Unit,
+    val openStatus: (String) -> Unit,
+    val openStatusPrivacy: () -> Unit,
+    val openCall: () -> Unit,
+)
+
+private const val TAB_CHATS = 0
+private const val TAB_UPDATES = 1
+private const val TAB_GROUPS = 2
+private const val TAB_CALLS = 3
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeScreen(nav: HomeNav) {
+    val vm: HomeViewModel = viewModel(factory = containerFactory { HomeViewModel(it) })
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    var tab by rememberSaveable { mutableIntStateOf(TAB_CHATS) }
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var selectionMenu by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var muteDialog by remember { mutableStateOf(false) }
+    var textStatus by remember { mutableStateOf(false) }
+    var pendingMedia by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
+    var clearCalls by remember { mutableStateOf(false) }
+
+    val chats by vm.chats.collectAsState()
+    val filter by vm.filter.collectAsState()
+    val query by vm.query.collectAsState()
+    val selection by vm.selection.collectAsState()
+    val meUser by vm.meUser.collectAsState()
+    val updates by vm.updates.collectAsState()
+    val groups by vm.groups.collectAsState()
+    val calls by vm.calls.collectAsState()
+    val unread by vm.unreadChats.collectAsState()
+    val sync by vm.sync.collectAsState()
+    val network by vm.network.collectAsState()
+    val startCall = rememberCallStarter(onStarted = nav.openCall)
+
+    LaunchedEffect(Unit) { vm.events.collect { snackbar.showSnackbar(chatErrorText(context, it)) } }
+    LaunchedEffect(Unit) { vm.statusErrors.collect { snackbar.showSnackbar(context.getString(it)) } }
+
+    val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) pendingMedia = uri to (context.contentResolver.getType(uri)?.startsWith("video/") == true)
+    }
+
+    BackHandler(enabled = selection.isNotEmpty() || searching || tab != TAB_CHATS) {
+        when {
+            selection.isNotEmpty() -> vm.clearSelection()
+            searching -> { searching = false; vm.query.value = "" }
+            else -> tab = TAB_CHATS
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            when {
+                selection.isNotEmpty() -> {
+                    val flags = remember(selection, chats) { vm.selectionState() }
+                    TopAppBar(
+                        title = { Text(selection.size.toString(), fontWeight = FontWeight.SemiBold) },
+                        navigationIcon = { IconButton(onClick = vm::clearSelection) { Icon(Icons.Default.Close, stringResource(R.string.action_close)) } },
+                        actions = {
+                            IconButton(onClick = vm::pinSelected) { Icon(Icons.Default.PushPin, stringResource(if (flags.allPinned) R.string.action_unpin else R.string.action_pin)) }
+                            IconButton(onClick = { if (flags.allMuted) vm.muteSelected(0L) else muteDialog = true }) {
+                                Icon(if (flags.allMuted) Icons.Default.Notifications else Icons.Default.NotificationsOff,
+                                    stringResource(if (flags.allMuted) R.string.action_unmute else R.string.action_mute))
+                            }
+                            IconButton(onClick = { vm.archiveSelected(!flags.allArchived) }) {
+                                Icon(if (flags.allArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                                    stringResource(if (flags.allArchived) R.string.action_unarchive else R.string.action_archive))
+                            }
+                            IconButton(onClick = { selectionMenu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
+                            DropdownMenu(expanded = selectionMenu, onDismissRequest = { selectionMenu = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(if (flags.anyUnread) R.string.action_mark_read else R.string.action_mark_unread)) },
+                                    onClick = { selectionMenu = false; vm.markSelected(!flags.anyUnread) })
+                                DropdownMenuItem(text = { Text(stringResource(if (flags.allFavorite) R.string.action_remove_favorite else R.string.action_add_favorite)) },
+                                    onClick = { selectionMenu = false; vm.favoriteSelected() })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.action_delete_chat)) }, leadingIcon = { Icon(Icons.Default.Delete, null) },
+                                    onClick = { selectionMenu = false; confirmDelete = true })
+                            }
+                        },
+                    )
+                }
+                searching -> {
+                    val focus = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { focus.requestFocus() }
+                    TopAppBar(
+                        title = {
+                            TextField(
+                                value = query, onValueChange = { vm.query.value = it }, singleLine = true,
+                                placeholder = { Text(stringResource(R.string.search_hint)) },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                                ),
+                                modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag("home_search_field"),
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { searching = false; vm.query.value = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) }
+                        },
+                        actions = { if (query.isNotEmpty()) IconButton(onClick = { vm.query.value = "" }) { Icon(Icons.Default.Close, stringResource(R.string.action_clear)) } },
+                    )
+                }
+                else -> TopAppBar(
+                    title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                    actions = {
+                        IconButton(onClick = { tab = TAB_CHATS; searching = true }, modifier = Modifier.testTag("home_search")) {
+                            Icon(Icons.Default.Search, stringResource(R.string.action_search))
+                        }
+                        IconButton(onClick = nav.openProfile) {
+                            UserAvatar(meUser?.displayName ?: "", avatarUrl = meUser?.avatarUrl, size = 30.dp, colorHex = meUser?.avatarColorHex ?: "#4F46E5")
+                        }
+                        IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("home_menu")) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.new_group)) }, leadingIcon = { Icon(Icons.Default.GroupAdd, null) },
+                                onClick = { menuOpen = false; nav.openNewGroup() })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.ai_assistant_name)) }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                                onClick = {
+                                    menuOpen = false
+                                    scope.launch { nav.openChat(vm.openAssistant(context.getString(R.string.ai_assistant_name))) }
+                                })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.starred_messages)) }, leadingIcon = { Icon(Icons.Default.Star, null) },
+                                onClick = { menuOpen = false; nav.openStarred() })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.archived_chats)) }, leadingIcon = { Icon(Icons.Default.Archive, null) },
+                                onClick = { menuOpen = false; nav.openArchived() })
+                            if (tab == TAB_CALLS && calls.isNotEmpty()) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.calls_clear_log)) }, leadingIcon = { Icon(Icons.Default.Delete, null) },
+                                    onClick = { menuOpen = false; clearCalls = true })
+                            }
+                            DropdownMenuItem(text = { Text(stringResource(R.string.settings_title)) }, leadingIcon = { Icon(Icons.Default.Settings, null) },
+                                onClick = { menuOpen = false; nav.openSettings() }, modifier = Modifier.testTag("menu_settings"))
+                        }
+                    },
+                )
+            }
+        },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = tab == TAB_CHATS, onClick = { tab = TAB_CHATS }, label = { Text(stringResource(R.string.tab_chats)) },
+                    icon = { BadgedBox(badge = { if (unread > 0) Badge { Text(if (unread > 99) "99+" else unread.toString()) } }) { Icon(Icons.Outlined.ChatBubbleOutline, null) } },
+                    modifier = Modifier.testTag("tab_chats"),
+                )
+                NavigationBarItem(
+                    selected = tab == TAB_UPDATES, onClick = { tab = TAB_UPDATES }, label = { Text(stringResource(R.string.tab_updates)) },
+                    icon = { BadgedBox(badge = { if (updates.recent.isNotEmpty()) Badge() }) { Icon(Icons.Outlined.Update, null) } },
+                    modifier = Modifier.testTag("tab_updates"),
+                )
+                NavigationBarItem(selected = tab == TAB_GROUPS, onClick = { tab = TAB_GROUPS }, label = { Text(stringResource(R.string.tab_groups)) },
+                    icon = { Icon(Icons.Outlined.Groups, null) }, modifier = Modifier.testTag("tab_groups"))
+                NavigationBarItem(selected = tab == TAB_CALLS, onClick = { tab = TAB_CALLS }, label = { Text(stringResource(R.string.tab_calls)) },
+                    icon = { Icon(Icons.Outlined.Call, null) }, modifier = Modifier.testTag("tab_calls"))
+            }
+        },
+        floatingActionButton = {
+            if (selection.isEmpty() && !searching) {
+                when (tab) {
+                    TAB_CHATS -> FloatingActionButton(onClick = nav.openNewChat, modifier = Modifier.testTag("fab_new_chat")) {
+                        Icon(Icons.Outlined.AddComment, stringResource(R.string.action_new_chat))
+                    }
+                    TAB_UPDATES -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SmallFloatingActionButton(onClick = { textStatus = true }) { Icon(Icons.Default.Edit, stringResource(R.string.status_new_text)) }
+                        FloatingActionButton(onClick = { mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }) {
+                            Icon(Icons.Default.PhotoCamera, stringResource(R.string.status_new_media))
+                        }
+                    }
+                    TAB_GROUPS -> FloatingActionButton(onClick = nav.openNewGroup) { Icon(Icons.Default.GroupAdd, stringResource(R.string.new_group)) }
+                    TAB_CALLS -> FloatingActionButton(onClick = nav.openCallPicker) { Icon(Icons.Default.Call, stringResource(R.string.calls_new)) }
+                }
+            }
+        },
+        snackbarHost = { SnackbarHost(snackbar) },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            when {
+                network == NetworkKind.NONE -> Banner(stringResource(R.string.banner_offline), Icons.Default.WifiOff,
+                    MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                sync.state == SyncState.ERROR && sync.backendNotReady -> Banner(stringResource(R.string.banner_backend_not_ready), Icons.Default.CloudOff,
+                    MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+                sync.state == SyncState.ERROR -> Banner(stringResource(R.string.banner_sync_error), Icons.Default.Sync,
+                    MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+                sync.state == SyncState.CONNECTING -> Banner(stringResource(R.string.banner_connecting), Icons.Default.Sync,
+                    MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val listPadding = PaddingValues(bottom = 88.dp)
+            when (tab) {
+                TAB_CHATS -> ChatsTab(
+                    ui = chats, filter = filter, query = query, selection = selection, me = vm.me,
+                    onFilter = { vm.filter.value = it }, onOpen = nav.openChat, onToggleSelect = vm::toggleSelection,
+                    onOpenArchived = nav.openArchived, onSearchMessages = { nav.openSearch(query) }, onNewChat = nav.openNewChat, contentPadding = listPadding,
+                )
+                TAB_UPDATES -> UpdatesTab(
+                    ui = updates, me = meUser, onMyStatus = { nav.openStatus(vm.me) }, onAddText = { textStatus = true },
+                    onOpen = nav.openStatus, onRetry = vm::retryStatus, onPrivacy = nav.openStatusPrivacy, contentPadding = listPadding,
+                )
+                TAB_GROUPS -> GroupsTab(groups, onOpen = nav.openChat, onNewGroup = nav.openNewGroup, contentPadding = listPadding)
+                TAB_CALLS -> CallsTab(calls, vm.me, onCall = startCall, onDelete = { vm.deleteCall(it) }, onOpenChat = nav.openPeer, contentPadding = listPadding)
+            }
+        }
+    }
+
+    if (confirmDelete) {
+        ConfirmDialog(
+            title = context.resources.getQuantityString(R.plurals.delete_chats_title, selection.size, selection.size),
+            text = stringResource(R.string.delete_chats_body), confirmLabel = stringResource(R.string.action_delete), destructive = true,
+            onConfirm = { confirmDelete = false; vm.deleteSelected() }, onDismiss = { confirmDelete = false },
+        )
+    }
+    if (muteDialog) {
+        val hour = 3_600_000L
+        ChoiceDialog(
+            title = stringResource(R.string.mute_title),
+            options = listOf(8 * hour to stringResource(R.string.mute_8h), 7 * 24 * hour to stringResource(R.string.mute_week), -1L to stringResource(R.string.mute_always)),
+            selected = null,
+            onSelect = { d -> muteDialog = false; vm.muteSelected(if (d < 0) Long.MAX_VALUE else System.currentTimeMillis() + d) },
+            onDismiss = { muteDialog = false },
+        )
+    }
+    if (clearCalls) {
+        ConfirmDialog(title = stringResource(R.string.calls_clear_log), text = stringResource(R.string.calls_clear_body), confirmLabel = stringResource(R.string.action_clear),
+            destructive = true, onConfirm = { clearCalls = false; vm.clearCalls() }, onDismiss = { clearCalls = false })
+    }
+    if (textStatus) {
+        StatusTextComposer(onDismiss = { textStatus = false }, onPost = { text, bg, font -> textStatus = false; vm.postTextStatus(text, bg, font) })
+    }
+    pendingMedia?.let { (uri, video) ->
+        MediaCaptionDialog(uri, video, stringResource(R.string.status_new_media), onDismiss = { pendingMedia = null }) { caption ->
+            pendingMedia = null
+            vm.postMediaStatus(uri, video, caption)
+        }
+    }
+}

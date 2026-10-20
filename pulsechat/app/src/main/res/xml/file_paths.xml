@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Sent/received chat media copied into app-private storage -->
+    <files-path name="media" path="media/" />
+    <!-- Temporary camera captures and voice recordings -->
+    <cache-path name="capture" path="capture/" />
+</paths>
