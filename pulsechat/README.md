@@ -95,9 +95,44 @@ Release builds read `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` from th
 | Compose UI components + Arabic/RTL (Robolectric) | `app/src/test/java/com/example/ui` | `gradle testDebugUnitTest` |
 | Firestore security rules (emulator) | `firebase/rules-tests` | `firebase emulators:exec --only firestore --project demo-pulsechat "npm --prefix firebase/rules-tests test"` |
 | Cloud Functions payload logic | `firebase/functions` | `npm ci && npm run build && npm test` |
+| Instrumented smoke test: real Application start, sign-in screen, local form validation | `app/src/androidTest/java/com/example/AppLaunchTest.kt` | `gradle connectedDebugAndroidTest` (device/emulator) |
+| End-to-end flows on a device against the Firebase emulators (Auth, Firestore with `firestore.rules`, Storage) | `app/src/androidTest/java/com/example/*E2ETest.kt` | see below |
 
-GitHub Actions (`.github/workflows/android-ci.yml`) runs all of them plus `assembleDebug` and
-`assembleRelease` on every push.
+GitHub Actions (`.github/workflows/android-ci.yml`) runs all of them on every push: `assembleDebug`,
+JVM tests, `assembleRelease`, the backend tests, and an `e2e` job that boots an API 34 Android
+emulator and runs the instrumented tests against the Firebase emulators. The `e2e` job is marked
+`continue-on-error` because hosted Android emulators are occasionally flaky; check its own result.
+
+### End-to-end tests (Firebase emulators)
+
+`MessagingE2ETest` and `GroupsStatusPrivacyE2ETest` drive the real repositories, sync engine and
+UI of a debug build. Accounts take turns on one device and local storage is wiped between them, so
+everything a user sees must come from the server. They cover:
+
+* registration and sign-in by username and by 10-digit ID, user search (username, ID, display name);
+* one direct chat per pair, text and photo messages (Storage upload, download on the other side);
+* unread counters, read receipts and reactions reaching the sender, edit and delete for everyone;
+* groups: creation, sync to members, disappearing timer, admin-only sending, leaving;
+* per-user chat preferences (pin, favourite, mute, unread mark, archive) and saved contacts
+  restored on a new device;
+* text and photo statuses delivered to the audience, views and the owner's viewer list;
+* security rules in the same run: blocked users' messages fail, and writing another user's profile,
+  reading their private settings, changing their reaction, or posting as a non-admin in an admin-only
+  group are rejected with `PERMISSION_DENIED`.
+
+To run them locally (no Firebase login needed; the project id must match `google-services.json`):
+
+```bash
+firebase emulators:start --only auth,firestore,storage --project gen-lang-client-0426516505
+# with an Android emulator running:
+./gradlew connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2
+```
+
+Without the `firebaseEmulatorHost` argument the end-to-end tests are skipped. The switch to the
+emulators (`util/EmulatorConfig.kt`) is set only by the test runner and only honoured in debug
+builds; cleartext HTTP to `10.0.2.2`, `localhost` and `127.0.0.1` is allowed by a debug-only network
+security config (`src/debug`). Release builds always use the real backend with cleartext blocked.
 
 ## Known limitations
 
