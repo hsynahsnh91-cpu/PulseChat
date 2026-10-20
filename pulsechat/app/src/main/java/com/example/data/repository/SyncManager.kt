@@ -56,6 +56,7 @@ class SyncManager(
     private val prefs: AppPreferences,
     private val serverClock: ServerClock,
     private val scope: CoroutineScope,
+    private val currentUid: () -> String?,
 ) {
     private val _status = MutableStateFlow(SyncStatus(SyncState.STOPPED))
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
@@ -290,7 +291,7 @@ class SyncManager(
 
     /** Marks everything in the conversation read locally and (if enabled) sends a read receipt. */
     suspend fun markRead(cid: String) {
-        val me = uid ?: return
+        val me = uid ?: currentUid() ?: return
         val c = db.conversationDao().get(cid) ?: return
         val latestIncoming = db.messageDao().latestIncomingAt(cid, me) ?: 0L
         db.conversationDao().markReadUpTo(cid, maxOf(latestIncoming, c.lastMessageTimestamp))

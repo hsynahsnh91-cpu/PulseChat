@@ -62,7 +62,7 @@ class AppContainer(val app: Application) {
     }
     private val uid: () -> String? = { authRepository.currentUid }
     val userRepository by lazy { UserRepository(firestore, db, prefs, media, serverClock, appScope, uid) }
-    val syncManager by lazy { SyncManager(firestore, db, userRepository, prefs, serverClock, appScope) }
+    val syncManager by lazy { SyncManager(firestore, db, userRepository, prefs, serverClock, appScope, uid) }
     val chatRepository by lazy { ChatRepository(firestore, db, syncManager, media, userRepository, prefs, connectivity, serverClock, appScope, uid) }
     val statusRepository by lazy { StatusRepository(firestore, db, media, userRepository, prefs, appScope, uid) }
     val callRepository by lazy { CallRepository(db) }

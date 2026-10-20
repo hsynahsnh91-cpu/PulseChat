@@ -154,4 +154,9 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+  constraints {
+    // A transitive dependency pulls a pre-1.3 Fragment, which mishandles ActivityResult request
+    // codes (lint: InvalidFragmentVersionForActivityResult). Upgrade it; no new library is added.
+    implementation("androidx.fragment:fragment:1.8.5")
+  }
 }

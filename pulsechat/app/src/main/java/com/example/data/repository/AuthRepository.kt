@@ -75,7 +75,17 @@ class AuthRepository(
 ) {
     private val _session = MutableStateFlow<SessionState>(SessionState.Loading)
     val session: StateFlow<SessionState> = _session.asStateFlow()
-    val currentUid: String? get() = (_session.value as? SessionState.SignedIn)?.uid
+    /**
+     * The signed-in user's UID. While the session is still being evaluated (e.g. the process was
+     * just started by a push message) FirebaseAuth's persisted user is used, so background work
+     * does not race the profile check.
+     */
+    val currentUid: String?
+        get() = when (val s = _session.value) {
+            is SessionState.SignedIn -> s.uid
+            SessionState.Loading -> auth.currentUser?.uid
+            else -> null
+        }
 
     @Volatile private var suppressEvaluation = false
     private val signOutHooks = mutableListOf<suspend (String) -> Unit>()

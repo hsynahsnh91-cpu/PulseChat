@@ -179,3 +179,61 @@ jobs:
           name: pulsechat-debug-apk
           path: pulsechat/app/build/outputs/apk/debug/*.apk
           if-no-files-found: ignore
+
+  backend:
+    # Firestore security rules tests (official emulator) + Cloud Functions build and unit tests.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LOG_DIR: ${{ github.workspace }}/ci-logs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up JDK 21 (Firestore emulator)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cloud Functions build and unit tests
+        working-directory: pulsechat/firebase/functions
+        run: |
+          set -o pipefail
+          mkdir -p "$LOG_DIR"
+          { npm ci --no-audit --no-fund && npm run build && npm test; } 2>&1 | tee "$LOG_DIR/functions.log"
+
+      - name: Firestore rules tests (emulator)
+        working-directory: pulsechat
+        run: |
+          set -o pipefail
+          npm install -g firebase-tools@14 --no-audit --no-fund
+          npm --prefix firebase/rules-tests ci --no-audit --no-fund
+          firebase emulators:exec --only firestore --project demo-pulsechat "npm --prefix firebase/rules-tests test" 2>&1 | tee "$LOG_DIR/rules.log"
+
+      - name: Publish backend digest
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          parts = []
+          for path in sorted(glob.glob(os.path.join(os.environ["LOG_DIR"], "*.log"))):
+              lines = open(path, errors="replace").read().splitlines()
+              keep = [l for l in lines if any(k in l for k in ("# tests", "# pass", "# fail", "not ok", "Error", "error", "✖", "failed", "FAIL"))]
+              parts.append(f"## {os.path.basename(path)}")
+              parts.extend(keep[:200])
+              parts.append("### tail")
+              parts.extend(lines[-80:])
+          text = "\n".join(parts)[:64000] or "no logs"
+          json.dump({"name": "CI log digest (Backend)", "head_sha": os.environ["GITHUB_SHA"], "status": "completed",
+                     "conclusion": "neutral", "output": {"title": "Backend digest", "summary": "rules + functions", "text": text}},
+                    open("/tmp/backend-digest.json", "w"))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/backend-digest.json > /dev/null || echo "digest publish failed"
