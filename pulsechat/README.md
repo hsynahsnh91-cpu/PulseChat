@@ -124,8 +124,8 @@ To run them locally (no Firebase login needed; the project id must match `google
 
 ```bash
 firebase emulators:start --only auth,firestore,storage --project gen-lang-client-0426516505
-# with an Android emulator running:
-./gradlew connectedDebugAndroidTest \
+# with an Android emulator running (Gradle 9.3.1, as in CI - the repo has no gradlew script):
+gradle connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2
 ```
 
