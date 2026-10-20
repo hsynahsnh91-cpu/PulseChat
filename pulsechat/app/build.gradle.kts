@@ -76,7 +76,14 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  // Security: Gemini credentials must never be compiled into the APK. Gemini is reached through
+  // Firebase AI Logic, which keeps the Gemini API key server-side.
+  ignoreList.add("GEMINI_API_KEY")
+  ignoreList.add("AI_API_KEY")
 }
+
+// Export Room schemas so every database version change is reviewed and migration-tested.
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
@@ -119,6 +126,12 @@ dependencies {
   implementation(libs.googleid)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.firebase.appcheck.debug)
+  implementation(libs.firebase.appcheck.playintegrity)
+  // Push notifications, media storage, app foreground tracking and WebRTC calls.
+  implementation(libs.firebase.messaging)
+  implementation(libs.firebase.storage)
+  implementation(libs.androidx.lifecycle.process)
+  implementation(libs.stream.webrtc.android)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)

@@ -1,0 +1,766 @@
+package com.example.ui.chat
+
+import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.ContactsContract
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Shortcut
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.R
+import com.example.data.model.Conversation
+import com.example.data.model.Message
+import com.example.domain.DisappearingPolicy
+import com.example.domain.GroupPolicy
+import com.example.domain.Ids
+import com.example.domain.MessagePolicy
+import com.example.domain.NetworkKind
+import com.example.domain.TextTools
+import com.example.domain.model.MessageType
+import com.example.domain.model.Visibility
+import com.example.ui.calls.rememberCallStarter
+import com.example.ui.common.AiBadge
+import com.example.ui.common.AiConsentDialog
+import com.example.ui.common.Banner
+import com.example.ui.common.ChoiceDialog
+import com.example.ui.common.ConfirmDialog
+import com.example.ui.common.Formatters
+import com.example.ui.common.appContainer
+import com.example.ui.common.containerFactory
+import com.example.ui.components.EmojiPickerView
+import com.example.ui.components.UserAvatar
+import com.example.ui.status.MediaCaptionDialog
+import com.example.ui.theme.PulseTheme
+import com.example.util.LocationHelper
+import kotlinx.coroutines.launch
+
+data class ChatNav(
+    val back: () -> Unit,
+    val openInfo: (String) -> Unit,
+    val openMedia: (String) -> Unit,
+    val openCall: () -> Unit,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
+    val vm: ChatViewModel = viewModel(key = "chat_$conversationId", factory = containerFactory { ChatViewModel(it, conversationId, jumpTo) })
+    val context = LocalContext.current
+    val container = appContainer()
+    val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+
+    val conversation by vm.conversation.collectAsState()
+    val items by vm.items.collectAsState()
+    val participants by vm.participants.collectAsState()
+    val typing by vm.typing.collectAsState()
+    val presence by vm.presence.collectAsState()
+    val blocked by vm.blockedIds.collectAsState()
+    val settings by vm.settings.collectAsState()
+    val network by vm.network.collectAsState()
+    val voice by vm.voice.collectAsState()
+    val recording by vm.recording.collectAsState()
+    val draft by vm.draft.collectAsState()
+    val replyTo by vm.replyTo.collectAsState()
+    val editing by vm.editing.collectAsState()
+    val selection by vm.selection.collectAsState()
+    val searchActive by vm.searchActive.collectAsState()
+    val searchQuery by vm.searchQuery.collectAsState()
+    val searchResults by vm.searchResults.collectAsState()
+    val searchIndex by vm.searchIndex.collectAsState()
+    val highlighted by vm.highlighted.collectAsState()
+    val mentionSuggestions by vm.mentionSuggestions.collectAsState()
+    val loadingOlder by vm.loadingOlder.collectAsState()
+    val aiPanel by vm.ai.collectAsState()
+    val aiTyping by vm.aiTyping.collectAsState()
+    val receipts by vm.receipts.collectAsState()
+    val peerContact by vm.peerContact.collectAsState()
+
+    var emojiOpen by rememberSaveable { mutableStateOf(false) }
+    var attachOpen by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var actionTarget by remember { mutableStateOf<Message?>(null) }
+    var reactionPickerFor by remember { mutableStateOf<Message?>(null) }
+    var reactionsDetailFor by remember { mutableStateOf<Message?>(null) }
+    var infoFor by remember { mutableStateOf<Message?>(null) }
+    var deleteIds by remember { mutableStateOf<Set<String>?>(null) }
+    var forwardIds by remember { mutableStateOf<Set<String>?>(null) }
+    var forwardTargets by remember { mutableStateOf<List<Pair<Conversation, String>>>(emptyList()) }
+    var pendingMedia by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
+    var pendingDocument by remember { mutableStateOf<Uri?>(null) }
+    var pendingContact by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var pendingLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var pollOpen by remember { mutableStateOf(false) }
+    var aiToolsOpen by remember { mutableStateOf(false) }
+    var consentAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var muteOpen by remember { mutableStateOf(false) }
+    var disappearingOpen by remember { mutableStateOf(false) }
+    var clearOpen by remember { mutableStateOf(false) }
+    var blockOpen by remember { mutableStateOf(false) }
+    var reportOpen by remember { mutableStateOf(false) }
+    var captureUri by remember { mutableStateOf<Uri?>(null) }
+    var captureVideo by remember { mutableStateOf(false) }
+
+    val conv = conversation
+    val me = vm.me
+    val usersById = participants.associateBy { it.userId }
+    val names = participants.associate { it.userId to it.displayName }
+    val isAi = conv?.isAiConversation == true
+    val isGroup = conv?.isGroup == true
+    val peerId = conv?.peerId
+    val peer = peerId?.let { usersById[it] }
+    val peerBlocked = !isGroup && peerId != null && peerId in blocked
+    val canSendInGroup = !isGroup || conv?.let { GroupPolicy.canSend(it.roster(), me) } == true
+    val readOnlyLegacy = conv?.isLocalOnly == true && !isAi
+    val title = when {
+        conv == null -> ""
+        isGroup -> conv.title
+        isAi -> stringResource(R.string.ai_assistant_name)
+        !peerContact?.customNickname.isNullOrBlank() -> peerContact?.customNickname.orEmpty()
+        else -> peer?.displayName ?: conv.title.ifBlank { stringResource(R.string.unknown_user) }
+    }
+    val showReadReceipts = settings.readReceipts
+
+    // ---------------------------------------------------------------- effects
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> vm.onVisible(true)
+                Lifecycle.Event.ON_PAUSE -> vm.onVisible(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); vm.onVisible(false) }
+    }
+    LaunchedEffect(Unit) {
+        vm.events.collect { e ->
+            when (e) {
+                is ChatEvent.Toast -> snackbar.showSnackbar(e.text)
+                is ChatEvent.NeedAiConsent -> consentAction = e.action
+            }
+        }
+    }
+    LaunchedEffect(Unit) { vm.scrollTo.collect { idx -> if (idx >= 0) listState.animateScrollToItem(idx) } }
+    LaunchedEffect(listState, items.size) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
+            if (items.isNotEmpty() && last >= items.size - 6) vm.loadMore()
+        }
+    }
+    var initialPositioned by remember { mutableStateOf(false) }
+    LaunchedEffect(items) {
+        if (!initialPositioned && items.isNotEmpty()) {
+            initialPositioned = true
+            val unreadIndex = items.indexOfFirst { it is UnreadItem }
+            if (unreadIndex > 3 && jumpTo == null) listState.scrollToItem(unreadIndex)
+        } else if (listState.firstVisibleItemIndex <= 1) {
+            listState.animateScrollToItem(0)
+        }
+    }
+    val showJump by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
+
+    // ---------------------------------------------------------------- pickers & permissions
+    fun has(permission: String) = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    val galleryPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) pendingMedia = uri to (context.contentResolver.getType(uri)?.startsWith("video/") == true)
+    }
+    val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) pendingDocument = uri }
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val uri = captureUri
+        if (ok && uri != null) pendingMedia = uri to false
+    }
+    val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { ok ->
+        val uri = captureUri
+        if (ok && uri != null) pendingMedia = uri to true
+    }
+    val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.query(uri, arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null)?.use { c ->
+                if (c.moveToFirst()) pendingContact = (c.getString(0) ?: "") to (c.getString(1) ?: "")
+            }
+        }
+    }
+    fun launchCamera(video: Boolean) {
+        val (_, uri) = container.media.newCaptureFile(if (video) "mp4" else "jpg")
+        captureUri = uri
+        captureVideo = video
+        if (video) takeVideo.launch(uri) else takePicture.launch(uri)
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) launchCamera(captureVideo) else Toast.makeText(context, R.string.permission_camera_denied, Toast.LENGTH_LONG).show()
+    }
+    fun requestCamera(video: Boolean) {
+        captureVideo = video
+        if (has(Manifest.permission.CAMERA)) launchCamera(video) else cameraPermission.launch(Manifest.permission.CAMERA)
+    }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.startRecording() else Toast.makeText(context, R.string.permission_mic_denied, Toast.LENGTH_LONG).show()
+    }
+    fun fetchLocation() {
+        LocationHelper.current(context) { loc ->
+            if (loc == null) Toast.makeText(context, R.string.location_unavailable, Toast.LENGTH_LONG).show()
+            else pendingLocation = loc.latitude to loc.longitude
+        }
+    }
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.values.any { it }) fetchLocation() else Toast.makeText(context, R.string.permission_location_denied, Toast.LENGTH_LONG).show()
+    }
+    val startCall = rememberCallStarter(onStarted = nav.openCall)
+
+    BackHandler(enabled = selection.isNotEmpty() || searchActive || emojiOpen) {
+        when {
+            selection.isNotEmpty() -> vm.clearSelection()
+            searchActive -> vm.setSearchActive(false)
+            else -> emojiOpen = false
+        }
+    }
+
+    // ---------------------------------------------------------------- UI
+    Scaffold(
+        topBar = {
+            when {
+                selection.isNotEmpty() -> SelectionBar(
+                    count = selection.size,
+                    onClose = vm::clearSelection,
+                    onStar = { scope.launch { val msgs = vm.messagesFor(selection); vm.star(selection, msgs.any { !it.isStarred }) } },
+                    onCopy = {
+                        scope.launch {
+                            val text = vm.messagesFor(selection).filter { MessagePolicy.canCopy(vm.facts(it)) }.joinToString("\n") { it.content }
+                            copyToClipboard(context, text)
+                            vm.clearSelection()
+                        }
+                    },
+                    onForward = {
+                        scope.launch {
+                            forwardTargets = vm.forwardTargets().map { it to conversationTitle(context, it, names) }
+                            forwardIds = selection
+                        }
+                    },
+                    onDelete = { deleteIds = selection },
+                )
+                searchActive -> SearchBar(
+                    query = searchQuery, onQuery = vm::search, position = searchIndex, total = searchResults.size,
+                    onOlder = { vm.searchStep(1) }, onNewer = { vm.searchStep(-1) }, onClose = { vm.setSearchActive(false) },
+                )
+                else -> TopAppBar(
+                    title = {
+                        Row(Modifier.clickable(enabled = conv != null && !isAi) { nav.openInfo(conversationId) }, verticalAlignment = Alignment.CenterVertically) {
+                            if (isGroup && conv?.avatarUrl == null) {
+                                Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Groups, contentDescription = null)
+                                }
+                            } else {
+                                UserAvatar(title, avatarUrl = if (isGroup) conv?.avatarUrl else peer?.avatarUrl, size = 40.dp, isAiAssistant = isAi, colorHex = peer?.avatarColorHex ?: "#4F46E5")
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                val subtitle = when {
+                                    isAi -> if (aiTyping) stringResource(R.string.ai_thinking) else stringResource(R.string.ai_subtitle)
+                                    typing.isNotEmpty() && isGroup -> stringResource(R.string.typing_named, typing.mapNotNull { names[it] }.joinToString(", "))
+                                    typing.isNotEmpty() -> stringResource(R.string.typing)
+                                    isGroup -> participants.sortedBy { if (it.userId == me) 1 else 0 }.joinToString(", ") { if (it.userId == me) context.getString(R.string.you) else it.displayName }
+                                    readOnlyLegacy -> stringResource(R.string.chat_local_only_short)
+                                    else -> Formatters.lastSeen(context, presence)
+                                }
+                                if (!subtitle.isNullOrBlank()) {
+                                    Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
+                                        color = if (typing.isNotEmpty() || aiTyping) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    },
+                    navigationIcon = { IconButton(onClick = nav.back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+                    actions = {
+                        if (!isGroup && !isAi && !readOnlyLegacy && peerId != null && !peerBlocked) {
+                            IconButton(onClick = { startCall(peerId, true) }) { Icon(Icons.Default.Videocam, stringResource(R.string.action_video_call)) }
+                            IconButton(onClick = { startCall(peerId, false) }) { Icon(Icons.Default.Call, stringResource(R.string.action_voice_call)) }
+                        }
+                        IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("chat_menu")) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (!isAi) DropdownMenuItem(text = { Text(stringResource(if (isGroup) R.string.group_info else R.string.contact_info)) },
+                                onClick = { menuOpen = false; nav.openInfo(conversationId) })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.action_search)) }, onClick = { menuOpen = false; vm.setSearchActive(true) })
+                            if (!isAi && !readOnlyLegacy) {
+                                DropdownMenuItem(text = { Text(stringResource(if (conv?.isMuted() == true) R.string.action_unmute else R.string.action_mute)) },
+                                    onClick = { menuOpen = false; if (conv?.isMuted() == true) vm.setMuted(0L) else muteOpen = true })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.disappearing_title)) }, onClick = { menuOpen = false; disappearingOpen = true })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.ai_summarize)) }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                                    onClick = { menuOpen = false; vm.aiSummarize() })
+                            }
+                            DropdownMenuItem(text = { Text(stringResource(R.string.action_clear_chat)) }, onClick = { menuOpen = false; clearOpen = true })
+                            if (!isGroup && !isAi && peerId != null && !readOnlyLegacy) {
+                                DropdownMenuItem(text = { Text(stringResource(if (peerBlocked) R.string.action_unblock else R.string.action_block)) },
+                                    onClick = { menuOpen = false; if (peerBlocked) vm.unblockPeer() else blockOpen = true })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.action_report)) }, onClick = { menuOpen = false; reportOpen = true })
+                            }
+                        }
+                    },
+                )
+            }
+        },
+        snackbarHost = { SnackbarHost(snackbar) },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).background(PulseTheme.colors.chatBackground).imePadding()) {
+            if (network == NetworkKind.NONE && !isAi) Banner(stringResource(R.string.banner_offline_chat), Icons.Default.WifiOff,
+                MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+            if (readOnlyLegacy) Banner(stringResource(R.string.chat_local_only), Icons.Default.History, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+            if (isAi) Banner(stringResource(R.string.ai_chat_notice), Icons.Default.AutoAwesome, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f), MaterialTheme.colorScheme.onSurface)
+            if ((conv?.disappearingSeconds ?: 0L) > 0) Banner(
+                stringResource(R.string.disappearing_banner, Formatters.disappearingLabel(context, conv!!.disappearingSeconds)), Icons.Default.Timer,
+                MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (items.isEmpty() && conv != null) {
+                    Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(if (isAi) Icons.Default.AutoAwesome else Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.height(8.dp))
+                        Text(stringResource(if (isAi) R.string.ai_empty else R.string.chat_empty), style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                val callbacks = remember(vm) {
+                    BubbleCallbacks(
+                        onClick = { m -> if (vm.selection.value.isNotEmpty()) vm.toggleSelect(m.messageId) },
+                        onLongClick = { m -> if (vm.selection.value.isNotEmpty()) vm.toggleSelect(m.messageId) else actionTarget = m },
+                        onSwipeReply = { m -> if (MessagePolicy.canReply(vm.facts(m))) vm.startReply(m) },
+                        onReplyQuote = { id -> vm.jumpTo(id) },
+                        onRetry = { m -> vm.retry(m.messageId) },
+                        onDownload = { m -> vm.download(m.messageId) },
+                        onCancel = { m -> vm.cancelTransfer(m) },
+                        onOpenMedia = { m -> nav.openMedia(m.messageId) },
+                        onOpenDocument = { m -> openDocument(context, container.media.contentUriFor(m.localMediaPath!!), m.mediaMimeType) },
+                        onOpenLocation = { m -> openLocation(context, m.locationLat ?: 0.0, m.locationLng ?: 0.0) },
+                        onDialContact = { m -> dial(context, m.contactPhone.orEmpty()) },
+                        onToggleVoice = { m -> vm.toggleVoice(m) },
+                        onSeekVoice = { m, f -> vm.seekVoice(m, f) },
+                        onVoiceSpeed = { vm.cycleVoiceSpeed() },
+                        onVote = { m, i -> vm.vote(m.messageId, i) },
+                        onReactions = { m -> reactionsDetailFor = m },
+                    )
+                }
+                LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize().testTag("message_list")) {
+                    if (aiTyping) item(key = "ai_typing") {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.ai_thinking), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = vm::cancelAi) { Text(stringResource(R.string.action_cancel)) }
+                        }
+                    }
+                    items(items, key = { it.key }, contentType = { it::class.simpleName }) { item ->
+                        when (item) {
+                            is MessageItem -> MessageRow(
+                                item = item, me = me, names = names, isGroup = isGroup, isAi = isAi, hideTicks = readOnlyLegacy,
+                                selected = item.message.messageId in selection, selectionMode = selection.isNotEmpty(),
+                                highlighted = highlighted == item.message.messageId, searchQuery = if (searchActive) searchQuery else "",
+                                voice = voice, showReadReceipts = showReadReceipts, canSwipeReply = !readOnlyLegacy && !isAi, callbacks = callbacks,
+                            )
+                            is DayItem -> Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(Formatters.dayHeader(context, item.at), style = MaterialTheme.typography.labelMedium, color = PulseTheme.colors.metaText,
+                                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(PulseTheme.colors.systemChip).padding(horizontal = 10.dp, vertical = 4.dp))
+                            }
+                            is UnreadItem -> Box(Modifier.fillMaxWidth().padding(vertical = 6.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+                                Text(context.resources.getQuantityString(R.plurals.unread_messages, item.count, item.count), style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(6.dp))
+                            }
+                        }
+                    }
+                    if (loadingOlder) item(key = "loading_older") {
+                        Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) }
+                    }
+                }
+                if (showJump) {
+                    SmallFloatingActionButton(
+                        onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    ) { Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.action_jump_latest)) }
+                }
+            }
+            // AI results panel
+            if (aiPanel.busy || aiPanel.suggestions.isNotEmpty() || aiPanel.text != null) {
+                AiResultPanel(aiPanel, onUse = vm::useSuggestion, onClose = vm::cancelAi, onCopy = { copyToClipboard(context, it) })
+            }
+            val reply = replyTo
+            val edit = editing
+            if (edit != null) ReplyOrEditBar(stringResource(R.string.editing_message), edit.content, editing = true, onCancel = vm::cancelEdit)
+            else if (reply != null) ReplyOrEditBar(
+                if (reply.senderId == me) stringResource(R.string.you) else names[reply.senderId] ?: stringResource(R.string.unknown_user),
+                listOfNotNull(com.example.ui.common.typeLabel(reply.type), reply.content.ifBlank { reply.fileName }).joinToString(" · "),
+                editing = false, onCancel = vm::cancelReply,
+            )
+            MentionSuggestions(mentionSuggestions, participants.associate { it.userId to it.avatarUrl }, onPick = vm::pickMention)
+            when {
+                conv == null -> Unit
+                readOnlyLegacy -> Unit
+                conv.isLeft -> Notice(stringResource(R.string.chat_left_group))
+                peerBlocked -> Surface(tonalElevation = 2.dp) {
+                    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        Icon(Icons.Default.Block, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.chat_blocked_notice), modifier = Modifier.weight(1f))
+                        FilledTonalButton(onClick = vm::unblockPeer) { Text(stringResource(R.string.action_unblock)) }
+                    }
+                }
+                !canSendInGroup -> Notice(stringResource(R.string.chat_only_admins))
+                else -> Column(Modifier.navigationBarsPadding()) {
+                    Composer(
+                        value = draft, onValueChange = vm::onDraftChange, onSend = vm::send,
+                        onAttach = { attachOpen = true }, onCamera = { requestCamera(false) },
+                        emojiOpen = emojiOpen, onEmojiToggle = { emojiOpen = !emojiOpen }, recording = recording,
+                        onStartRecording = { if (has(Manifest.permission.RECORD_AUDIO)) vm.startRecording() else micPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                        onFinishRecording = vm::finishRecording, enterToSend = settings.enterToSend, isAiChat = isAi, editing = edit != null,
+                    )
+                    if (emojiOpen) EmojiPickerView(onEmojiSelected = { emoji ->
+                        val v = vm.draft.value
+                        val pos = v.selection.end.coerceIn(0, v.text.length)
+                        val text = v.text.substring(0, pos) + emoji + v.text.substring(pos)
+                        vm.onDraftChange(androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(pos + emoji.length)))
+                    }, modifier = Modifier.height(280.dp))
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- sheets & dialogs
+    actionTarget?.let { m ->
+        MessageActionsSheet(
+            message = m, facts = vm.facts(m), now = vm.now(), me = me, onDismiss = { actionTarget = null },
+            actions = MessageActions(
+                onReact = { e -> vm.react(m.messageId, e); actionTarget = null },
+                onMoreReactions = { reactionPickerFor = m; actionTarget = null },
+                onReply = { vm.startReply(m); actionTarget = null },
+                onCopy = { copyToClipboard(context, if (m.type == MessageType.LOCATION) "${m.locationLat},${m.locationLng}" else if (m.type == MessageType.CONTACT) "${m.contactName} ${m.contactPhone}" else m.content); actionTarget = null },
+                onForward = {
+                    actionTarget = null
+                    scope.launch { forwardTargets = vm.forwardTargets().map { it to conversationTitle(context, it, names) }; forwardIds = setOf(m.messageId) }
+                },
+                onStar = { vm.star(listOf(m.messageId), !m.isStarred); actionTarget = null },
+                onEdit = { vm.startEdit(m); actionTarget = null },
+                onDelete = { deleteIds = setOf(m.messageId); actionTarget = null },
+                onSelect = { vm.toggleSelect(m.messageId); actionTarget = null },
+                onInfo = { infoFor = m; actionTarget = null },
+                onRetry = { vm.retry(m.messageId); actionTarget = null },
+            ),
+        )
+    }
+    reactionPickerFor?.let { m -> ReactionPickerSheet(onPick = { e -> vm.react(m.messageId, e); reactionPickerFor = null }, onDismiss = { reactionPickerFor = null }) }
+    reactionsDetailFor?.let { m -> ReactionsDetailSheet(m, usersById, me, onRemoveMine = { vm.react(m.messageId, null); reactionsDetailFor = null }, onDismiss = { reactionsDetailFor = null }) }
+    infoFor?.let { m ->
+        MessageInfoSheet(m, participants.filter { it.userId != me && it.userId != Ids.AI_ASSISTANT_ID }, receipts, showReadReceipts, onDismiss = { infoFor = null })
+    }
+    deleteIds?.let { ids ->
+        var canEveryone by remember(ids) { mutableStateOf(false) }
+        LaunchedEffect(ids) { canEveryone = vm.messagesFor(ids).let { list -> list.isNotEmpty() && list.all { MessagePolicy.canDeleteForEveryone(vm.facts(it), vm.now()) } } }
+        DeleteMessagesDialog(
+            count = ids.size, canDeleteForEveryone = canEveryone,
+            onDeleteForMe = { vm.deleteForMe(ids); deleteIds = null },
+            onDeleteForEveryone = { vm.deleteForEveryone(ids); deleteIds = null },
+            onDismiss = { deleteIds = null },
+        )
+    }
+    forwardIds?.let { ids -> ForwardSheet(forwardTargets, onSend = { targets -> vm.forward(ids, targets); forwardIds = null }, onDismiss = { forwardIds = null }) }
+    if (attachOpen) {
+        AttachmentSheet(showPoll = isGroup || !isAi, showAi = !isAi, onDismiss = { attachOpen = false }) { option ->
+            attachOpen = false
+            when (option) {
+                AttachOption.GALLERY -> galleryPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                AttachOption.CAMERA_PHOTO -> requestCamera(false)
+                AttachOption.CAMERA_VIDEO -> requestCamera(true)
+                AttachOption.DOCUMENT -> documentPicker.launch(arrayOf("*/*"))
+                AttachOption.CONTACT -> try {
+                    contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                } catch (e: ActivityNotFoundException) { Toast.makeText(context, R.string.error_no_app, Toast.LENGTH_SHORT).show() }
+                AttachOption.LOCATION -> if (has(Manifest.permission.ACCESS_FINE_LOCATION) || has(Manifest.permission.ACCESS_COARSE_LOCATION)) fetchLocation()
+                    else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                AttachOption.POLL -> pollOpen = true
+                AttachOption.AI_TOOLS -> aiToolsOpen = true
+            }
+        }
+    }
+    pendingMedia?.let { (uri, video) ->
+        MediaCaptionDialog(uri, video, title, onDismiss = { pendingMedia = null }) { caption ->
+            pendingMedia = null
+            vm.sendMedia(uri, if (video) MessageType.VIDEO else MessageType.IMAGE, caption)
+        }
+    }
+    pendingDocument?.let { uri ->
+        ConfirmDialog(title = stringResource(R.string.document_send_title), text = uri.lastPathSegment, confirmLabel = stringResource(R.string.action_send),
+            onConfirm = { vm.sendMedia(uri, MessageType.DOCUMENT, ""); pendingDocument = null }, onDismiss = { pendingDocument = null })
+    }
+    pendingContact?.let { (name, phone) ->
+        ConfirmDialog(title = stringResource(R.string.contact_send_title), text = "$name\n$phone", confirmLabel = stringResource(R.string.action_send),
+            onConfirm = { vm.sendContact(name, phone); pendingContact = null }, onDismiss = { pendingContact = null })
+    }
+    pendingLocation?.let { (lat, lng) ->
+        ConfirmDialog(title = stringResource(R.string.location_send_title), text = String.format(java.util.Locale.US, "%.5f, %.5f", lat, lng),
+            confirmLabel = stringResource(R.string.action_send), onConfirm = { vm.sendLocation(lat, lng); pendingLocation = null }, onDismiss = { pendingLocation = null })
+    }
+    if (pollOpen) PollDialog(onCreate = { q, o -> vm.sendPoll(q, o); pollOpen = false }, onDismiss = { pollOpen = false })
+    if (aiToolsOpen) {
+        ModalBottomSheet(onDismissRequest = { aiToolsOpen = false }) {
+            Column(Modifier.padding(bottom = 24.dp)) {
+                Row(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.ai_tools), style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.width(8.dp))
+                    AiBadge()
+                }
+                Text(stringResource(R.string.ai_tools_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))
+                TextButton(onClick = { aiToolsOpen = false; vm.aiSuggestReplies() }, modifier = Modifier.padding(horizontal = 12.dp)) { Text(stringResource(R.string.ai_suggest_replies)) }
+                TextButton(onClick = { aiToolsOpen = false; vm.aiPolish() }, modifier = Modifier.padding(horizontal = 12.dp)) { Text(stringResource(R.string.ai_polish)) }
+                TextButton(onClick = { aiToolsOpen = false; vm.aiSummarize() }, modifier = Modifier.padding(horizontal = 12.dp)) { Text(stringResource(R.string.ai_summarize)) }
+            }
+        }
+    }
+    consentAction?.let { action ->
+        AiConsentDialog(onAccept = { vm.grantAiConsent(); consentAction = null; action() }, onDecline = { consentAction = null })
+    }
+    if (muteOpen) {
+        val hour = 3_600_000L
+        ChoiceDialog(stringResource(R.string.mute_title),
+            listOf(8 * hour to stringResource(R.string.mute_8h), 7 * 24 * hour to stringResource(R.string.mute_week), -1L to stringResource(R.string.mute_always)), null,
+            onSelect = { d -> muteOpen = false; vm.setMuted(if (d < 0) Long.MAX_VALUE else System.currentTimeMillis() + d) }, onDismiss = { muteOpen = false })
+    }
+    if (disappearingOpen) {
+        ChoiceDialog(stringResource(R.string.disappearing_title), DisappearingPolicy.OPTIONS.map { it to Formatters.disappearingLabel(context, it) }, conv?.disappearingSeconds,
+            onSelect = { s -> disappearingOpen = false; vm.setDisappearing(s) }, onDismiss = { disappearingOpen = false })
+    }
+    if (clearOpen) {
+        ConfirmDialog(title = stringResource(R.string.clear_chat_title), text = stringResource(R.string.clear_chat_body), confirmLabel = stringResource(R.string.action_clear),
+            destructive = true, checkboxLabel = stringResource(R.string.clear_keep_starred), checkboxDefault = true,
+            onConfirm = { keep -> clearOpen = false; vm.clearChat(keep) }, onDismiss = { clearOpen = false })
+    }
+    if (blockOpen) {
+        ConfirmDialog(title = stringResource(R.string.block_title, title), text = stringResource(R.string.block_body), confirmLabel = stringResource(R.string.action_block),
+            destructive = true, onConfirm = { blockOpen = false; vm.blockPeer() }, onDismiss = { blockOpen = false })
+    }
+    if (reportOpen) {
+        ConfirmDialog(title = stringResource(R.string.report_title, title), text = stringResource(R.string.report_body), confirmLabel = stringResource(R.string.action_report),
+            destructive = true, checkboxLabel = stringResource(R.string.report_and_block), checkboxDefault = true,
+            onConfirm = { alsoBlock -> reportOpen = false; vm.reportPeer(alsoBlock) }, onDismiss = { reportOpen = false })
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionBar(count: Int, onClose: () -> Unit, onStar: () -> Unit, onCopy: () -> Unit, onForward: () -> Unit, onDelete: () -> Unit) {
+    TopAppBar(
+        title = { Text(count.toString(), fontWeight = FontWeight.SemiBold) },
+        navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Default.Close, stringResource(R.string.action_close)) } },
+        actions = {
+            IconButton(onClick = onStar) { Icon(Icons.Default.Star, stringResource(R.string.action_star)) }
+            IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, stringResource(R.string.action_copy)) }
+            IconButton(onClick = onForward) { Icon(Icons.Default.Shortcut, stringResource(R.string.action_forward)) }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, stringResource(R.string.action_delete)) }
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchBar(query: String, onQuery: (String) -> Unit, position: Int, total: Int, onOlder: () -> Unit, onNewer: () -> Unit, onClose: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    var text by rememberSaveable { mutableStateOf(query) }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    TopAppBar(
+        title = {
+            TextField(
+                value = text, onValueChange = { text = it }, singleLine = true, placeholder = { Text(stringResource(R.string.search_in_chat)) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { onQuery(text) }),
+                colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            )
+        },
+        navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+        actions = {
+            if (total > 0) Text("${position + 1}/$total", style = MaterialTheme.typography.labelMedium)
+            else if (query.isNotBlank()) Text(stringResource(R.string.search_no_results), style = MaterialTheme.typography.labelMedium)
+            IconButton(onClick = onOlder, enabled = total > 0 && position < total - 1) { Icon(Icons.Default.KeyboardArrowUp, stringResource(R.string.search_older)) }
+            IconButton(onClick = onNewer, enabled = total > 0 && position > 0) { Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.search_newer)) }
+        },
+    )
+}
+
+@Composable
+private fun Notice(text: String) {
+    Surface(tonalElevation = 2.dp) {
+        Text(text, modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun AiResultPanel(panel: AiPanel, onUse: (String) -> Unit, onClose: () -> Unit, onCopy: (String) -> Unit) {
+    Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (panel.title != 0) Text(stringResource(panel.title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
+                AiBadge()
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, stringResource(R.string.action_close)) }
+            }
+            when {
+                panel.busy -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.ai_thinking))
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onClose) { Text(stringResource(R.string.action_cancel)) }
+                }
+                panel.suggestions.isNotEmpty() -> Column {
+                    panel.suggestions.forEach { s ->
+                        Text(s, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onUse(s) }
+                            .background(MaterialTheme.colorScheme.primaryContainer).padding(10.dp))
+                        Spacer(Modifier.height(6.dp))
+                    }
+                }
+                panel.text != null -> Column {
+                    Text(panel.text, style = MaterialTheme.typography.bodyMedium)
+                    Row {
+                        if (panel.replaceDraft) TextButton(onClick = { onUse(panel.text) }) { Text(stringResource(R.string.ai_use_text)) }
+                        TextButton(onClick = { onCopy(panel.text) }) { Text(stringResource(R.string.action_copy)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun conversationTitle(context: Context, c: Conversation, names: Map<String, String>): String = when {
+    c.isGroup -> c.title
+    c.isAiConversation -> context.getString(R.string.ai_assistant_name)
+    else -> context.appContainerNameFallback(c, names)
+}
+
+private fun Context.appContainerNameFallback(c: Conversation, names: Map<String, String>): String =
+    names[c.peerId] ?: c.title.ifBlank { getString(R.string.unknown_user) }
+
+fun copyToClipboard(context: Context, text: String) {
+    if (text.isBlank()) return
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText("PulseChat", text))
+    if (android.os.Build.VERSION.SDK_INT < 33) Toast.makeText(context, R.string.toast_copied, Toast.LENGTH_SHORT).show()
+}
+
+fun openDocument(context: Context, uri: Uri, mime: String?) {
+    val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    try { context.startActivity(intent) } catch (e: ActivityNotFoundException) { Toast.makeText(context, R.string.error_no_app, Toast.LENGTH_SHORT).show() }
+}
+
+fun openLocation(context: Context, lat: Double, lng: Double) {
+    val geo = Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lng?q=$lat,$lng"))
+    try { context.startActivity(geo) } catch (e: ActivityNotFoundException) {
+        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng"))) }
+        catch (e2: ActivityNotFoundException) { Toast.makeText(context, R.string.error_no_app, Toast.LENGTH_SHORT).show() }
+    }
+}
+
+fun dial(context: Context, phone: String) {
+    if (phone.isBlank()) return
+    try { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone)))) }
+    catch (e: ActivityNotFoundException) { Toast.makeText(context, R.string.error_no_app, Toast.LENGTH_SHORT).show() }
+}

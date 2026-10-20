@@ -19,8 +19,8 @@ class AutoReplyManager(context: Context) {
             "مرحباً! أنا غير متاح حالياً، سأقوم بالرد عليك بأقرب وقت ممكن.",
             "أنا في اجتماع حالياً، سأتواصل معك فور انتهائه.",
             "أقود السيارة بأمان الآن 🚗 سأعاود الاتصال بك لاحقاً.",
-            "في إجازة حالياً، سأقوم بالرد فور عودتي بإذن الله.",
-            "مشغول بالعمل الآن، أرجو ترك رسالتك وسأجيبك قريباً."
+            "Hi! I'm not available right now. I'll reply as soon as I can.",
+            "I'm in a meeting right now and will get back to you afterwards."
         )
     }
 
@@ -41,8 +41,8 @@ class AutoReplyManager(context: Context) {
     private val _isScheduleOnly = MutableStateFlow(prefs.getBoolean("auto_reply_schedule_only", false))
     val isScheduleOnly: StateFlow<Boolean> = _isScheduleOnly.asStateFlow()
 
-    // 3 minutes cooldown per contact to prevent infinite reply loops
-    private val lastRepliedMap = mutableMapOf<String, Long>()
+    // Cooldown per contact (persisted, so a restart cannot cause reply loops)
+    private val cooldownMillis = 30 * 60 * 1000L
 
     fun setEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("auto_reply_enabled", enabled).apply()
@@ -90,12 +90,11 @@ class AutoReplyManager(context: Context) {
         }
 
         val now = System.currentTimeMillis()
-        val lastTime = lastRepliedMap[contactId] ?: 0L
-        val cooldownMillis = 3 * 60 * 1000L // 3 minutes
+        val lastTime = prefs.getLong("last_reply_$contactId", 0L)
         return (now - lastTime) > cooldownMillis
     }
 
     fun recordAutoReplySent(contactId: String) {
-        lastRepliedMap[contactId] = System.currentTimeMillis()
+        prefs.edit().putLong("last_reply_$contactId", System.currentTimeMillis()).apply()
     }
 }
