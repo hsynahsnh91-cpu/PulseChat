@@ -37,14 +37,12 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.NetworkCheck
-import androidx.compose.material.icons.filled.KeyboardReturn
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -112,6 +110,8 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import com.example.ui.theme.Spacing
+import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
+import androidx.compose.material.icons.automirrored.filled.Reply
 
 @Composable
 private fun settingsVm(): SettingsViewModel = viewModel(factory = containerFactory { SettingsViewModel(it) })
@@ -407,7 +407,7 @@ fun ChatSettingsScreen(nav: SettingsNav) {
         SettingsItem(Icons.Default.DarkMode, stringResource(R.string.settings_theme), themeLabel(s.themeMode)) { dialog = "theme" }
         SettingsItem(Icons.Default.Language, stringResource(R.string.settings_language), languageLabel(s.language)) { dialog = "language" }
         SectionHeader(stringResource(R.string.settings_chats))
-        SwitchItem(Icons.Default.KeyboardReturn, stringResource(R.string.settings_enter_send), stringResource(R.string.settings_enter_send_sub), s.enterToSend, onChange = vm::setEnterToSend)
+        SwitchItem(Icons.AutoMirrored.Filled.KeyboardReturn, stringResource(R.string.settings_enter_send), stringResource(R.string.settings_enter_send_sub), s.enterToSend, onChange = vm::setEnterToSend)
         val translations = com.example.ui.common.appContainer().translations
         val target = s.translationTarget.ifBlank { translations.defaultTarget(s.language.tag ?: java.util.Locale.getDefault().language) }
         SettingsItem(Icons.Default.Translate, stringResource(R.string.settings_translation_language), translations.displayName(target)) { dialog = "translation" }
@@ -543,7 +543,7 @@ fun AiSettingsScreen(nav: SettingsNav) {
     SettingsScaffold(stringResource(R.string.settings_ai), nav.back, vm) {
         Text(stringResource(R.string.ai_settings_intro), modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
         SwitchItem(Icons.Default.AutoAwesome, stringResource(R.string.ai_consent_switch), stringResource(R.string.ai_consent_switch_sub), s.aiConsent, onChange = vm::setAiConsent)
-        SettingsItem(Icons.Default.Reply, stringResource(R.string.auto_reply_title), stringResource(R.string.auto_reply_sub)) { autoReplyOpen = true }
+        SettingsItem(Icons.AutoMirrored.Filled.Reply, stringResource(R.string.auto_reply_title), stringResource(R.string.auto_reply_sub)) { autoReplyOpen = true }
         Text(stringResource(R.string.ai_settings_privacy), modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (autoReplyOpen) AutoReplySettingsDialog(vm.autoReply, aiAllowed = s.aiConsent, onDismiss = { autoReplyOpen = false })

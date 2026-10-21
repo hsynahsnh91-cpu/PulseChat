@@ -51,7 +51,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Shortcut
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Videocam
@@ -97,7 +96,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -165,6 +164,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.material.icons.automirrored.filled.Shortcut
 
 data class ChatNav(
     val back: () -> Unit,
@@ -438,13 +438,13 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         val canCall = !isGroup && !isAi && !readOnlyLegacy && peerId != null && !peerBlocked
                         // On narrow screens the video call moves into the menu so the name stays readable.
                         val narrowBar = LocalConfiguration.current.screenWidthDp < 360
-                        if (canCall && peerId != null) {
+                        if (canCall) {
                             if (!narrowBar) IconButton(onClick = { startCall(peerId, true) }) { Icon(Icons.Default.Videocam, stringResource(R.string.action_video_call)) }
                             IconButton(onClick = { startCall(peerId, false) }, modifier = Modifier.testTag("chat_voice_call")) { Icon(Icons.Default.Call, stringResource(R.string.action_voice_call)) }
                         }
                         IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("chat_menu")) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            if (canCall && narrowBar && peerId != null) DropdownMenuItem(text = { Text(stringResource(R.string.action_video_call)) },
+                            if (canCall && narrowBar) DropdownMenuItem(text = { Text(stringResource(R.string.action_video_call)) },
                                 leadingIcon = { Icon(Icons.Default.Videocam, null) }, onClick = { menuOpen = false; startCall(peerId, true) })
                             if (!isAi) DropdownMenuItem(text = { Text(stringResource(if (isGroup) R.string.group_info else R.string.contact_info)) },
                                 onClick = { menuOpen = false; nav.openInfo(conversationId) })
@@ -816,7 +816,7 @@ private fun SelectionBar(count: Int, onClose: () -> Unit, onStar: () -> Unit, on
         actions = {
             IconButton(onClick = onStar) { Icon(Icons.Default.Star, stringResource(R.string.action_star)) }
             IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, stringResource(R.string.action_copy)) }
-            IconButton(onClick = onForward) { Icon(Icons.Default.Shortcut, stringResource(R.string.action_forward)) }
+            IconButton(onClick = onForward) { Icon(Icons.AutoMirrored.Filled.Shortcut, stringResource(R.string.action_forward)) }
             IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, stringResource(R.string.action_delete)) }
         },
     )

@@ -23,9 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallMade
-import androidx.compose.material.icons.filled.CallMissed
-import androidx.compose.material.icons.filled.CallReceived
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Groups
@@ -65,6 +62,9 @@ import com.example.ui.common.EmptyState
 import com.example.ui.common.Formatters
 import com.example.ui.common.SectionHeader
 import com.example.ui.components.UserAvatar
+import androidx.compose.material.icons.automirrored.filled.CallMissed
+import androidx.compose.material.icons.automirrored.filled.CallMade
+import androidx.compose.material.icons.automirrored.filled.CallReceived
 
 // ---------------------------------------------------------------------- Updates
 
@@ -221,7 +221,7 @@ fun CallsTab(calls: List<CallRecord>, me: String, onCall: (peerId: String, video
                         color = if (missed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            when { missed -> Icons.Default.CallMissed; outgoing -> Icons.Default.CallMade; else -> Icons.Default.CallReceived },
+                            when { missed -> Icons.AutoMirrored.Filled.CallMissed; outgoing -> Icons.AutoMirrored.Filled.CallMade; else -> Icons.AutoMirrored.Filled.CallReceived },
                             contentDescription = stringResource(when { missed -> R.string.call_missed; outgoing -> R.string.call_outgoing; else -> R.string.call_incoming }),
                             tint = if (missed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp),
                         )

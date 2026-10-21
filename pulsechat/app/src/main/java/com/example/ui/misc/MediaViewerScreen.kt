@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,6 +54,7 @@ import com.example.ui.status.VideoPlayerView
 import kotlinx.coroutines.launch
 import java.io.File
 import com.example.ui.common.LightSystemBarIcons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -121,7 +121,7 @@ fun MediaViewerScreen(messageId: String, onBack: () -> Unit) {
                     IconButton(onClick = {
                         val view = Intent(Intent.ACTION_VIEW).setDataAndType(container.media.contentUriFor(local), m.mediaMimeType ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         try { context.startActivity(view) } catch (e: ActivityNotFoundException) { Toast.makeText(context, R.string.error_no_app, Toast.LENGTH_SHORT).show() }
-                    }) { Icon(Icons.Default.OpenInNew, stringResource(R.string.action_open_with)) }
+                    }) { Icon(Icons.AutoMirrored.Filled.OpenInNew, stringResource(R.string.action_open_with)) }
                 }
             },
         )

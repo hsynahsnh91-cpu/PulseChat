@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Shortcut
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.Circle
@@ -81,6 +80,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.widthIn
 import com.example.ui.theme.Spacing
+import androidx.compose.material.icons.automirrored.filled.Shortcut
 
 val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
@@ -124,7 +124,7 @@ fun MessageActionsSheet(message: Message, facts: MessagePolicy.Facts, now: Long,
             if (MessagePolicy.canRetry(facts)) ActionRow(Icons.Default.Refresh, stringResource(R.string.action_retry), actions.onRetry)
             if (MessagePolicy.canReply(facts)) ActionRow(Icons.AutoMirrored.Filled.Reply, stringResource(R.string.action_reply), actions.onReply)
             if (MessagePolicy.canCopy(facts)) ActionRow(Icons.Default.ContentCopy, stringResource(R.string.action_copy), actions.onCopy)
-            if (MessagePolicy.canForward(facts)) ActionRow(Icons.Default.Shortcut, stringResource(R.string.action_forward), actions.onForward)
+            if (MessagePolicy.canForward(facts)) ActionRow(Icons.AutoMirrored.Filled.Shortcut, stringResource(R.string.action_forward), actions.onForward)
             if (MessagePolicy.canStar(facts)) ActionRow(if (message.isStarred) Icons.Default.StarBorder else Icons.Default.Star,
                 stringResource(if (message.isStarred) R.string.action_unstar else R.string.action_star), actions.onStar)
             if (MessagePolicy.canEdit(facts, now)) ActionRow(Icons.Default.Edit, stringResource(R.string.action_edit), actions.onEdit)

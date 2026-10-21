@@ -43,7 +43,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Poll
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Shortcut
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.CircularProgressIndicator
@@ -126,6 +125,7 @@ import com.example.ui.theme.Radii
 import com.example.ui.theme.MessageTextStyle
 import com.example.ui.theme.EmojiOnlyTextStyle
 import com.example.ui.common.isolateIfForeign
+import androidx.compose.material.icons.automirrored.filled.Shortcut
 
 class BubbleCallbacks(
     val onClick: (Message) -> Unit,
@@ -297,7 +297,7 @@ private fun Bubble(
                 if (m.type == MessageType.AI_RESPONSE) { AiBadge(); Spacer(Modifier.height(Spacing.xs)) }
                 if (m.isForwarded && !m.deletedForEveryone) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Shortcut, contentDescription = null, tint = colors.meta, modifier = Modifier.size(14.dp))
+                        Icon(Icons.AutoMirrored.Filled.Shortcut, contentDescription = null, tint = colors.meta, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(3.dp))
                         Text(stringResource(R.string.forwarded), style = MaterialTheme.typography.labelSmall, fontStyle = FontStyle.Italic, color = colors.meta)
                     }

@@ -171,3 +171,79 @@ Run [39647918513](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/3964
 reminders, notification actions and reboot re-arming, ML Kit language-pack download and translation
 quality, the photo editor on real photos, Gemini transcription/summary/extraction (AI Logic is not
 enabled on the production project yet).
+
+# UI/UX redesign — "Graphite Titanium" (October 2026)
+
+Design system details: [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).
+
+## Problems found (audit)
+
+* Identity: indigo/violet everywhere — theme primary, outgoing bubbles, AI colours, mention colour,
+  avatar defaults, the call-screen gradient, the notification accent and the launcher logo (a neon
+  cyan→purple JPG). Material roles that were not set (surface containers, surface tint) fell back to
+  Material's purple baseline, tinting menus, sheets, dialogs and the navigation bar.
+* Insets: the chat padded its bottom twice (Scaffold padding not consumed + `imePadding()` + the
+  composer's own `navigationBarsPadding()`), leaving a band under the composer and an extra gap above
+  the keyboard. Status-bar icons followed the device theme, not the in-app theme (invisible clock when
+  they differ) and stayed dark on the always-dark call/viewer screens.
+* Layout: on the sign-in screen the recent-account chips were squeezed into a `Row` — at 320dp with
+  large text one chip became a one-character-wide column and pushed the form below the fold; the
+  message actions sheet did not scroll (Delete unreachable on short phones); the quick-reaction row
+  overflowed 320dp; attachment labels broke mid-word; empty-state text ran under the floating buttons;
+  bubble width was 82% of any screen (very long lines on tablets); English messages in the Arabic UI
+  (and the reverse) were laid out in the UI's direction, so punctuation landed on the wrong side.
+* Motion: navigation used the 700 ms default cross-fade; otherwise almost no feedback.
+* Performance: the chat screen read the draft, recording level and voice-playback position at screen
+  level, so typing or playing a voice note recomposed the whole screen and every visible row;
+  `File.exists()` ran during composition for media rows; a new time formatter per message; derived
+  maps rebuilt on every recomposition.
+* Robustness: a fast double tap on Send started a voice recording; navigating to the call screen from
+  a coroutine that resumed off the main thread left a half-created back-stack entry, which crashed the
+  next activity recreation (found by the screenshot tour).
+
+## What changed
+
+See the commit list on the pull request; the main pieces:
+
+* Theme (`ui/theme`): full colour schemes for both themes, `PulseColors` (bubble text/meta/link
+  colours per bubble type, read ticks, semantic success/warning, sender palette, search highlight),
+  spacing/radius/shape/motion tokens, a type scale tuned for Latin and Arabic, `values-night` window
+  background, purple leftovers removed from `colors.xml`, notification accent from resources.
+* Call screen: solid graphite, light system-bar icons, clear on/off toggles, compact layout on short
+  screens, a ring that pulses only while the call is actually ringing. No change to audio routing,
+  echo cancellation, gain or connection logic.
+* Logo: the same speech-bubble-and-pulse mark redrawn as a vector in the new palette (adaptive icon
+  with a real monochrome layer for themed icons, regenerated legacy PNGs; the two 377 KB JPGs removed).
+
+## Motion added (and where)
+
+| Where | What | Duration |
+|---|---|---|
+| All screen changes (`PulseNavHost`) | fade + 1/10 slide toward the reading direction; call, media and status viewers fade only | 220 ms in, 120 ms out |
+| Composer | mic ↔ send icon (scale + fade); typing ↔ recording bar cross-fade | 120 ms |
+| Reply / edit bar | opens and closes with its height (composer moves instead of jumping) | 120–180 ms |
+| Message list | new messages fade in once (`animateItem`, no placement animation, no replay on scroll) | 180 ms |
+| Jump-to-latest button | fade + small scale | 120 ms |
+| Call screen | state line cross-fade; toggle colour; soft ring only while ringing | 120–180 ms; ring 1.6 s loop while ringing |
+| Voice recording | red dot pulses only while recording | 700 ms loop while recording |
+
+Compose scales all durations with the system animator scale; the two loops are skipped when
+animations are turned off (`rememberReducedMotion`). Nothing delays an action.
+
+## Verification
+
+* Run [39670967856](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39670967856) (commit
+  `06fdbfa`): all jobs green — debug and release builds with lint-vital, Windows fresh-clone build,
+  JVM/Robolectric unit tests **115/115** (109 existing + 6 new: palette contrast for both themes, the
+  call screen and avatars; legacy avatar colour mapping), rules 28/28, functions 4/4, web 17/17 + 7/7,
+  instrumented **11/11** on an API 34 emulator (the 10 existing suites + `ScreenshotTourTest`).
+* `ScreenshotTourTest` drives the real app with real data through the Firebase emulators at 360dp
+  light, 320dp with 130% text, 411dp dark Arabic (RTL) and an 800dp tablet: sign-in, chat list,
+  updates, chat (link, unbroken 70-character string, photo, reply, reaction, Arabic text), keyboard
+  open, attachment sheet, outgoing call, settings and diagnostics. The screenshots are published as
+  check runs on each push and were reviewed for every change in this section.
+
+**Not verified:** smoothness on real phones (no frame-timing measurement — CI emulators are not
+representative), physical devices with display cutouts or foldables, TalkBack walk-through, landscape,
+Android 7–12 devices (the emulator is API 34), and the call screen during a connected two-party call
+(the tour only shows the ringing state).
