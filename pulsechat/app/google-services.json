@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "677612835092-co0v8r1dde0qpojn1gkskdvtvs43lr31.apps.googleusercontent.com",
+          "client_id": "677612835092-i35svdrf0jtb834la045b5m1js8k8ell.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.aistudio.pulsechat.kxmpzq",
-            "certificate_hash": "9ff887ea488de5dfd432730fd879669473e5c2a7"
+            "certificate_hash": "59efd78867d8b937f35df186808cd02f7f08dabb"
           }
         },
         {
