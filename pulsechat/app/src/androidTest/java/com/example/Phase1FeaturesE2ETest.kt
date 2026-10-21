@@ -1,5 +1,6 @@
 package com.example
 
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -117,14 +118,20 @@ class Phase1FeaturesE2ETest : EmulatorE2ETest() {
         assertTrue("Arabic needs a language pack first (got ${needs?.reason})",
             needs?.reason == TranslationException.Reason.NEEDS_DOWNLOAD && "ar" in needs.languages)
 
-        // Folders: a chip filters the chat list.
-        val folder = c.folders.create("Work", setOf(cid))
+        // Folders: selecting a folder chip filters the chat list to the folder's chats.
         compose.waitUntil(30_000) { compose.onAllNodesWithText("Alice").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Work").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Alice").fetchSemanticsNodes().isNotEmpty() }
-        c.folders.update(folder.folderId, "Work", emptySet())
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(context.getString(R.string.folder_empty_title)).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("filter_ALL").performClick()
+        val folder = c.folders.create("Work", emptySet())
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("Work").fetchSemanticsNodes().isNotEmpty() }
+        // The chip row scrolls horizontally: bring the chip on screen before clicking it.
+        compose.onNodeWithText("Work").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Work").assertIsSelected()
+        compose.waitUntil(15_000) { compose.onAllNodesWithText(context.getString(R.string.folder_empty_title)).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("Alice is filtered out of an empty folder", compose.onAllNodesWithText("Alice").fetchSemanticsNodes().isEmpty())
+        c.folders.setMembers(folder.folderId, setOf(cid))
+        assertEquals(setOf(cid), c.folders.memberIds(folder.folderId))
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("Alice").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("filter_ALL").performScrollTo().performClick()
 
         // Media browser: the link appears under Links.
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Alice").fetchSemanticsNodes().isNotEmpty() }

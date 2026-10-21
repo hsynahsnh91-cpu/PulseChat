@@ -446,6 +446,11 @@ class CallManager(
         sink?.let { remoteVideoTrack?.addSink(it) }
     }
 
+    /** Live WebRTC objects owned by the call engine (diagnostics/tests: both must be 0 or 1). */
+    data class MediaCounts(val peerConnections: Int, val microphoneTracks: Int)
+
+    fun mediaCounts(): MediaCounts = MediaCounts(livePeerConnections, liveAudioTracks)
+
     /** Clears a finished call from the UI. */
     fun dismiss() {
         if (!_ui.value.isLive) _ui.value = CallUiState()
@@ -624,7 +629,7 @@ class CallManager(
     private suspend fun setupPeer(video: Boolean, me: String, callId: String, seq: Long) {
         if (pc != null || audioTrack != null) {
             diagnostics.warn("leftover media found before set-up: released")
-            releaseMedia()
+            releaseMedia(endSession = false) // keep the current call's session valid
         }
         val config = currentProcessingConfig()
         val f = ensureFactory(config)
@@ -796,8 +801,8 @@ class CallManager(
     }
 
     /** Disposes everything the call created; afterwards no callback of the old connection is applied. */
-    private fun releaseMedia() {
-        session += 1
+    private fun releaseMedia(endSession: Boolean = true) {
+        if (endSession) session += 1
         statsJob?.cancel()
         statsJob = null
         runCatching { capturer?.stopCapture() }

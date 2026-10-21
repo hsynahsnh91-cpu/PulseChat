@@ -48,6 +48,29 @@ firebase/      Cloud Functions (TypeScript) and Firestore rules tests
 * **Encryption** – data is encrypted in transit (TLS) and at rest (Google Cloud). PulseChat does
   **not** provide end-to-end encryption and never claims to.
 
+## Phase 1 features (Room schema v4)
+
+| Feature | Where | How it works |
+|---|---|---|
+| Scheduled messages | Chat composer: type, tap the clock icon. Chat menu › Scheduled messages (edit, send now, delete, retry) | Stored in Room (`scheduled_messages`). A unique WorkManager job per message runs after the delay once a network is available, retrying with back-off. **Exactly once:** the scheduled message's ID is the Firestore message ID; an atomic Room claim (PENDING→SENDING) lets one attempt run at a time; each attempt asks the server whether the message already exists; and the rules reject re-creating an existing message. Runs that start too early (clock set back) re-queue themselves; boot, app update and clock/time-zone changes re-queue everything (`TimeChangeReceiver`). |
+| Message reminders | Long-press a message › Remind me. Chats menu › Reminders | Room (`reminders`) + AlarmManager (`RTC_WAKEUP`, allowed while idle). Exact when the user allows *Alarms & reminders*, otherwise Android may deliver a few minutes late (explained in the app, with a link to the setting). Notification actions: Done, Snooze 1 hour; tapping opens the message. Re-armed after reboot/clock change. |
+| In-chat translation | Long-press › Translate; target language per message or in Settings › Chats | On-device (ML Kit): message text never leaves the phone. Language packs (~30 MB each) are downloaded once, only after the user agrees. The original stays in the bubble; the translation card can be hidden; cached per message/language and invalidated when the message is edited. |
+| Photo editor | Photo preview before sending › Edit (pencil) | Crop, draw, text, arrows, undo. *Blur* pixelates the selected pixels in the exported JPEG (not an overlay), so the hidden area can't be recovered from the sent photo. |
+| Chat folders | Chats tab chips; *New folder* / *Edit folders* chip; multi-select › Add to folder | Room (`chat_folders`, `chat_folder_members`), per account on this device. Rename, reorder, delete (chats stay). |
+| Voice-message transcription | Long-press a voice message › Transcribe | Gemini (Firebase AI Logic) after explicit action + AI consent; transcript saved locally and shown under the message. |
+| Summary since last visit | Banner "N new messages since your last visit › Summarize" | Messages after the read watermark at opening, sent with neutral aliases (`m1`…); every summary point links to the messages it is based on (unknown references are discarded). |
+| Tasks & events | Chat menu › Find tasks & events | Gemini proposes items with times; nothing is created until the user selects, edits and confirms; confirmed items become reminders. |
+| Media, links and docs | Chat menu › Media, links and docs | Photos/videos grid, documents, links (extracted from text) and voice messages; only already-downloaded media is shown as thumbnails (browsing never downloads behind the user's back). |
+| Diagnostics | Settings › Diagnostics | Internet, server reachability (timed read from the server), live sync and last server update, outbox and scheduled messages, notification permission/channels/push registration, exact alarms, battery and background restrictions, call permissions and audio options, last call quality, recent problems in plain language, and a copyable report without personal data. |
+| Call audio | Calls; Settings › Diagnostics › Calls | See [docs/CALL_AUDIO.md](docs/CALL_AUDIO.md): investigation, configuration, invariants and the two-device test plan. |
+
+**Setup needed for phase 1:** nothing for scheduling, reminders, folders, the photo editor, the media
+browser and diagnostics. Translation downloads language packs from Google on first use (no
+configuration). Transcription, summaries and tasks need **Firebase AI Logic** enabled for the project
+(Firebase console › AI Logic › Get started › Gemini Developer API, available on the no-cost plan);
+until then the app explains that the AI service isn't available. App Check enforcement is recommended
+for AI Logic in production.
+
 ## Firebase setup (required)
 
 The app is configured for Firebase project `gen-lang-client-0426516505` and the named Firestore
@@ -129,7 +152,8 @@ Release builds read `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` from th
 | Suite | Location | How to run |
 |---|---|---|
 | Domain rules (delivery, edit/delete windows, groups, mentions, presence, calls…) | `app/src/test/java/com/example/domain` | `gradle testDebugUnitTest` |
-| Room v2→v3 migration + DAO queries (Robolectric) | `app/src/test/java/com/example/data/db` | `gradle testDebugUnitTest` |
+| Room v2→v3 and v3→v4 migrations + DAO queries, incl. the exclusive scheduled-message claim (Robolectric) | `app/src/test/java/com/example/data/db` | `gradle testDebugUnitTest` |
+| Call audio routing/processing policy and WebRTC stats parsing | `app/src/test/java/com/example/calls` | `gradle testDebugUnitTest` |
 | Compose UI components + Arabic/RTL (Robolectric) | `app/src/test/java/com/example/ui` | `gradle testDebugUnitTest` |
 | Firestore security rules (emulator) | `firebase/rules-tests` | `firebase emulators:exec --only firestore --project demo-pulsechat "npm --prefix firebase/rules-tests test"` |
 | Cloud Functions payload logic | `firebase/functions` | `npm ci && npm run build && npm test` |
@@ -160,6 +184,11 @@ everything a user sees must come from the server. They cover:
 * per-user chat preferences (pin, favourite, mute, unread mark, archive) and saved contacts
   restored on a new device;
 * text and photo statuses delivered to the audience, views and the owner's viewer list;
+* phase 1 (`Phase1FeaturesE2ETest`): a scheduled message raced by WorkManager and three direct
+  attempts, then a simulated crash after sending and an explicit retry, exists exactly once on the
+  server and reaches the recipient once; a scheduled message to a contact blocked meanwhile fails with a
+  reason and can be deleted; chat-folder filtering, the links tab of the media browser and the
+  diagnostics server check in the UI; on-device language identification in the translation flow;
 * security rules in the same run: blocked users' messages fail, and writing another user's profile,
   reading their private settings, changing their reaction, or posting as a non-admin in an admin-only
   group are rejected with `PERMISSION_DENIED`.
@@ -189,3 +218,16 @@ security config (`src/debug`). Release builds always use the real backend with c
 * New group members can read history sent before they joined.
 * Presence is heartbeat based (offline is shown up to ~100 s after a device disappears).
 * Push notifications require the Cloud Functions to be deployed (Blaze plan).
+* Scheduled messages are sent by the phone that scheduled them: it must be on and online at (or after)
+  the scheduled time, and Android may defer the job by minutes in Doze/battery saver (longer for apps
+  in the "rare" standby bucket). Server-side scheduling would need Cloud Functions (Blaze). Signing out
+  cancels the account's unsent scheduled messages. Only text can be scheduled.
+* Reminders are exact only with the *Alarms & reminders* permission; folders, reminders, scheduled
+  messages, translations and transcripts are stored on this device (not synced between devices).
+* On-device translation quality is "casual" (ML Kit, pivoting through English between two non-English
+  languages); the translation libraries add about 25 MB to a universal APK (Play delivers one ABI).
+* Transcription, summaries and task extraction send the selected content to Gemini (with consent) and
+  need Firebase AI Logic; voice messages over 15 MB are not transcribed.
+* The call-audio changes are verified by builds, unit tests and emulator tests only. Echo behaviour
+  depends on the phone's hardware and must be confirmed with the two-device plan in
+  [docs/CALL_AUDIO.md](docs/CALL_AUDIO.md).

@@ -88,3 +88,77 @@ See `README.md` › Firebase setup: enable Email/Password + Google auth provider
 fingerprints, deploy rules/indexes/storage/functions (Blaze plan for functions), enable Firebase
 AI Logic (Gemini Developer API) and App Check, optionally configure TURN in `config/webrtc`.
 Revoke the Gemini/AI Studio token that was previously hard-coded in `GeminiApiService.kt`.
+
+---
+
+# Phase 1 feature expansion and call-audio fix (October 2026)
+
+## Repository audit (before changes)
+
+* **Reused:** Room as the single source of truth (`AppDatabase`, DAOs, migration pattern), the
+  idempotent message pipeline (`ChatRepository.pushMessage`, client UUID = Firestore document ID),
+  `SyncManager`, `NotificationHelper` channels/intents, `AiRepository` (Firebase AI Logic, consent,
+  rate limit), `MediaRepository` (capture files, `FileProvider`, downloads), navigation
+  (`PulseNavHost`), settings components (`SettingsItem`, `SwitchItem`, `ChoiceDialog`, `Banner`,
+  `EmptyState`), localization (`values`, `values-ar`), and the emulator E2E harness.
+* **Not present before:** background work (no WorkManager), alarms, on-device ML, image editing.
+  New dependencies (justified): `androidx.work:work-runtime-ktx` 2.11.2 (scheduled messages),
+  `com.google.mlkit:translate` 17.0.3 + `language-id` 17.0.6 (private on-device translation).
+* **Calls:** single `CallManager` (WebRTC + Firestore signalling) and `CallAudio` (mode/focus/route);
+  see [CALL_AUDIO.md](CALL_AUDIO.md) for the audit of the audio path.
+
+## Plan and order of implementation
+
+1. Critical call-audio fix (investigation, pipeline invariants, routing, processing, diagnostics).
+2. Room v4 (new tables only) + DAOs + migration test.
+3. Scheduled messages (exactly-once), reminders (alarms + notifications), folders, media browser,
+   diagnostics, translation, photo editor, AI features - each with EN/AR strings, RTL and states.
+4. Tests (JVM, Robolectric, rules emulator, instrumented E2E), docs, CI validation.
+
+## Feature status
+
+| # | Feature | Status | Evidence / gap |
+|---|---|---|---|
+| P1 | Scheduled messages: schedule, edit, cancel, send now, retry, duplicate prevention | Verified (emulator) | `ScheduledPolicyTest`; `FeatureDaoTest` (8 concurrent claims → 1 winner; stale take-over; edit/delete blocked while sending); rules test "a message ID can be created only once"; `Phase1FeaturesE2ETest`: WorkManager + 3 racing attempts + simulated crash + explicit retry → exactly 1 server copy, recipient receives once; blocked-meanwhile → FAILED with reason. Timing under Doze needs a real device. |
+| P2 | Message reminders with local notifications and persistent state | Partial | `ReminderTimesTest`, `FeatureDaoTest.reminderFiresOnlyOnce`, migration test; alarm delivery, notification actions and reboot re-arming need a device. |
+| P3 | In-chat translation (original preserved, target language choice) | Partial | E2E: on-device language identification (same language → no translation; Arabic → language pack required before download). Downloading packs and translation quality not exercised in CI. |
+| P4 | Photo annotation: crop, draw, text, arrows, privacy blur | Partial | `ImageEditMathTest` (fit, crop clamping, irreversible pixelation, pixel boxes); editor UI not instrumented. |
+| P5 | Custom chat folders with persistent membership and filtering | Verified | `FeatureDaoTest.folderMembershipIsPersistedAndDeletedWithTheFolder`, migration test; E2E: folder chip filters the chat list, empty-folder state. |
+| P6 | Voice-message transcription | Partial | Consent-gated flow, persistence (`TranscriptDao` test); needs Firebase AI Logic enabled - not run against Gemini in CI. |
+| P7 | AI summary since last visit with references | Partial | `AiParsingTest` (JSON extraction, unknown references dropped); `countIncomingSince` DAO test; needs AI Logic. |
+| P8 | AI task/event extraction with confirmation before reminders | Partial | `AiParsingTest` (items, ISO dates with/without offset, malformed output); confirmation sheet creates reminders only for confirmed items; needs AI Logic. |
+| P9 | Media and link browser per conversation | Verified | `LinkExtractorTest`, DAO queries (`observeByTypes`, `observeWithLinks`); E2E: link listed under Links. |
+| P10 | Diagnostics screen (connectivity, sync, notifications, understandable errors) | Verified (partly) | E2E: server check reaches the emulated backend; problem codes mapped to plain-language explanations; notification/battery/exact-alarm states depend on the device. |
+| C1 | Call echo / feedback / unstable volume | Partial - **needs two physical phones** | Root-cause review and fixes in [CALL_AUDIO.md](CALL_AUDIO.md); `AudioRoutePolicyTest`, `AudioProcessingPolicyTest`, `CallStatsParserTest`; `CallLifecycleE2ETest` (real WebRTC + emulator signalling): a double start builds one pipeline, hang-up releases all peer connections/tracks, 5 back-to-back calls never accumulate. Audio quality and echo not verifiable without devices. |
+
+## Database migration v3 → v4
+
+`Migrations.MIGRATION_3_4` only creates the tables `scheduled_messages`, `reminders`,
+`chat_folders`, `chat_folder_members`, `message_translations`, `message_transcripts` and
+`diagnostic_events` (with their indices). No existing table or row is changed. `Migration3To4Test`
+builds the exact v3 schema from `schemas/.../3.json`, fills it, and lets Room migrate and validate
+every table. The exported `4.json` matches the migration SQL.
+
+## Backend review
+
+* **Rules:** no new collections are written. Scheduled messages are sent through the normal message
+  create rule (sender = signed-in participant, not blocked, admins-only groups enforced); the new
+  rules test proves a second create of the same message ID is rejected, which is the server-side half
+  of the exactly-once guarantee. Reading a not-yet-existing message ID (the pre-send check) is allowed
+  for participants only.
+* **Indexes:** no new queries need composite indexes. **Storage:** unchanged. **Cloud Functions:**
+  unchanged; the existing message-created trigger sends push for scheduled messages like any other.
+* **AI:** Firebase AI Logic holds the Gemini key server-side; per-user quotas are not enforceable in
+  Firestore rules - enable App Check and AI Logic quotas in the console. Translation needs no backend.
+
+## Verification (CI)
+
+See the commit's CI run on PR #3 (`android-ci.yml`): build + unit/Robolectric tests, release build
+with lint-vital, Windows build, rules + functions tests, web client tests, and the instrumented
+suite on an API 34 emulator against the Firebase emulators. Exact counts are listed in the PR.
+
+**Not verified (needs real devices, people or the deployed project):** echo/feedback on two phones
+(test plan in CALL_AUDIO.md), Bluetooth/wired routing, Doze timing of scheduled messages and
+reminders, notification actions and reboot re-arming, ML Kit language-pack download and translation
+quality, the photo editor on real photos, Gemini transcription/summary/extraction (AI Logic is not
+enabled on the production project yet).

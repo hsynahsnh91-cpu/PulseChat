@@ -430,7 +430,12 @@ class ChatRepository(
             if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                 // Either a racing attempt created it first (re-creating is denied) or posting is not allowed.
                 if (serverHasMessage(conv, id) == true) { confirmSent(id); ScheduledOutcome(ScheduledResult.ALREADY_SENT) }
-                else { markFailed(id, "denied"); ScheduledOutcome(ScheduledResult.FAILED, "denied") }
+                else {
+                    // Never reached the server: drop the local copy; the scheduled entry (retry/edit/delete) represents it.
+                    db.withTransaction { db.messageDao().deleteHard(listOf(id)); sync.refreshLastMessage(cid) }
+                    diagnostics?.record(DiagnosticsLog.SEND, "send_failed", "denied")
+                    ScheduledOutcome(ScheduledResult.FAILED, "denied")
+                }
             } else {
                 ScheduledOutcome(ScheduledResult.RETRY, e.code.name.lowercase())
             }
