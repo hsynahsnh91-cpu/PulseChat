@@ -140,7 +140,6 @@ import com.example.ui.status.MediaCaptionDialog
 import com.example.ui.theme.PulseTheme
 import com.example.util.LocationHelper
 import kotlinx.coroutines.launch
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -542,7 +541,8 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) }
                     }
                 }
-                AnimatedVisibility(
+                // The plain overload (inside this Box the Column's scoped variant is not available).
+                androidx.compose.animation.AnimatedVisibility(
                     visible = showJump,
                     enter = fadeIn(Motion.enter(Motion.QUICK)) + scaleIn(Motion.enter(Motion.QUICK), initialScale = 0.85f),
                     exit = fadeOut(Motion.exit(Motion.QUICK)) + scaleOut(Motion.exit(Motion.QUICK), targetScale = 0.85f),

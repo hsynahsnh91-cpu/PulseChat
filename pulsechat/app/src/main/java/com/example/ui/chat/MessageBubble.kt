@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Pause
@@ -487,7 +488,7 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
     ) {
         if (m.type == MessageType.IMAGE) {
             if (local != null) AsyncImage(model = File(local), contentDescription = m.content.ifBlank { stringResource(R.string.preview_photo) }, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            else Icon(Icons.Default.Download, contentDescription = null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(64.dp))
+            else Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f), modifier = Modifier.size(56.dp))
         } else {
             val thumb by produceState<Bitmap?>(null, local) {
                 value = if (local == null) null else withContext(Dispatchers.IO) {
