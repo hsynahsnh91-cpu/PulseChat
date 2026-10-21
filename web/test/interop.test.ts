@@ -8,14 +8,15 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import {
-  collection, doc, getDoc, getDocFromServer, getDocs, serverTimestamp, setDoc, Timestamp, updateDoc, waitForPendingWrites, writeBatch,
-  type Unsubscribe,
+  Bytes, collection, deleteDoc, doc, getDoc, getDocFromServer, getDocs, serverTimestamp, setDoc, Timestamp, updateDoc, waitForPendingWrites,
+  writeBatch, type Unsubscribe,
 } from "firebase/firestore";
 import { getBytes, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
-  ANDROID_FIRESTORE_DATABASE_ID, authEmailForUsername, createGroup, deleteForEveryone, deliveryStatus, directChat, directConversationId,
-  disposePulseChat, editMessage, initPulseChat, markConversationDelivered, markRead, observeConversations, observeMessages,
-  observePresence, observeSession, react, searchUsers, sendMedia, sendText, setTyping, signIn, signOut, signUp, startPresence,
+  ANDROID_FIRESTORE_DATABASE_ID, MEDIA_CHUNK_BYTES, authEmailForUsername, createGroup, deleteForEveryone, deliveryStatus, directChat,
+  directConversationId, disposePulseChat, editMessage, initPulseChat, isStoreRef, markConversationDelivered, markRead, mediaBytes,
+  observeConversations, observeMessages, observePresence, observeSession, react, searchUsers, sendMedia, sendText, setTyping, signIn,
+  signOut, signUp, startPresence, storeIdOf,
   type ChatMessage, type Conversation, type PresenceView, type PulseChat, type PulseChatAuthError, type Session,
 } from "../src/pulsechat";
 
@@ -114,9 +115,12 @@ describe("direct chat between two web clients", () => {
     const bob = await newUser("bob", "Bob");
     const aliceId10 = (await getDoc(doc(bob.pc.db, "users", alice.uid))).get("uniqueId10") as string;
 
-    // Search by username prefix and by 10-digit ID (Android's queries; no composite index).
-    assert.ok((await searchUsers(bob.pc, alice.username.slice(0, 6))).some((u) => u.uid === alice.uid));
+    // Search by exact username (any case, with or without "@") or 10-digit ID, like Android.
+    // Display names and partial usernames find nobody: names are not unique.
+    assert.equal((await searchUsers(bob.pc, `@${alice.username.toUpperCase()}`))[0]?.uid, alice.uid);
     assert.equal((await searchUsers(bob.pc, aliceId10))[0]?.uid, alice.uid);
+    assert.deepEqual(await searchUsers(bob.pc, "Alice"), []);
+    assert.deepEqual(await searchUsers(bob.pc, alice.username.slice(0, -2)), []);
 
     const aliceChats = live<Conversation[]>((set) => observeConversations(alice.pc, set), []);
     const bobChats = live<Conversation[]>((set) => observeConversations(bob.pc, set), []);
@@ -194,6 +198,35 @@ describe("direct chat between two web clients", () => {
       updateDoc(doc(alice.pc.db, "conversations", draft.id, "messages", firstId), { text: "hacked", editedAt: serverTimestamp(), updatedAt: serverTimestamp() }),
     );
     await expectDenied("changing someone else's receipt", updateDoc(doc(alice.pc.db, "conversations", draft.id), { [`receipts.${bob.uid}.r`]: Timestamp.now() }));
+  });
+});
+
+describe("built-in media store (projects without Cloud Storage)", () => {
+  test("chunked upload, download by the peer, references in the message, owner-only writes", { timeout: 90_000 }, async () => {
+    const alice = await newUser("alice", "Alice");
+    const bob = await newUser("bob", "Bob");
+    const draft = directChat(bob.pc, alice.uid);
+    await sendText(bob.pc, draft, "hi");
+    const bobChats = live<Conversation[]>((set) => observeConversations(bob.pc, set), []);
+    const aliceMessages = live<ChatMessage[]>((set) => observeMessages(alice.pc, draft.id, set), []);
+    await until("Bob's chat list", () => bobChats.value.some((c) => c.id === draft.id));
+    const conv = bobChats.value.find((c) => c.id === draft.id)!;
+
+    // 700 KB of voice data: two chunks.
+    const voice = Uint8Array.from({ length: MEDIA_CHUNK_BYTES + 180_000 }, (_, i) => (i * 31) % 251);
+    const id = await sendMedia(bob.pc, conv, { data: voice, mime: "audio/mp4", fileName: "voice.m4a", durationMs: 3000 }, { store: "builtin" });
+    await until("Alice receives the voice note", () => aliceMessages.value.some((m) => m.id === id));
+    const msg = aliceMessages.value.find((m) => m.id === id)!;
+    assert.equal(msg.type, "AUDIO");
+    assert.ok(isStoreRef(msg.media?.url) && msg.media?.path === msg.media?.url, `built-in reference: ${msg.media?.url}`);
+    const meta = (await getDoc(doc(alice.pc.db, "media", storeIdOf(msg.media!.url)!))).data()!;
+    assert.equal(meta.chunks, 2);
+    assert.equal(meta.owner, bob.uid);
+    assert.deepEqual(await mediaBytes(alice.pc, msg.media!), voice, "Alice downloads identical bytes");
+
+    const mediaId = storeIdOf(msg.media!.url)!;
+    await expectDenied("overwriting someone else's chunk", setDoc(doc(alice.pc.db, "media", mediaId, "chunks", "0"), { owner: alice.uid, data: Bytes.fromUint8Array(new Uint8Array(4)) }));
+    await expectDenied("deleting someone else's media", deleteDoc(doc(alice.pc.db, "media", mediaId)));
   });
 });
 

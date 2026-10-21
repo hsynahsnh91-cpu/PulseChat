@@ -10,10 +10,21 @@ import com.example.data.repository.AuthException
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.SessionState
 import com.example.ui.common.authErrorText
+import com.example.domain.Validators
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+
+/** Live availability of the username being typed (sign-up and Google profile completion). */
+sealed interface UsernameCheck {
+    data object Idle : UsernameCheck
+    data object Checking : UsernameCheck
+    data class Available(val username: String) : UsernameCheck
+    data class Taken(val username: String) : UsernameCheck
+}
 
 data class AuthUiState(
     val loading: Boolean = false,
@@ -27,9 +38,28 @@ class AuthViewModel(private val app: Application, private val auth: AuthReposito
     val ui: StateFlow<AuthUiState> = _ui.asStateFlow()
     val session: StateFlow<SessionState> = auth.session
 
+    private val usernameInput = MutableStateFlow("")
+    private val _usernameCheck = MutableStateFlow<UsernameCheck>(UsernameCheck.Idle)
+    val usernameCheck: StateFlow<UsernameCheck> = _usernameCheck.asStateFlow()
+
     init {
         viewModelScope.launch { _ui.value = _ui.value.copy(legacyAccounts = auth.legacyAccountUsernames()) }
+        viewModelScope.launch {
+            usernameInput.collectLatest { raw ->
+                val u = Validators.normalizeUsername(raw)
+                if (Validators.usernameError(u) != null) { _usernameCheck.value = UsernameCheck.Idle; return@collectLatest }
+                _usernameCheck.value = UsernameCheck.Checking
+                delay(450)
+                _usernameCheck.value = try {
+                    if (auth.isUsernameAvailable(u)) UsernameCheck.Available(u) else UsernameCheck.Taken(u)
+                } catch (e: Exception) {
+                    UsernameCheck.Idle // the final check happens on submit; never block on a failed lookup
+                }
+            }
+        }
     }
+
+    fun onUsernameChanged(raw: String) { usernameInput.value = raw }
 
     private fun launchAuth(block: suspend () -> Unit) {
         if (_ui.value.loading) return

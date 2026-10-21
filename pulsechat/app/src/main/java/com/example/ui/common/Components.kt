@@ -389,6 +389,8 @@ fun aiErrorText(context: Context, e: AiError): String = context.getString(
         AiError.TIMEOUT -> R.string.ai_error_timeout
         AiError.EMPTY -> R.string.ai_error_empty
         AiError.UNKNOWN -> R.string.error_unknown
+        AiError.TOO_LARGE -> R.string.ai_error_too_large
+        AiError.BAD_RESPONSE -> R.string.ai_error_bad_response
     }
 )
 

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,8 +62,10 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.model.StatusItem
 import com.example.ui.common.ConfirmDialog
+import com.example.ui.common.PlayableSource
 import com.example.ui.common.Formatters
 import com.example.ui.common.appContainer
+import com.example.ui.common.rememberPlayableSource
 import com.example.ui.components.UserAvatar
 import kotlinx.coroutines.launch
 import java.io.File
@@ -121,9 +124,11 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
                 }
                 "IMAGE" -> AsyncImage(model = current.localMediaPath?.takeIf { File(it).exists() }?.let { File(it) } ?: current.mediaUrl, contentDescription = current.text,
                     contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                "VIDEO" -> {
-                    val source = current.localMediaPath?.takeIf { File(it).exists() } ?: current.mediaUrl
-                    if (source != null) VideoPlayerView(source, Modifier.fillMaxWidth(), autoPlay = true, onCompleted = { next() })
+                "VIDEO" -> when (val source = rememberPlayableSource(current.localMediaPath, current.mediaUrl)) {
+                    is PlayableSource.Ready -> VideoPlayerView(source.uri, Modifier.fillMaxWidth(), autoPlay = true, onCompleted = { next() })
+                    PlayableSource.Loading -> CircularProgressIndicator(color = Color.White)
+                    PlayableSource.Failed -> Text(stringResource(R.string.message_unavailable), color = Color.White)
+                    PlayableSource.None -> Unit
                 }
             }
             if (current.mediaType != "TEXT" && !current.text.isNullOrBlank()) {

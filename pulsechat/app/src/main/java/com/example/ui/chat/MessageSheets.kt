@@ -26,6 +26,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
@@ -89,6 +92,9 @@ data class MessageActions(
     val onSelect: () -> Unit,
     val onInfo: () -> Unit,
     val onRetry: () -> Unit,
+    val onTranslate: (() -> Unit)? = null,
+    val onRemind: (() -> Unit)? = null,
+    val onTranscribe: (() -> Unit)? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,6 +125,9 @@ fun MessageActionsSheet(message: Message, facts: MessagePolicy.Facts, now: Long,
             if (MessagePolicy.canStar(facts)) ActionRow(if (message.isStarred) Icons.Default.StarBorder else Icons.Default.Star,
                 stringResource(if (message.isStarred) R.string.action_unstar else R.string.action_star), actions.onStar)
             if (MessagePolicy.canEdit(facts, now)) ActionRow(Icons.Default.Edit, stringResource(R.string.action_edit), actions.onEdit)
+            actions.onTranslate?.let { ActionRow(Icons.Default.Translate, stringResource(R.string.action_translate), it) }
+            actions.onTranscribe?.let { ActionRow(Icons.Default.GraphicEq, stringResource(R.string.action_transcribe), it) }
+            actions.onRemind?.let { ActionRow(Icons.Default.NotificationsActive, stringResource(R.string.action_remind_me), it) }
             ActionRow(Icons.Default.CheckCircle, stringResource(R.string.action_select), actions.onSelect)
             if (MessagePolicy.canShowInfo(facts)) ActionRow(Icons.Default.Info, stringResource(R.string.action_info), actions.onInfo)
             ActionRow(Icons.Default.Delete, stringResource(R.string.action_delete), actions.onDelete, destructive = true)

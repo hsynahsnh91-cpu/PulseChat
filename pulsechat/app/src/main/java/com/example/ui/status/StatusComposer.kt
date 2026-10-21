@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.FloatingActionButton
@@ -106,13 +107,16 @@ fun StatusTextComposer(onDismiss: () -> Unit, onPost: (text: String, background:
 
 /** Preview with caption before posting a photo/video status or sending media in chat. */
 @Composable
-fun MediaCaptionDialog(uri: Uri, isVideo: Boolean, title: String, onDismiss: () -> Unit, onSend: (caption: String) -> Unit) {
+fun MediaCaptionDialog(uri: Uri, isVideo: Boolean, title: String, onDismiss: () -> Unit, onEdit: (() -> Unit)? = null, onSend: (caption: String) -> Unit) {
     var caption by rememberSaveable { mutableStateOf("") }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close), tint = Color.White) }
-                Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                if (onEdit != null && !isVideo) {
+                    IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.editor_open), tint = Color.White) }
+                }
             }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 if (isVideo) {

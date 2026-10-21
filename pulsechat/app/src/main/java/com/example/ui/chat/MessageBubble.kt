@@ -204,7 +204,11 @@ fun MessageRow(
                         TextButton(onClick = { callbacks.onRetry(m) }) {
                             Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(stringResource(if (m.failureReason == "denied") R.string.message_not_allowed_retry else R.string.message_failed_retry),
+                            Text(stringResource(when (m.failureReason) {
+                                "denied" -> R.string.message_not_allowed_retry
+                                "too_large" -> R.string.message_too_large_retry
+                                else -> R.string.message_failed_retry
+                            }),
                                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                         }
                     }

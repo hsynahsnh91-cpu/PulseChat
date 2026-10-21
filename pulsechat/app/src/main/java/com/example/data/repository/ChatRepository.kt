@@ -20,7 +20,6 @@ import com.example.domain.DisappearingPolicy
 import com.example.domain.GroupError
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
-import com.example.domain.MediaLimits
 import com.example.domain.MessagePolicy
 import com.example.domain.PresencePolicy
 import com.example.domain.TextTools
@@ -49,6 +48,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -75,6 +75,8 @@ class ChatRepository(
     private val scope: CoroutineScope,
     private val currentUid: () -> String?,
 ) {
+    /** Send failures are reported to Settings › Diagnostics (set by AppContainer). */
+    var diagnostics: DiagnosticsLog? = null
     private val _errors = MutableSharedFlow<ChatError>(extraBufferCapacity = 8)
     /** One-off failures of background commits, surfaced as snackbars. */
     val errors: SharedFlow<ChatError> = _errors.asSharedFlow()
@@ -263,7 +265,7 @@ class ChatRepository(
         val me = requireUid()
         val conv = requireWritable(cid, me)
         val local = try {
-            media.importUri(uri, type, MediaLimits.maxBytes(type))
+            media.importUri(uri, type, media.effectiveMaxBytes(type))
         } catch (e: MediaTooLargeException) {
             throw ChatException(ChatError.TOO_LARGE)
         } catch (e: Exception) {
@@ -307,19 +309,24 @@ class ChatRepository(
             var lastReported = -10
             try {
                 db.messageDao().setTransfer(m.messageId, TransferState.UPLOADING, 0)
-                val url = media.upload(m.messageId, File(m.localMediaPath!!), m.storagePath!!, m.mediaMimeType ?: "application/octet-stream") { p ->
-                    if (p - lastReported >= 5 || p == 100) {
+                val uploaded = media.upload(m.messageId, File(m.localMediaPath!!), m.storagePath!!, m.mediaMimeType ?: "application/octet-stream") { p ->
+                    // 100 % is recorded by setUploadedRef; a late progress write must not undo it.
+                    if (p < 100 && (p < lastReported || p - lastReported >= 5)) {
                         lastReported = p
                         scope.launch(Dispatchers.IO) { db.messageDao().setTransfer(m.messageId, TransferState.UPLOADING, p) }
                     }
                 }
-                db.messageDao().setUploaded(m.messageId, url)
-                pushMessage(m.copy(mediaUrl = url, transferState = TransferState.UPLOADED), conv)
+                db.messageDao().setUploadedRef(m.messageId, uploaded.url, uploaded.path)
+                pushMessage(m.copy(mediaUrl = uploaded.url, storagePath = uploaded.path, transferState = TransferState.UPLOADED), conv)
             } catch (e: Exception) {
                 val cancelled = e is CancellationException || e.javaClass.simpleName.contains("Cancel")
                 Log.w(TAG, "upload failed for ${m.messageId}: ${e.message}")
                 db.messageDao().setTransfer(m.messageId, TransferState.UPLOAD_FAILED, 0)
-                markFailed(m.messageId, if (cancelled) "cancelled" else "upload")
+                markFailed(m.messageId, when {
+                    cancelled -> "cancelled"
+                    e is MediaTooLargeException -> "too_large"
+                    else -> "upload"
+                })
             }
         }
     }
@@ -328,6 +335,16 @@ class ChatRepository(
 
     /** Writes the message (idempotent create keyed by message ID) and the chat preview in one batch. */
     private fun pushMessage(m: Message, conv: Conversation, extra: Map<String, Any?> = emptyMap()) {
+        buildMessageBatch(m, conv, extra).commit()
+            .addOnSuccessListener { sync.enqueue { advance(m.messageId, MessageStatus.SENT) } }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "send ${m.messageId} failed: ${e.message}")
+                sync.enqueue { markFailed(m.messageId, reasonFor(e)) }
+            }
+    }
+
+    /** The message document (created under its own ID) plus the chat preview, as one atomic batch. */
+    private fun buildMessageBatch(m: Message, conv: Conversation, extra: Map<String, Any?> = emptyMap()): WriteBatch {
         val ref = convRef(conv.conversationId)
         val batch = firestore.batch()
         if (!conv.isGroup) {
@@ -346,12 +363,123 @@ class ChatRepository(
             )
         )
         typingState[conv.conversationId] = false
-        batch.commit()
-            .addOnSuccessListener { sync.enqueue { advance(m.messageId, MessageStatus.SENT) } }
-            .addOnFailureListener { e ->
-                Log.w(TAG, "send ${m.messageId} failed: ${e.message}")
-                sync.enqueue { markFailed(m.messageId, reasonFor(e)) }
+        return batch
+    }
+
+    // ================================================================== scheduled messages
+
+    enum class ScheduledResult { SENT, ALREADY_SENT, RETRY, FAILED }
+    data class ScheduledOutcome(val result: ScheduledResult, val reason: String? = null)
+
+    /** Throws [ChatException] when the user may not post in [cid] now (used when scheduling). */
+    suspend fun checkCanSchedule(cid: String) {
+        val me = requireUid()
+        val conv = requireWritable(cid, me)
+        if (conv.isAiConversation) throw ChatException(ChatError.NOT_ALLOWED)
+    }
+
+    /**
+     * Sends a scheduled text under its pre-assigned message ID, exactly once:
+     * 1. the server is asked whether that message already exists (an earlier attempt may have
+     *    succeeded without the app learning about it) - if so, nothing is written;
+     * 2. otherwise the same atomic batch as a normal send is committed and the server
+     *    acknowledgement awaited;
+     * 3. a duplicate create is impossible: the document ID is fixed and the security rules reject
+     *    re-creating an existing message, so racing attempts end with one message.
+     * Authorization is the normal message-create rule (sender = signed-in member of the chat).
+     */
+    suspend fun sendScheduledText(id: String, cid: String, text: String, owner: String): ScheduledOutcome {
+        val me = currentUid() ?: return ScheduledOutcome(ScheduledResult.RETRY, "not_signed_in")
+        if (me != owner) return ScheduledOutcome(ScheduledResult.FAILED, "other_account")
+        val conv = try {
+            requireWritable(cid, me)
+        } catch (e: ChatException) {
+            return ScheduledOutcome(ScheduledResult.FAILED, e.error.name.lowercase())
+        }
+        if (conv.isAiConversation) return ScheduledOutcome(ScheduledResult.FAILED, "not_allowed")
+        when (MessagePolicy.validateText(text.trim())) {
+            MessagePolicy.TextError.EMPTY -> return ScheduledOutcome(ScheduledResult.FAILED, "empty")
+            MessagePolicy.TextError.TOO_LONG -> return ScheduledOutcome(ScheduledResult.FAILED, "too_long")
+            null -> Unit
+        }
+        if (!connectivity.isOnline) return ScheduledOutcome(ScheduledResult.RETRY, "offline")
+        when (serverHasMessage(conv, id)) {
+            true -> { confirmSent(id); return ScheduledOutcome(ScheduledResult.ALREADY_SENT) }
+            null -> return ScheduledOutcome(ScheduledResult.RETRY, "check_failed")
+            false -> Unit
+        }
+        val now = System.currentTimeMillis()
+        val existing = db.messageDao().get(id)
+        val m = existing?.copy(status = MessageStatus.SENDING, failureReason = null) ?: Message(
+            messageId = id, conversationId = cid, senderId = me, content = text.trim(), type = MessageType.TEXT,
+            status = MessageStatus.SENDING, createdAt = now, expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
+        )
+        if (existing == null) insertLocal(m) else db.messageDao().setStatus(id, MessageStatus.SENDING, null)
+        return try {
+            val acked = withTimeoutOrNull(SCHEDULED_SEND_TIMEOUT_MS) { buildMessageBatch(m, conv).commit().await(); true }
+            if (acked == true) {
+                advance(id, MessageStatus.SENT)
+                ScheduledOutcome(ScheduledResult.SENT)
+            } else {
+                // The write may still be queued; the next attempt asks the server first.
+                ScheduledOutcome(ScheduledResult.RETRY, "timeout")
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: FirebaseFirestoreException) {
+            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                // Either a racing attempt created it first (re-creating is denied) or posting is not allowed.
+                if (serverHasMessage(conv, id) == true) { confirmSent(id); ScheduledOutcome(ScheduledResult.ALREADY_SENT) }
+                else {
+                    // Never reached the server: drop the local copy; the scheduled entry (retry/edit/delete) represents it.
+                    db.withTransaction { db.messageDao().deleteHard(listOf(id)); sync.refreshLastMessage(cid) }
+                    diagnostics?.record(DiagnosticsLog.SEND, "send_failed", "denied")
+                    ScheduledOutcome(ScheduledResult.FAILED, "denied")
+                }
+            } else {
+                ScheduledOutcome(ScheduledResult.RETRY, e.code.name.lowercase())
+            }
+        } catch (e: Exception) {
+            ScheduledOutcome(ScheduledResult.RETRY, e.javaClass.simpleName)
+        }
+    }
+
+    /** true/false = the server has / doesn't have the message; null = unknown (offline, error). */
+    private suspend fun serverHasMessage(conv: Conversation, id: String): Boolean? = try {
+        withTimeoutOrNull(15_000) { msgRef(conv.conversationId, id).get(Source.SERVER).await().exists() }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: FirebaseFirestoreException) {
+        // A direct chat whose document doesn't exist yet can't be read - and can't contain the message.
+        if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED && !conv.isGroup) false else null
+    } catch (e: Exception) {
+        null
+    }
+
+    private suspend fun confirmSent(id: String) {
+        if (db.messageDao().get(id) != null) advance(id, MessageStatus.SENT)
+    }
+
+    // ================================================================== media & link browser
+
+    fun observeMessagesOfTypes(cid: String, types: List<MessageType>, limit: Int = 500): Flow<List<Message>> =
+        observeConversation(cid).map { it?.clearedAt ?: 0L }.distinctUntilChanged()
+            .flatMapLatest { cleared -> db.messageDao().observeByTypes(cid, cleared, types.map { it.name }, limit) }
+
+    fun observeMessagesWithLinks(cid: String, limit: Int = 500): Flow<List<Message>> =
+        observeConversation(cid).map { it?.clearedAt ?: 0L }.distinctUntilChanged()
+            .flatMapLatest { cleared -> db.messageDao().observeWithLinks(cid, cleared, limit) }
+
+    /** Visible messages after [since] (oldest first), used as AI context after an explicit user action. */
+    suspend fun messagesSince(cid: String, since: Long, limit: Int): List<Message> {
+        val cleared = db.conversationDao().get(cid)?.clearedAt ?: 0L
+        return db.messageDao().since(cid, maxOf(since, cleared), limit)
+    }
+
+    /** The newest visible messages (oldest first). */
+    suspend fun recentMessages(cid: String, limit: Int): List<Message> {
+        val cleared = db.conversationDao().get(cid)?.clearedAt ?: 0L
+        return db.messageDao().recent(cid, cleared, limit).asReversed()
     }
 
     private suspend fun advance(id: String, status: MessageStatus) {
@@ -363,7 +491,10 @@ class ChatRepository(
     private suspend fun markFailed(id: String, reason: String) {
         val cur = db.messageDao().get(id) ?: return
         val next = DeliveryPolicy.advance(cur.status, MessageStatus.FAILED)
-        if (next == MessageStatus.FAILED) db.messageDao().setStatus(id, MessageStatus.FAILED, reason)
+        if (next == MessageStatus.FAILED) {
+            db.messageDao().setStatus(id, MessageStatus.FAILED, reason)
+            diagnostics?.record(DiagnosticsLog.SEND, "send_failed", reason)
+        }
     }
 
     private fun reasonFor(e: Exception): String =
@@ -692,7 +823,7 @@ class ChatRepository(
         val photoUrl = photo?.let { uri ->
             runCatching {
                 val bytes = media.compressImage(uri, 640, 85) ?: return@runCatching null
-                media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg")
+                media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg").url
             }.getOrNull()
         }
         val now = System.currentTimeMillis()
@@ -793,7 +924,7 @@ class ChatRepository(
         var photoUrl = c.avatarUrl
         if (photo != null) {
             val bytes = media.compressImage(photo, 640, 85) ?: throw ChatException(ChatError.FILE_UNREADABLE)
-            photoUrl = media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg")
+            photoUrl = media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg").url
             update["photoUrl"] = photoUrl
         }
         val event = when {
@@ -884,7 +1015,7 @@ class ChatRepository(
         var lastReported = -10
         try {
             val file = media.download(messageId, m.storagePath, m.mediaUrl, m.fileName, m.mediaMimeType) { p ->
-                if (p - lastReported >= 5) {
+                if (p < 100 && p - lastReported >= 5) {
                     lastReported = p
                     scope.launch(Dispatchers.IO) { db.messageDao().setTransfer(messageId, TransferState.DOWNLOADING, p) }
                 }
@@ -905,7 +1036,10 @@ class ChatRepository(
         db.messageDao().forgetLocalMedia(cid)
     }
 
-    companion object { private const val TAG = "ChatRepository" }
+    companion object {
+        private const val SCHEDULED_SEND_TIMEOUT_MS = 45_000L
+        private const val TAG = "ChatRepository"
+    }
 }
 
 class GroupValidationException(val errors: List<GroupError>) : Exception(errors.joinToString())

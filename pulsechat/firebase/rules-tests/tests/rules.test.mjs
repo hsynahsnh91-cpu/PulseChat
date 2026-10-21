@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { assertFails, assertSucceeds, initializeTestEnvironment } from "@firebase/rules-unit-testing";
 import {
-  arrayRemove, arrayUnion, collection, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp,
+  arrayRemove, arrayUnion, Bytes, collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp,
   updateDoc, where, writeBatch,
 } from "firebase/firestore";
 
@@ -118,6 +118,27 @@ describe("direct chats and messages", () => {
     await assertFails(setDoc(doc(db("carol"), `conversations/${DM}/messages/x`), messageData("carol")));
     await assertFails(setDoc(doc(db("alice"), `conversations/${DM}/messages/x`), messageData("bob")));
     await assertSucceeds(setDoc(doc(db("bob"), `conversations/${DM}/messages/x`), messageData("bob")));
+  });
+
+  test("a message ID can be created only once, so scheduled-message retries can never duplicate it", async () => {
+    await seedPeople();
+    await seedDm();
+    const fs = db("alice");
+    const msg = doc(fs, `conversations/${DM}/messages/sched-1`);
+    // Before sending, the app checks the server: reading a message ID that doesn't exist is allowed.
+    await assertSucceeds(getDoc(msg));
+    await assertSucceeds(setDoc(msg, messageData("alice", { text: "scheduled" })));
+    // A retry of the same scheduled message (same ID, same batch as the app) is rejected as a whole.
+    const conv = doc(fs, `conversations/${DM}`);
+    const retry = writeBatch(fs);
+    retry.set(conv, { type: "direct", participants: ["alice", "bob"] }, { merge: true });
+    retry.set(msg, messageData("alice", { text: "scheduled" }));
+    retry.update(conv, { lastMessage: { id: "sched-1", senderId: "alice", type: "TEXT", preview: "scheduled", createdAt: serverTimestamp() },
+      lastMessageAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await assertFails(retry.commit());
+    await assertFails(setDoc(msg, messageData("alice", { text: "scheduled" })));
+    const stored = await getDoc(msg);
+    if (stored.data().text !== "scheduled") throw new Error("the first copy must stay untouched");
   });
 
   test("a blocked user cannot message the person who blocked them", async () => {
@@ -287,5 +308,55 @@ describe("ownership and housekeeping", () => {
     await assertSucceeds(deleteDoc(doc(db("bob"), `conversations/${DM}/messages/gone`)));
     await assertFails(deleteDoc(doc(db("bob"), `conversations/${DM}/messages/live`)));
     await assertFails(deleteDoc(doc(db("carol"), `conversations/${DM}/messages/live`)));
+  });
+});
+
+describe("built-in media store (used when Cloud Storage is unavailable)", () => {
+  const meta = (owner, extra = {}) => ({ owner, mime: "image/jpeg", size: 1000, chunks: 2, createdAt: serverTimestamp(), ...extra });
+  const chunk = (owner, n = 10) => ({ owner, data: Bytes.fromUint8Array(new Uint8Array(n)) });
+  const M = "md0123456789abcdef0123";
+
+  test("the owner uploads a file in chunks (retries overwrite); signed-in users read it by ID but cannot list", async () => {
+    const fs = db("alice");
+    await assertSucceeds(setDoc(doc(fs, `media/${M}`), meta("alice")));
+    await assertSucceeds(setDoc(doc(fs, `media/${M}`), meta("alice")));
+    await assertSucceeds(setDoc(doc(fs, `media/${M}/chunks/0`), chunk("alice")));
+    await assertSucceeds(setDoc(doc(fs, `media/${M}/chunks/1`), chunk("alice")));
+    await assertSucceeds(setDoc(doc(fs, `media/${M}/chunks/1`), chunk("alice")));
+    await assertFails(setDoc(doc(fs, `media/${M}/chunks/2`), chunk("alice")));
+    await assertSucceeds(getDoc(doc(db("bob"), `media/${M}`)));
+    await assertSucceeds(getDoc(doc(db("bob"), `media/${M}/chunks/1`)));
+    await assertFails(getDocs(collection(db("bob"), "media")));
+    await assertFails(getDocs(collection(db("bob"), `media/${M}/chunks`)));
+    await assertFails(getDoc(doc(anon(), `media/${M}`)));
+    await assertFails(getDoc(doc(anon(), `media/${M}/chunks/0`)));
+  });
+
+  test("nobody else can write, overwrite or delete someone's media", async () => {
+    await seed(async (fs) => {
+      await setDoc(doc(fs, `media/${M}`), { owner: "alice", mime: "image/jpeg", size: 10, chunks: 1, createdAt: Timestamp.now() });
+      await setDoc(doc(fs, `media/${M}/chunks/0`), chunk("alice"));
+    });
+    const bob = db("bob");
+    await assertFails(setDoc(doc(bob, `media/${M}`), meta("bob")));
+    await assertFails(setDoc(doc(bob, `media/${M}/chunks/0`), chunk("bob")));
+    await assertFails(deleteDoc(doc(bob, `media/${M}/chunks/0`)));
+    await assertFails(deleteDoc(doc(bob, `media/${M}`)));
+    await assertFails(setDoc(doc(bob, "media/mdNoMetadataDocument01/chunks/0"), chunk("bob")));
+    await assertSucceeds(deleteDoc(doc(db("alice"), `media/${M}/chunks/0`)));
+    await assertSucceeds(deleteDoc(doc(db("alice"), `media/${M}`)));
+  });
+
+  test("sizes, chunk limits, owner and IDs are validated", async () => {
+    const fs = db("alice");
+    await assertFails(setDoc(doc(fs, "media/mdTooBig000000000001"), meta("alice", { size: 33554433 })));
+    await assertFails(setDoc(doc(fs, "media/mdTooManyChunks00001"), meta("alice", { chunks: 65 })));
+    await assertFails(setDoc(doc(fs, "media/mdSpoofedOwner000001"), meta("bob")));
+    await assertFails(setDoc(doc(fs, "media/mdExtraField00000001"), meta("alice", { url: "x" })));
+    await assertFails(setDoc(doc(fs, "media/bad id"), meta("alice")));
+    await assertSucceeds(setDoc(doc(fs, "media/mdChunkLimit00000001"), meta("alice")));
+    await assertFails(setDoc(doc(fs, "media/mdChunkLimit00000001/chunks/0"), chunk("alice", 524289)));
+    await assertSucceeds(setDoc(doc(fs, "media/mdChunkLimit00000001/chunks/0"), chunk("alice", 524288)));
+    await assertFails(setDoc(doc(fs, "media/mdChunkLimit00000001/chunks/1"), chunk("bob")));
   });
 });

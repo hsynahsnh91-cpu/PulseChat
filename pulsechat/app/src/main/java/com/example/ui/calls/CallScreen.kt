@@ -1,5 +1,14 @@
 package com.example.ui.calls
 
+import com.example.calls.AudioRoute
+import com.example.calls.CallStatsSnapshot
+import androidx.compose.material.icons.filled.PhoneInTalk
+import androidx.compose.material.icons.filled.Headset
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.mutableStateOf
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -76,6 +85,10 @@ fun CallScreen(onClose: () -> Unit) {
     val manager = container.callManager
     val context = LocalContext.current
     val ui by manager.ui.collectAsState()
+    val routes by manager.audioRoutes.collectAsState()
+    val stats by manager.stats.collectAsState()
+    val settings by container.prefs.settings.collectAsState()
+    var routeMenu by remember { mutableStateOf(false) }
     val view = LocalView.current
     DisposableEffect(Unit) {
         view.keepScreenOn = true
@@ -124,8 +137,26 @@ fun CallScreen(onClose: () -> Unit) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         RoundButton(if (ui.micMuted) Icons.Default.MicOff else Icons.Default.Mic, stringResource(if (ui.micMuted) R.string.call_unmute else R.string.call_mute),
                             if (ui.micMuted) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.15f)) { manager.toggleMute() }
-                        RoundButton(Icons.AutoMirrored.Filled.VolumeUp, stringResource(if (ui.speakerOn) R.string.call_speaker_off else R.string.call_speaker_on),
-                            if (ui.speakerOn) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.15f)) { manager.toggleSpeaker() }
+                        // Speaker toggle; with a headset or Bluetooth device connected it becomes a route picker.
+                        val hasHeadset = AudioRoute.WIRED_HEADSET in routes.available || AudioRoute.BLUETOOTH in routes.available
+                        Box {
+                            RoundButton(
+                                routeIcon(if (hasHeadset) routes.current else AudioRoute.SPEAKER),
+                                if (hasHeadset) routeName(routes.current ?: AudioRoute.EARPIECE)
+                                else stringResource(if (ui.speakerOn) R.string.call_speaker_off else R.string.call_speaker_on),
+                                if (ui.speakerOn) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.15f),
+                            ) { if (hasHeadset) routeMenu = true else manager.toggleSpeaker() }
+                            DropdownMenu(expanded = routeMenu, onDismissRequest = { routeMenu = false }) {
+                                routes.available.sortedBy { it.ordinal }.forEach { r ->
+                                    DropdownMenuItem(
+                                        text = { Text(routeName(r)) },
+                                        leadingIcon = { Icon(routeIcon(r), contentDescription = null) },
+                                        trailingIcon = { if (r == routes.current) Icon(Icons.Default.Check, contentDescription = stringResource(R.string.call_route_selected)) },
+                                        onClick = { routeMenu = false; manager.selectAudioRoute(r) },
+                                    )
+                                }
+                            }
+                        }
                         if (ui.isVideo) {
                             RoundButton(if (ui.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, stringResource(if (ui.cameraOn) R.string.call_camera_off else R.string.call_camera_on),
                                 Color.White.copy(alpha = 0.15f)) { manager.toggleCamera() }
@@ -137,6 +168,9 @@ fun CallScreen(onClose: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(24.dp))
+        }
+        if (settings.callShowDetails && ui.isLive) {
+            CallDetailsPanel(stats, routes.current, Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp))
         }
         if (ui.isVideo && ui.cameraOn && (ui.state.isActive || ui.state == CallState.RINGING || ui.state == CallState.INITIATING)) {
             VideoRenderer(manager, remote = false, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).size(width = 110.dp, height = 160.dp).clip(RoundedCornerShape(12.dp)))
@@ -192,5 +226,40 @@ private fun RoundButton(icon: ImageVector, label: String, color: Color, onClick:
         }
         Spacer(Modifier.height(6.dp))
         Text(label, color = Color.White, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+private fun routeName(route: AudioRoute): String = stringResource(when (route) {
+    AudioRoute.EARPIECE -> R.string.call_route_earpiece
+    AudioRoute.SPEAKER -> R.string.call_route_speaker
+    AudioRoute.WIRED_HEADSET -> R.string.call_route_headset
+    AudioRoute.BLUETOOTH -> R.string.call_route_bluetooth
+})
+
+private fun routeIcon(route: AudioRoute?): ImageVector = when (route) {
+    AudioRoute.SPEAKER, null -> Icons.AutoMirrored.Filled.VolumeUp
+    AudioRoute.EARPIECE -> Icons.Default.PhoneInTalk
+    AudioRoute.WIRED_HEADSET -> Icons.Default.Headset
+    AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
+}
+
+/** Live call-quality numbers, shown only when "Show call details" is on (Settings › Diagnostics). */
+@Composable
+private fun CallDetailsPanel(stats: CallStatsSnapshot?, route: AudioRoute?, modifier: Modifier) {
+    fun fmt(v: Double?, digits: Int = 1) = v?.let { String.format(java.util.Locale.US, "%.${digits}f", it) } ?: "–"
+    Column(modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(10.dp)) {
+        val style = MaterialTheme.typography.labelSmall
+        Text(stringResource(R.string.call_details_title), color = Color.White, style = style, fontWeight = FontWeight.SemiBold)
+        if (stats == null) {
+            Text(stringResource(R.string.call_details_waiting), color = Color.White, style = style)
+            return@Column
+        }
+        Text(stringResource(R.string.call_details_network, stats.rttMs?.toString() ?: "–", stats.jitterMs?.toString() ?: "–", fmt(stats.lossPercent)), color = Color.White, style = style)
+        Text(stringResource(R.string.call_details_levels, fmt(stats.inboundAudioLevel, 3), fmt(stats.outboundAudioLevel, 3)), color = Color.White, style = style)
+        if (stats.echoReturnLossEnhancementDb != null) Text(stringResource(R.string.call_details_echo, fmt(stats.echoReturnLossEnhancementDb)), color = Color.White, style = style)
+        Text(stringResource(R.string.call_details_streams, stats.inboundAudioStreams, stats.outboundAudioStreams),
+            color = if (stats.duplicateAudio) Color(0xFFFCA5A5) else Color.White, style = style)
+        if (route != null) Text(routeName(route), color = Color.White, style = style)
     }
 }

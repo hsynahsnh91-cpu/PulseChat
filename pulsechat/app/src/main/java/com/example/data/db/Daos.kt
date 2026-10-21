@@ -201,6 +201,9 @@ interface MessageDao {
     @Query("UPDATE messages SET mediaUrl = :url, transferState = 'UPLOADED', transferProgress = 100 WHERE messageId = :id")
     suspend fun setUploaded(id: String, url: String)
 
+    @Query("UPDATE messages SET mediaUrl = :url, storagePath = :path, transferState = 'UPLOADED', transferProgress = 100 WHERE messageId = :id")
+    suspend fun setUploadedRef(id: String, url: String, path: String)
+
     @Query("UPDATE messages SET localMediaPath = :path, transferState = :state, transferProgress = 100 WHERE messageId = :id")
     suspend fun setLocalMedia(id: String, path: String?, state: TransferState)
 
@@ -275,6 +278,43 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND localMediaPath IS NOT NULL")
     suspend fun withLocalMedia(conversationId: String): List<Message>
+
+    // ---- v4: media & link browser, AI context, diagnostics
+    @Query(
+        "SELECT * FROM messages WHERE conversationId = :conversationId AND type IN (:types) AND deletedForMe = 0 " +
+            "AND deletedForEveryone = 0 AND createdAt > :clearedAt ORDER BY createdAt DESC LIMIT :limit"
+    )
+    fun observeByTypes(conversationId: String, clearedAt: Long, types: List<String>, limit: Int): Flow<List<Message>>
+
+    @Query(
+        "SELECT * FROM messages WHERE conversationId = :conversationId AND deletedForMe = 0 AND deletedForEveryone = 0 " +
+            "AND createdAt > :clearedAt AND (content LIKE '%http%' OR content LIKE '%www.%') ORDER BY createdAt DESC LIMIT :limit"
+    )
+    fun observeWithLinks(conversationId: String, clearedAt: Long, limit: Int): Flow<List<Message>>
+
+    @Query(
+        "SELECT * FROM messages WHERE conversationId = :conversationId AND deletedForMe = 0 AND deletedForEveryone = 0 " +
+            "AND createdAt > :since ORDER BY createdAt ASC LIMIT :limit"
+    )
+    suspend fun since(conversationId: String, since: Long, limit: Int): List<Message>
+
+    @Query(
+        "SELECT * FROM messages WHERE conversationId = :conversationId AND deletedForMe = 0 AND deletedForEveryone = 0 " +
+            "AND createdAt > :clearedAt ORDER BY createdAt DESC LIMIT :limit"
+    )
+    suspend fun recent(conversationId: String, clearedAt: Long, limit: Int): List<Message>
+
+    @Query("SELECT COUNT(*) FROM messages WHERE senderId = :me AND status = :status")
+    fun observeOwnCount(me: String, status: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM messages WHERE transferState = 'UPLOAD_FAILED'")
+    fun observeFailedUploads(): Flow<Int>
+
+    @Query(
+        "SELECT COUNT(*) FROM messages WHERE conversationId = :conversationId AND senderId != :me AND type != 'SYSTEM' " +
+            "AND deletedForMe = 0 AND deletedForEveryone = 0 AND createdAt > :since"
+    )
+    suspend fun countIncomingSince(conversationId: String, me: String, since: Long): Int
 
     @Query("SELECT localMediaPath FROM messages WHERE localMediaPath IS NOT NULL")
     suspend fun allLocalMediaPaths(): List<String>

@@ -51,6 +51,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Folder
+import com.example.data.model.ChatFolder
 import com.example.data.model.ChatListRow
 import com.example.domain.ChatListPolicy
 import com.example.domain.Ids
@@ -77,6 +81,10 @@ fun ChatsTab(
     onSearchMessages: () -> Unit,
     onNewChat: () -> Unit,
     contentPadding: PaddingValues,
+    folders: List<ChatFolder> = emptyList(),
+    selectedFolder: String? = null,
+    onFolder: (String?) -> Unit = {},
+    onManageFolders: () -> Unit = {},
 ) {
     if (!ui.loaded) { LoadingBox(); return }
     LazyColumn(Modifier.fillMaxSize().testTag("chat_list"), contentPadding = contentPadding) {
@@ -89,8 +97,22 @@ fun ChatsTab(
                     ChatFilter.ALL to R.string.filter_all, ChatFilter.UNREAD to R.string.filter_unread,
                     ChatFilter.FAVORITES to R.string.filter_favorites, ChatFilter.GROUPS to R.string.filter_groups,
                 ).forEach { (f, label) ->
-                    FilterChip(selected = filter == f, onClick = { onFilter(f) }, label = { Text(stringResource(label)) }, modifier = Modifier.testTag("filter_${f.name}"))
+                    FilterChip(selected = selectedFolder == null && filter == f, onClick = { onFilter(f) }, label = { Text(stringResource(label)) }, modifier = Modifier.testTag("filter_${f.name}"))
                 }
+                // Custom folders, then the folder manager.
+                folders.forEach { folder ->
+                    FilterChip(
+                        selected = selectedFolder == folder.folderId, onClick = { onFolder(if (selectedFolder == folder.folderId) null else folder.folderId) },
+                        label = { Text(folder.name) }, leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        modifier = Modifier.testTag("folder_chip"),
+                    )
+                }
+                AssistChip(
+                    onClick = onManageFolders,
+                    label = { Text(stringResource(if (folders.isEmpty()) R.string.folder_new else R.string.folders_edit)) },
+                    leadingIcon = { Icon(if (folders.isEmpty()) Icons.Default.CreateNewFolder else Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    modifier = Modifier.testTag("folders_manage"),
+                )
             }
         }
         if (query.isNotBlank()) {
@@ -105,7 +127,7 @@ fun ChatsTab(
                 }
             }
         }
-        if (ui.archivedCount > 0 && query.isBlank() && filter == ChatFilter.ALL) {
+        if (ui.archivedCount > 0 && query.isBlank() && filter == ChatFilter.ALL && selectedFolder == null) {
             item(key = "archived") {
                 Row(
                     Modifier.fillMaxWidth().clickable(onClick = onOpenArchived).heightIn(min = 56.dp).padding(horizontal = 24.dp),
@@ -122,6 +144,9 @@ fun ChatsTab(
             item(key = "empty") {
                 when {
                     query.isNotBlank() -> EmptyState(Icons.Default.Search, stringResource(R.string.empty_search_title), stringResource(R.string.empty_search_body))
+                    selectedFolder != null -> EmptyState(Icons.Default.Folder, stringResource(R.string.folder_empty_title), stringResource(R.string.folder_empty_body)) {
+                        TextButton(onClick = onManageFolders) { Text(stringResource(R.string.folders_edit)) }
+                    }
                     filter != ChatFilter.ALL -> EmptyState(Icons.Outlined.ChatBubbleOutline, stringResource(R.string.empty_filter_title), stringResource(R.string.empty_filter_body)) {
                         TextButton(onClick = { onFilter(ChatFilter.ALL) }) { Text(stringResource(R.string.filter_show_all)) }
                     }

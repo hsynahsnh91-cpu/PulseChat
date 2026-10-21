@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -83,6 +84,7 @@ fun Composer(
     enterToSend: Boolean,
     isAiChat: Boolean,
     editing: Boolean,
+    onSchedule: (() -> Unit)? = null,
 ) {
     if (recording.recording) { RecordingBar(recording, onFinishRecording); return }
     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
@@ -107,6 +109,9 @@ fun Composer(
                 if (!isAiChat && !editing) {
                     IconButton(onClick = onAttach, modifier = Modifier.testTag("composer_attach")) { Icon(Icons.Default.AttachFile, contentDescription = stringResource(R.string.action_attach)) }
                     if (value.text.isEmpty()) IconButton(onClick = onCamera) { Icon(Icons.Default.CameraAlt, contentDescription = stringResource(R.string.attach_camera)) }
+                    else if (onSchedule != null && value.text.isNotBlank()) {
+                        IconButton(onClick = onSchedule, modifier = Modifier.testTag("composer_schedule")) { Icon(Icons.Default.Schedule, contentDescription = stringResource(R.string.schedule_title)) }
+                    }
                 }
             }
         }

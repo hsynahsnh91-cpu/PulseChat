@@ -31,7 +31,8 @@ class GroupsStatusPrivacyE2ETest : EmulatorE2ETest() {
         startFresh()
         val pw = "Passw0rd1"
         val suffix = uniqueSuffix()
-        // Usernames deliberately differ from the display names, so the name search is really tested.
+        // Usernames deliberately differ from the display names: people are found only by their exact
+        // username or 10-digit ID, never by a (non-unique) display name.
         val carolName = "qa_c$suffix"
         val daveName = "qa_d$suffix"
         val statusText = "Pulse status $suffix"
@@ -42,13 +43,15 @@ class GroupsStatusPrivacyE2ETest : EmulatorE2ETest() {
         val carolId10 = c.db.userDao().get(carol)!!.uniqueId10
         switchDevice()
 
-        // 2. Dave registers, finds Carol by 10-digit ID and by name, saves her as a contact, posts a
+        // 2. Dave registers, finds Carol by 10-digit ID and username (not by name), saves her as a contact, posts a
         //    text and a photo status (audience: my contacts), messages her, and creates a group with
         //    24-hour disappearing messages where only admins may send.
         c.authRepository.register("Dave", daveName, pw, pw)
         val dave = awaitSignedIn()
         assertTrue("search by 10-digit ID", c.userRepository.searchUsers(carolId10).any { it.userId == carol })
-        assertTrue("search by display name", c.userRepository.searchUsers("Carol").any { it.userId == carol })
+        assertTrue("search by exact username", c.userRepository.searchUsers("@$carolName").any { it.userId == carol })
+        assertTrue("display names are not searchable", c.userRepository.searchUsers("Carol").isEmpty())
+        assertTrue("partial usernames are not searchable", c.userRepository.searchUsers(carolName.dropLast(2)).isEmpty())
         c.userRepository.saveContact(carol, "Carol QA")
 
         c.statusRepository.postText(statusText, "#4F46E5", "sans")

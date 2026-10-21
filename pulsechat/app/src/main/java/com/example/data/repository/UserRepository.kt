@@ -13,6 +13,7 @@ import com.example.data.remote.RemoteMappers
 import com.example.data.remote.millis
 import com.example.domain.FieldError
 import com.example.domain.Ids
+import com.example.domain.MediaRefs
 import com.example.domain.PresenceDisplay
 import com.example.domain.PresencePolicy
 import com.example.domain.Validators
@@ -100,35 +101,32 @@ class UserRepository(
 
     // ------------------------------------------------------------------ search
 
+    /**
+     * Finds a person by their exact username (with or without "@") or exact 10-digit ID. Display
+     * names are deliberately not searched: they are not unique, so a match could be the wrong
+     * person. Both handles are unique by construction (reserved in usernames/uniqueIds).
+     */
     suspend fun searchUsers(query: String): List<User> {
         val me = currentUid() ?: return emptyList()
-        val q = query.trim().removePrefix("@").lowercase()
-        if (q.length < 2) return emptyList()
-        val blocked = db.contactDao().blockedIds(me).toSet()
-        val found = LinkedHashMap<String, User>()
-        try {
-            if (Validators.isTenDigitId(q)) {
-                val uid = firestore.collection(Fs.UNIQUE_IDS).document(q).get().await().getString("uid")
-                if (uid != null) firestore.collection(Fs.USERS).document(uid).get().await().takeIf { it.exists() }?.let {
-                    found[it.id] = RemoteMappers.user(it, db.userDao().get(it.id))
-                }
-            } else {
-                val users = firestore.collection(Fs.USERS)
-                val byUsername = users.orderBy("username").startAt(q).endAt(q + "\uf8ff").limit(15).get().await()
-                val byName = users.orderBy("displayNameLower").startAt(q).endAt(q + "\uf8ff").limit(15).get().await()
-                (byUsername.documents + byName.documents).forEach { d -> found[d.id] = RemoteMappers.user(d, db.userDao().get(d.id)) }
+        val q = Validators.normalizeUsername(query)
+        val uid = try {
+            when {
+                Validators.isTenDigitId(q) -> firestore.collection(Fs.UNIQUE_IDS).document(q).get().await().getString("uid")
+                Validators.usernameError(q) == null -> firestore.collection(Fs.USERNAMES).document(q).get().await().getString("uid")
+                else -> null
             }
         } catch (e: Exception) {
             Log.w(TAG, "search failed", e)
             throw e
         }
-        val result = found.values.filter { it.userId != me && it.userId !in blocked }
-        result.forEach { u ->
-            val local = db.userDao().get(u.userId)
-            db.userDao().upsert(u.copy(avatarUrl = local?.avatarUrl, statusMessage = local?.statusMessage.orEmpty(), profileSyncedAt = local?.profileSyncedAt ?: 0L))
-        }
-        ensureProfiles(result.map { it.userId })
-        return result
+        if (uid == null || uid == me || uid in db.contactDao().blockedIds(me)) return emptyList()
+        val doc = firestore.collection(Fs.USERS).document(uid).get().await()
+        if (!doc.exists()) return emptyList()
+        val found = RemoteMappers.user(doc, db.userDao().get(uid))
+        val local = db.userDao().get(uid)
+        db.userDao().upsert(found.copy(avatarUrl = local?.avatarUrl, statusMessage = local?.statusMessage.orEmpty(), profileSyncedAt = local?.profileSyncedAt ?: 0L))
+        ensureProfiles(listOf(uid))
+        return listOf(found)
     }
 
     // ------------------------------------------------------------------ contacts
@@ -211,17 +209,26 @@ class UserRepository(
     suspend fun updatePhoto(uri: Uri) {
         val me = currentUid() ?: return
         val bytes = media.compressImage(uri, 640, 85) ?: throw IllegalArgumentException("unreadable image")
-        val url = media.uploadBytes(bytes, "profile-photos/$me/avatar_${System.currentTimeMillis()}.jpg", "image/jpeg")
+        val previous = db.userDao().get(me)?.avatarUrl
+        val url = media.uploadBytes(bytes, "profile-photos/$me/avatar_${System.currentTimeMillis()}.jpg", "image/jpeg").url
         firestore.collection(Fs.USERS).document(me).collection(Fs.RESTRICTED).document(Fs.PHOTO_DOC)
             .set(mapOf("url" to url, "updatedAt" to FieldValue.serverTimestamp())).await()
         db.userDao().get(me)?.let { db.userDao().upsert(it.copy(avatarUrl = url)) }
+        deleteOldPhoto(previous, url)
     }
 
     suspend fun removePhoto() {
         val me = currentUid() ?: return
+        val previous = db.userDao().get(me)?.avatarUrl
         firestore.collection(Fs.USERS).document(me).collection(Fs.RESTRICTED).document(Fs.PHOTO_DOC)
             .set(mapOf("url" to null, "updatedAt" to FieldValue.serverTimestamp()))
         db.userDao().get(me)?.let { db.userDao().upsert(it.copy(avatarUrl = null)) }
+        deleteOldPhoto(previous, null)
+    }
+
+    /** Replaced photos kept in the built-in media store are removed (Cloud Storage copies stay). */
+    private fun deleteOldPhoto(previous: String?, current: String?) {
+        if (previous != null && previous != current && MediaRefs.isPulse(previous)) scope.launch(Dispatchers.IO) { media.deleteRemote(previous) }
     }
 
     // ------------------------------------------------------------------ privacy

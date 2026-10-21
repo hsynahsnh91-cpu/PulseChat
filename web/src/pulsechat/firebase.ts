@@ -21,6 +21,8 @@ export interface PulseChat {
     typing: Map<string, { typing: boolean; at: number }>;
     /** Session observers re-read the profile after it was created (see observeSession). */
     sessionRefreshers: Set<() => void>;
+    /** Until when uploads skip Cloud Storage because the project has no usable bucket (media.ts). */
+    storageUnavailableUntil?: number;
   };
 }
 

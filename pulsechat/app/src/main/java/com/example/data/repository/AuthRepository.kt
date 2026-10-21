@@ -176,6 +176,12 @@ class AuthRepository(
         }
     }
 
+    /** True when nobody else holds [username] (a reservation by the signed-in user counts as free). */
+    suspend fun isUsernameAvailable(username: String): Boolean = try {
+        val owner = firestore.collection(Fs.USERNAMES).document(Validators.normalizeUsername(username)).get().await().getString("uid")
+        owner == null || owner == auth.currentUser?.uid
+    } catch (e: Exception) { throw map(e) }
+
     suspend fun isUsernameTaken(username: String): Boolean = try {
         firestore.collection(Fs.USERNAMES).document(Validators.normalizeUsername(username)).get().await().exists()
     } catch (e: Exception) { throw map(e) }

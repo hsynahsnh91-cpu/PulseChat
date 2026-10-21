@@ -52,10 +52,18 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Prepare CI-only secrets file
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           mkdir -p "$LOG_DIR"
-          # debug.keystore is not pre-created on purpose: the createDebugKeystore task in
-          # app/build.gradle.kts must create it (same path as a fresh local clone).
+          # debug.keystore: if the repository secret DEBUG_KEYSTORE_BASE64 exists, every build is signed
+          # with that same key, so the SHA-1/SHA-256 registered once in Firebase (needed for Google
+          # sign-in) keeps matching. Otherwise it is not pre-created on purpose: the createDebugKeystore
+          # task in app/build.gradle.kts must create it (same path as a fresh local clone).
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 -d > debug.keystore
+            echo "Signing debug builds with the key from the DEBUG_KEYSTORE_BASE64 secret."
+          fi
           # Secrets Gradle Plugin reads .env (falls back to .env.example). Never commit .env.
           if [ ! -f .env ]; then
             if [ -f .env.example ]; then cp .env.example .env; else printf 'GEMINI_API_KEY=\nAI_API_KEY=\n' > .env; fi
@@ -79,6 +87,25 @@ jobs:
           set -o pipefail
           gradle --no-daemon --console=plain assembleDebug 2>&1 | tee "$LOG_DIR/1-assembleDebug.log"
           test -f debug.keystore || { echo "createDebugKeystore did not create debug.keystore"; exit 1; }
+
+      - name: Signing certificate of the debug APK (register it in Firebase for Google sign-in)
+        continue-on-error: true
+        run: |
+          apk=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          {
+            echo "APK: $(basename "$apk") (run $GITHUB_RUN_ID)"
+            "$tools/apksigner" verify --print-certs "$apk" | python3 -c '
+          import re, sys
+          text = sys.stdin.read()
+          for kind in ("SHA-1", "SHA-256"):
+              m = re.search(kind + r" digest: ([0-9a-fA-F]+)", text)
+              if m:
+                  h = m.group(1).upper()
+                  print(kind + ": " + ":".join(h[i:i + 2] for i in range(0, len(h), 2)))
+          '
+          } | tee "$LOG_DIR/0-signing.log"
+          { echo "### Debug APK signing certificate"; echo '```'; cat "$LOG_DIR/0-signing.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: JVM unit tests
         run: |

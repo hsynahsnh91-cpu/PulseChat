@@ -86,8 +86,19 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         c.prefs.setAppLock(enabled, timeoutMs)
         if (!enabled) c.appLock.disableLock()
     }
+
+    /** Turns app lock on with a new PIN. */
+    fun enableAppLock(pin: String) = act(R.string.app_lock_on) { c.appLock.enable(pin, settings.value.appLockTimeoutMs) }
+
+    /** Turns app lock off (after the current PIN was confirmed) and forgets the PIN. */
+    fun disableAppLock() = act(R.string.app_lock_off) { c.appLock.disable() }
+
+    fun changeAppLockPin(pin: String) = act(R.string.toast_saved) { c.appLock.changePin(pin) }
+    fun setAppLockBiometric(enabled: Boolean) = c.prefs.setAppLockBiometric(enabled)
+    suspend fun checkAppLockPin(pin: String) = c.appLock.checkPin(pin)
+    fun biometricAvailable(): Boolean = c.appLock.biometricAvailable(c.app)
     fun unblock(uid: String) = act { c.userRepository.unblock(uid) }
     fun clearMedia(conversationId: String) = act(R.string.toast_media_cleared) { c.chatRepository.clearMediaFor(conversationId); refreshStorage() }
     fun signOut() = act { c.authRepository.signOut() }
-    fun isDeviceSecure(): Boolean = c.appLock.isDeviceSecure(c.app)
+    fun setTranslationTarget(tag: String) = c.prefs.setTranslationTarget(tag)
 }

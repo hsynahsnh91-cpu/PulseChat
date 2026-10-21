@@ -2,6 +2,7 @@ package com.example.data.prefs
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.calls.EchoCancellerMode
 import com.example.domain.AutoDownloadSettings
 import com.example.domain.StatusPolicy
 import com.example.domain.model.MessageType
@@ -33,7 +34,15 @@ data class AppSettings(
     val aiConsent: Boolean = false,
     val aiSmartReplies: Boolean = false,
     val appLockEnabled: Boolean = false,
-    val appLockTimeoutMs: Long = 60_000L,
+    val appLockTimeoutMs: Long = 0L,
+    val appLockHasPin: Boolean = false,
+    val appLockBiometric: Boolean = false,
+    // Calls (Settings › Diagnostics › Call audio)
+    val callEchoMode: EchoCancellerMode = EchoCancellerMode.AUTO,
+    val callAutoGain: Boolean = false,
+    val callShowDetails: Boolean = false,
+    // In-chat translation: BCP-47 tag of the target language ("" = the app language)
+    val translationTarget: String = "",
 )
 
 /**
@@ -80,6 +89,12 @@ class AppPreferences(context: Context) {
             aiSmartReplies = prefs.getBoolean("ai_smart_replies", false),
             appLockEnabled = secure.getBoolean("app_lock", false),
             appLockTimeoutMs = secure.getLong("app_lock_timeout", d.appLockTimeoutMs),
+            appLockHasPin = secure.getString("app_lock_pin", null) != null,
+            appLockBiometric = secure.getBoolean("app_lock_biometric", false),
+            callEchoMode = runCatching { EchoCancellerMode.valueOf(prefs.getString("call_echo_mode", d.callEchoMode.name)!!) }.getOrDefault(d.callEchoMode),
+            callAutoGain = prefs.getBoolean("call_auto_gain", d.callAutoGain),
+            callShowDetails = prefs.getBoolean("call_show_details", d.callShowDetails),
+            translationTarget = prefs.getString("translation_target", "") ?: "",
         )
     }
 
@@ -119,6 +134,45 @@ class AppPreferences(context: Context) {
     }
     fun setAiSmartReplies(value: Boolean) = edit { putBoolean("ai_smart_replies", value) }
     fun setAppLock(enabled: Boolean, timeoutMs: Long) = editSecure { putBoolean("app_lock", enabled); putLong("app_lock_timeout", timeoutMs) }
+    fun setAppLockBiometric(enabled: Boolean) = editSecure { putBoolean("app_lock_biometric", enabled) }
+
+    /** Salted PIN hash record written by AppLockManager (never the PIN itself). Excluded from backups. */
+    val appLockPinRecord: String? get() = secure.getString("app_lock_pin", null)
+    fun setAppLockPinRecord(record: String?) = editSecure { if (record == null) remove("app_lock_pin") else putString("app_lock_pin", record) }
+
+    /** Failed PIN attempts and the lockout they caused (persisted, so restarting the app doesn't reset them). */
+    var appLockFailures: Int
+        get() = secure.getInt("app_lock_failures", 0)
+        set(value) { secure.edit().putInt("app_lock_failures", value).apply() }
+    var appLockLockoutUntil: Long
+        get() = secure.getLong("app_lock_lockout_until", 0L)
+        set(value) { secure.edit().putLong("app_lock_lockout_until", value).apply() }
+
+    /** Turns app lock off and forgets the PIN (sign-out, "forgot PIN"). */
+    fun resetAppLock() = editSecure {
+        putBoolean("app_lock", false); remove("app_lock_pin"); remove("app_lock_biometric")
+        remove("app_lock_failures"); remove("app_lock_lockout_until")
+    }
+
+    fun setCallEchoMode(mode: EchoCancellerMode) = edit { putString("call_echo_mode", mode.name) }
+    fun setCallAutoGain(value: Boolean) = edit { putBoolean("call_auto_gain", value) }
+    fun setCallShowDetails(value: Boolean) = edit { putBoolean("call_show_details", value) }
+    fun setTranslationTarget(tag: String) = edit { putString("translation_target", tag) }
+
+    /** Summary of the last call for Settings › Diagnostics (JSON, no personal data). */
+    var lastCallSummary: String?
+        get() = prefs.getString("last_call_summary", null)
+        set(value) { prefs.edit().putString("last_call_summary", value).apply() }
+
+    /** When the realtime sync last received data from the server (Settings › Diagnostics). */
+    var lastServerSyncAt: Long
+        get() = prefs.getLong("last_server_sync_at", 0L)
+        set(value) { prefs.edit().putLong("last_server_sync_at", value).apply() }
+
+    /** Until when uploads skip Cloud Storage because the project has no usable bucket (see MediaRepository). */
+    var storageUnavailableUntil: Long
+        get() = prefs.getLong("storage_unavailable_until", 0L)
+        set(value) { prefs.edit().putLong("storage_unavailable_until", value).apply() }
 
     // ---- Account conveniences (no secrets) ----
     fun recentAccounts(): List<String> = prefs.getString("recent_accounts", "")!!.split("\n").filter { it.isNotBlank() }
@@ -148,7 +202,11 @@ class AppPreferences(context: Context) {
             .remove("status_mode").remove("status_list").remove("default_disappearing")
             .remove("ai_consent").remove("ai_smart_replies")
             .apply()
-        secure.edit().remove("push_token").apply()
+        // App lock belongs to the signed-in account (and signing out is the way out of a forgotten PIN).
+        secure.edit().remove("push_token")
+            .putBoolean("app_lock", false).remove("app_lock_pin").remove("app_lock_biometric")
+            .remove("app_lock_failures").remove("app_lock_lockout_until")
+            .apply()
         _settings.value = load()
     }
 }

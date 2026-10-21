@@ -377,6 +377,44 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    // ------------------------------------------------------------------ built-in media store
+    // Used for photos, voice notes, videos, documents, statuses and profile/group photos whenever
+    // the project has no usable Cloud Storage bucket (see MediaRefs.kt). A file is a metadata
+    // document plus numbered chunks of at most 512 KB (64 chunks, i.e. 32 MB, at most).
+    // Like Storage objects, media can be read by signed-in users who know its random ID, which
+    // only appears in documents the reader is already allowed to see; it can never be listed.
+    // Only the uploader can write or delete it.
+    match /media/{mediaId} {
+      function validMediaId() { return mediaId.matches('^[A-Za-z0-9_-]{8,64}$'); }
+      function mediaOwnedByMe() { return resource == null || resource.data.owner == uid(); }
+
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if signedIn() && validMediaId() && mediaOwnedByMe()
+        && request.resource.data.keys().hasOnly(['owner', 'mime', 'size', 'chunks', 'createdAt'])
+        && request.resource.data.owner == uid()
+        && request.resource.data.mime is string && request.resource.data.mime.size() <= 128
+        && request.resource.data['size'] is int && request.resource.data['size'] > 0 && request.resource.data['size'] <= 33554432
+        && request.resource.data.chunks is int && request.resource.data.chunks > 0 && request.resource.data.chunks <= 64
+        && request.resource.data.createdAt == request.time;
+      allow delete: if signedIn() && resource.data.owner == uid();
+
+      match /chunks/{index} {
+        function parent() { return get(/databases/$(database)/documents/media/$(mediaId)).data; }
+
+        allow get: if signedIn();
+        allow list: if false;
+        allow create, update: if signedIn()
+          && (resource == null || resource.data.owner == uid())
+          && index.matches('^[0-9]{1,2}$')
+          && request.resource.data.keys().hasOnly(['owner', 'data'])
+          && request.resource.data.owner == uid()
+          && request.resource.data.data is bytes && request.resource.data.data.size() <= 524288
+          && parent().owner == uid() && int(index) < parent().chunks;
+        allow delete: if signedIn() && resource.data.owner == uid();
+      }
+    }
+
     // ------------------------------------------------------------------ admin-managed config (e.g. TURN servers)
     match /config/{docId} {
       allow read: if signedIn();

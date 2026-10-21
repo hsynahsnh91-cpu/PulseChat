@@ -6,14 +6,13 @@
  * app's named database and storage bucket) and answers Android users in real time:
  *  - creates the account "webonly" on the web and signs out (Android then signs in with it);
  *  - signs up "webpeer" and, for every incoming message: writes a read receipt, replies to TEXT
- *    with "echo: <text>" (quoting it) and sends IMAGE uploads back after downloading them from Storage.
+ *    with "echo: <text>" (quoting it) and sends IMAGE uploads back after downloading them.
  * Prints WEB_PEER_READY when it is listening. Stop it with SIGTERM.
  */
-import { getBytes, ref as storageRef } from "firebase/storage";
 import type { Unsubscribe } from "firebase/firestore";
 import {
-  ANDROID_FIREBASE_PROJECT, ANDROID_FIRESTORE_DATABASE_ID, disposePulseChat, initPulseChat, markRead, observeConversations, observeMessages,
-  sendMedia, sendText, signOut, signUp, startPresence, type ChatMessage, type Conversation, type PulseChatWebConfig,
+  ANDROID_FIREBASE_PROJECT, ANDROID_FIRESTORE_DATABASE_ID, disposePulseChat, initPulseChat, markRead, mediaBytes, observeConversations,
+  observeMessages, sendMedia, sendText, signOut, signUp, startPresence, type ChatMessage, type Conversation, type PulseChatWebConfig,
 } from "../src/pulsechat";
 
 const PASSWORD = process.env.WEB_PEER_PASSWORD ?? "Passw0rd1";
@@ -63,7 +62,8 @@ async function main(): Promise<void> {
         if (m.type === "TEXT") {
           await sendText(pc, conv, `echo: ${m.text}`, { replyTo: m });
         } else if (m.type === "IMAGE" && m.media) {
-          const bytes = new Uint8Array(await getBytes(storageRef(pc.storage, m.media.path)));
+          // Cloud Storage path or built-in media store reference, whichever the sender used.
+          const bytes = await mediaBytes(pc, m.media);
           log(`downloaded ${bytes.byteLength} bytes from ${m.media.path}`);
           await sendMedia(pc, conv, {
             data: bytes, mime: m.media.mime, fileName: `echo-${m.media.name ?? "photo"}`, caption: `echo: ${m.text}`,
