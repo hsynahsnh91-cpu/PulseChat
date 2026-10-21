@@ -77,6 +77,10 @@ import com.example.ui.common.DeliveryTicks
 import com.example.ui.common.Formatters
 import com.example.ui.components.EmojiPickerView
 import com.example.ui.components.UserAvatar
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.widthIn
+import com.example.ui.theme.Spacing
 
 val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
@@ -101,22 +105,21 @@ data class MessageActions(
 @Composable
 fun MessageActionsSheet(message: Message, facts: MessagePolicy.Facts, now: Long, me: String, actions: MessageActions, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
+        // Scrolls: with every option available the list is taller than a small phone.
+        Column(Modifier.padding(bottom = Spacing.xxl).verticalScroll(rememberScrollState())) {
             if (MessagePolicy.canReact(facts)) {
                 val mine = message.reactionMap()[me]
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                // Each reaction gets an equal share of the width (up to 46dp), so the row never
+                // overflows narrow screens.
+                Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
                     QUICK_REACTIONS.forEach { emoji ->
-                        Box(
-                            Modifier.size(46.dp).clip(CircleShape).background(if (mine == emoji) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable { actions.onReact(emoji) },
-                            contentAlignment = Alignment.Center,
-                        ) { Text(emoji, fontSize = 22.sp) }
+                        ReactionCell(selected = mine == emoji, onClick = { actions.onReact(emoji) }) { Text(emoji, fontSize = 22.sp) }
                     }
-                    Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).clickable { actions.onMoreReactions() }, contentAlignment = Alignment.Center) {
+                    ReactionCell(selected = false, onClick = actions.onMoreReactions) {
                         Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_more_reactions))
                     }
                 }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(Modifier.padding(vertical = Spacing.sm), color = MaterialTheme.colorScheme.outlineVariant)
             }
             if (MessagePolicy.canRetry(facts)) ActionRow(Icons.Default.Refresh, stringResource(R.string.action_retry), actions.onRetry)
             if (MessagePolicy.canReply(facts)) ActionRow(Icons.AutoMirrored.Filled.Reply, stringResource(R.string.action_reply), actions.onReply)
@@ -136,10 +139,22 @@ fun MessageActionsSheet(message: Message, facts: MessagePolicy.Facts, now: Long,
 }
 
 @Composable
+private fun RowScope.ReactionCell(selected: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.widthIn(max = 46.dp).fillMaxWidth().aspectRatio(1f).clip(CircleShape)
+                .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { content() }
+    }
+}
+
+@Composable
 private fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit, destructive: Boolean = false) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 52.dp).padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 52.dp).padding(horizontal = Spacing.xxl), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(20.dp))
+        Spacer(Modifier.width(Spacing.xl))
         Text(label, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
     }
 }
@@ -156,7 +171,7 @@ fun ReactionPickerSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
 @Composable
 fun ReactionsDetailSheet(message: Message, users: Map<String, User>, me: String, onRemoveMine: () -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
+        Column(Modifier.padding(bottom = 24.dp).verticalScroll(rememberScrollState())) {
             Text(stringResource(R.string.reactions_title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
             message.reactionMap().entries.sortedBy { if (it.key == me) 0 else 1 }.forEach { (uid, emoji) ->
                 val name = if (uid == me) stringResource(R.string.you) else users[uid]?.displayName ?: stringResource(R.string.unknown_user)

@@ -64,6 +64,12 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import com.example.ui.theme.Motion
+import androidx.lifecycle.Lifecycle
+import kotlinx.coroutines.flow.first
+import androidx.navigation.NavController
+import android.util.Log
+import com.example.BuildConfig
+import androidx.compose.runtime.DisposableEffect
 
 object Routes {
     const val HOME = "home"
@@ -121,6 +127,14 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     NotificationPermissionRequest()
 
     val settingsNav = SettingsNav(back = { nav.popBackStack() }, open = { nav.go(it) })
+    if (BuildConfig.DEBUG) {
+        // Debug builds only: a navigation trace for diagnosing screen-flow problems from logcat.
+        DisposableEffect(nav) {
+            val listener = NavController.OnDestinationChangedListener { _, destination, _ -> Log.d("PulseNav", "destination=${destination.route}") }
+            nav.addOnDestinationChangedListener(listener)
+            onDispose { nav.removeOnDestinationChangedListener(listener) }
+        }
+    }
     // Short, direction-aware transitions (the default is a 700 ms cross-fade, which made every screen
     // change feel slow). Start/End follow the layout direction, so Arabic slides the other way.
     NavHost(
@@ -221,7 +235,17 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
             Routes.CALL,
             enterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, exitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
             popEnterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, popExitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
-        ) { CallScreen(onClose = { if (nav.currentBackStackEntry?.destination?.route == Routes.CALL) nav.popBackStack() }) }
+        ) { entry ->
+            CallScreen(onClose = {
+                scope.launch {
+                    // Pop only once navigation has finished bringing this screen up: popping an entry that
+                    // is still being created (a call that ended before its screen appeared) can leave it
+                    // half-initialised, which crashes the next activity recreation.
+                    val state = entry.lifecycle.currentStateFlow.first { it == Lifecycle.State.DESTROYED || it.isAtLeast(Lifecycle.State.RESUMED) }
+                    if (state != Lifecycle.State.DESTROYED && nav.currentBackStackEntry?.id == entry.id) nav.popBackStack()
+                }
+            })
+        }
         composable("settings") { SettingsHomeScreen(settingsNav) }
         composable("settings/profile") { ProfileSettingsScreen(settingsNav) }
         composable("settings/privacy") { PrivacySettingsScreen(settingsNav) }

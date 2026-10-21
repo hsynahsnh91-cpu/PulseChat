@@ -94,6 +94,8 @@ import com.example.ui.theme.Motion
 import com.example.ui.theme.Radii
 import com.example.ui.theme.Spacing
 import com.example.ui.common.rememberReducedMotion
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 
 @Composable
 fun Composer(
@@ -111,6 +113,7 @@ fun Composer(
     isAiChat: Boolean,
     editing: Boolean,
     onSchedule: (() -> Unit)? = null,
+    focusRequester: FocusRequester? = null,
 ) {
     // Only the switch between typing and recording recomposes here; the level meter and the text
     // are read further down.
@@ -121,7 +124,7 @@ fun Composer(
         label = "composer-mode",
     ) { recordingNow ->
         if (recordingNow) RecordingBar(recording, onFinishRecording)
-        else InputRow(value, onValueChange, onSend, onAttach, onCamera, emojiOpen, onEmojiToggle, onStartRecording, enterToSend, isAiChat, editing, onSchedule)
+        else InputRow(value, onValueChange, onSend, onAttach, onCamera, emojiOpen, onEmojiToggle, onStartRecording, enterToSend, isAiChat, editing, onSchedule, focusRequester)
     }
 }
 
@@ -161,6 +164,7 @@ private fun InputRow(
     isAiChat: Boolean,
     editing: Boolean,
     onSchedule: (() -> Unit)?,
+    focusRequester: FocusRequester?,
 ) {
     val v = value.value
     val textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
@@ -180,7 +184,7 @@ private fun InputRow(
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = if (enterToSend) ImeAction.Send else ImeAction.Default),
                     keyboardActions = KeyboardActions(onSend = { onSend() }),
-                    modifier = Modifier.weight(1f).testTag("composer_input"),
+                    modifier = Modifier.weight(1f).let { if (focusRequester != null) it.focusRequester(focusRequester) else it }.testTag("composer_input"),
                     decorationBox = { inner ->
                         Box(Modifier.heightIn(min = 48.dp).padding(vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
                             if (v.text.isEmpty()) {

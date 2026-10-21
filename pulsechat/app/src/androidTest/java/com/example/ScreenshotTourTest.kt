@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -62,14 +63,19 @@ class ScreenshotTourTest : EmulatorE2ETest() {
 
     private fun shot(name: String) {
         settle(700)
+        Log.i("PulseTour", "shot $name")
         shell("screencap -p $dir/$name.png")
     }
 
     private fun str(id: Int): String = compose.activity.getString(id)
 
     private fun apply(v: Variant) {
+        Log.i("PulseTour", "variant ${v.id}")
+        // One display change at a time: each one recreates the activity.
         shell("wm size ${v.size}")
+        settle(2_500)
         shell("wm density ${v.density}")
+        settle(2_500)
         shell("settings put system font_scale ${v.font}")
         c.prefs.setThemeMode(if (v.dark) ThemeMode.DARK else ThemeMode.LIGHT)
         val language = if (v.arabic) AppLanguage.ARABIC else AppLanguage.ENGLISH
@@ -203,16 +209,6 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             shot("${v.id}-4-attach-sheet")
             Espresso.pressBack()
             settle()
-            tap("chat_voice_call")
-            // Starting a call writes to the backend first; wait for the call screen itself.
-            val callShown = runCatching { compose.waitUntil(20_000) { exists("call_end") } }.isSuccess
-            settle(1_200)
-            shot("${v.id}-5-call")
-            if (callShown) {
-                runCatching { tap("call_end") }
-                runCatching { compose.waitUntil(15_000) { !exists("call_end") } }
-            }
-            settle(1_500)
             goHome()
             tap("home_menu")
             compose.onNodeWithTag("menu_settings").performClick()
@@ -225,6 +221,28 @@ class ScreenshotTourTest : EmulatorE2ETest() {
                     shot("${v.id}-7-diagnostics")
                 }
             }
+            goHome()
+        }
+
+        // Call screen last (on the tablet layout, then the small phone), so a call problem cannot cost the
+        // other screenshots.
+        for (v in listOf(variants[3], variants[0])) {
+            apply(v)
+            goHome()
+            compose.onNodeWithText("Alice Johnson").performClick()
+            settle(1_500)
+            Log.i("PulseTour", "starting call on ${v.id}")
+            tap("chat_voice_call")
+            // Starting a call writes to the backend first; wait for the call screen itself.
+            val callShown = runCatching { compose.waitUntil(30_000) { exists("call_end") } }.isSuccess
+            Log.i("PulseTour", "call screen shown=$callShown")
+            settle(1_200)
+            shot("${v.id}-5-call")
+            if (callShown) {
+                runCatching { tap("call_end") }
+                runCatching { compose.waitUntil(15_000) { !exists("call_end") } }
+            }
+            settle(3_000)
             goHome()
         }
         c.authRepository.signOut()

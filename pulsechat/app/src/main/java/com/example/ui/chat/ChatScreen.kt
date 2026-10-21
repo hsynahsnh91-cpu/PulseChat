@@ -158,6 +158,13 @@ import androidx.compose.ui.text.style.TextAlign
 import com.example.ui.theme.Motion
 import com.example.ui.theme.Radii
 import com.example.ui.theme.Spacing
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.using
 
 data class ChatNav(
     val back: () -> Unit,
@@ -214,6 +221,13 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     val newBannerDismissed by vm.newBannerDismissed.collectAsState()
 
     var emojiOpen by rememberSaveable { mutableStateOf(false) }
+    // Emoji panel and keyboard replace each other instead of stacking (which pushed the composer
+    // to the top of small screens).
+    val keyboard = LocalSoftwareKeyboardController.current
+    val composerFocus = remember { FocusRequester() }
+    @OptIn(ExperimentalLayoutApi::class)
+    val imeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(imeVisible) { if (imeVisible) emojiOpen = false }
     var attachOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var actionTarget by remember { mutableStateOf<Message?>(null) }
@@ -569,12 +583,28 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                 }
                 val reply = replyTo
                 val edit = editing
-                if (edit != null) ReplyOrEditBar(stringResource(R.string.editing_message), edit.content, editing = true, onCancel = vm::cancelEdit)
-                else if (reply != null) ReplyOrEditBar(
-                    if (reply.senderId == me) stringResource(R.string.you) else names[reply.senderId] ?: stringResource(R.string.unknown_user),
-                    listOfNotNull(com.example.ui.common.typeLabel(reply.type), reply.content.ifBlank { reply.fileName }).joinToString(" · "),
-                    editing = false, onCancel = vm::cancelReply,
-                )
+                val replyBar = when {
+                    edit != null -> ReplyBarData("edit_" + edit.messageId, stringResource(R.string.editing_message), edit.content, editing = true)
+                    reply != null -> ReplyBarData(
+                        "reply_" + reply.messageId,
+                        if (reply.senderId == me) stringResource(R.string.you) else names[reply.senderId] ?: stringResource(R.string.unknown_user),
+                        listOfNotNull(com.example.ui.common.typeLabel(reply.type), reply.content.ifBlank { reply.fileName }).joinToString(" · "),
+                        editing = false,
+                    )
+                    else -> null
+                }
+                // Slides open/closed with its height, so the composer moves instead of jumping.
+                AnimatedContent(
+                    targetState = replyBar,
+                    contentKey = { it?.key },
+                    transitionSpec = {
+                        (fadeIn(Motion.enter(Motion.QUICK)) togetherWith fadeOut(Motion.exit(Motion.QUICK)))
+                            .using(SizeTransform(clip = true) { _, _ -> Motion.standard(Motion.STANDARD) })
+                    },
+                    label = "reply-bar",
+                ) { bar ->
+                    if (bar != null) ReplyOrEditBar(bar.title, bar.preview, editing = bar.editing, onCancel = if (bar.editing) vm::cancelEdit else vm::cancelReply)
+                }
                 MentionSuggestions(mentionState, participants, onPick = vm::pickMention)
                 when {
                     conv == null -> Unit
@@ -593,7 +623,12 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         Composer(
                             value = draftState, onValueChange = vm::onDraftChange, onSend = vm::send,
                             onAttach = { attachOpen = true }, onCamera = { requestCamera(false) },
-                            emojiOpen = emojiOpen, onEmojiToggle = { emojiOpen = !emojiOpen }, recording = recordingState,
+                            emojiOpen = emojiOpen,
+                            onEmojiToggle = {
+                                if (emojiOpen) { emojiOpen = false; runCatching { composerFocus.requestFocus() }; keyboard?.show() }
+                                else { keyboard?.hide(); emojiOpen = true }
+                            },
+                            recording = recordingState, focusRequester = composerFocus,
                             onStartRecording = { if (has(Manifest.permission.RECORD_AUDIO)) vm.startRecording() else micPermission.launch(Manifest.permission.RECORD_AUDIO) },
                             onFinishRecording = vm::finishRecording, enterToSend = settings.enterToSend, isAiChat = isAi, editing = edit != null,
                             onSchedule = if (!isAi && edit == null) ({ scheduleDialog = vm.draft.value.text to null }) else null,
@@ -916,3 +951,6 @@ private fun ScheduledBar(count: Int, failed: Int, onOpen: () -> Unit) {
         }
     }
 }
+
+/** What the bar above the composer shows while replying to or editing a message. */
+private data class ReplyBarData(val key: String, val title: String, val preview: String, val editing: Boolean)
