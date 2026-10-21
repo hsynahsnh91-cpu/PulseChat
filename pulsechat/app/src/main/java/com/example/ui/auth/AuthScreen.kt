@@ -153,7 +153,7 @@ private fun ErrorCard(error: String?, onDismiss: () -> Unit) {
 private fun PasswordField(value: String, onChange: (String) -> Unit, label: String, imeAction: ImeAction, onDone: () -> Unit = {}, tag: String) {
     var visible by rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
-        value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true,
+        value = value, onValueChange = onChange, label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }, singleLine = true,
         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
@@ -217,7 +217,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
             }
             OutlinedTextField(
                 value = identifier, onValueChange = { identifier = it }, singleLine = true,
-                label = { Text(stringResource(R.string.auth_identifier)) },
+                label = { Text(stringResource(R.string.auth_identifier), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingText = { Text(stringResource(R.string.auth_identifier_hint)) },
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
@@ -240,14 +240,14 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
             }
         } else {
             OutlinedTextField(
-                value = name, onValueChange = { name = it.take(50) }, singleLine = true, label = { Text(stringResource(R.string.auth_display_name)) },
+                value = name, onValueChange = { name = it.take(50) }, singleLine = true, label = { Text(stringResource(R.string.auth_display_name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), modifier = Modifier.fillMaxWidth().testTag("register_name"),
             )
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = username, onValueChange = { v -> username = v.trim().lowercase().take(20); vm.onUsernameChanged(username) }, singleLine = true,
-                label = { Text(stringResource(R.string.auth_username)) }, prefix = { Text("@") },
+                label = { Text(stringResource(R.string.auth_username), maxLines = 1, overflow = TextOverflow.Ellipsis) }, prefix = { Text("@") },
                 supportingText = { UsernameSupport(usernameCheck) }, isError = usernameCheck is UsernameCheck.Taken,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth().testTag("register_username"),
@@ -290,12 +290,12 @@ private fun CompleteProfileScreen(suggestedName: String, ui: AuthUiState, vm: Au
         Text(stringResource(R.string.auth_complete_profile_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 8.dp))
         ErrorCard(ui.error, vm::clearError)
-        OutlinedTextField(value = name, onValueChange = { name = it.take(50) }, singleLine = true, label = { Text(stringResource(R.string.auth_display_name)) },
+        OutlinedTextField(value = name, onValueChange = { name = it.take(50) }, singleLine = true, label = { Text(stringResource(R.string.auth_display_name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             modifier = Modifier.fillMaxWidth().testTag("profile_name"))
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = username, onValueChange = { v -> username = v.trim().lowercase().take(20); vm.onUsernameChanged(username) }, singleLine = true,
-            label = { Text(stringResource(R.string.auth_username)) }, prefix = { Text("@") },
+            label = { Text(stringResource(R.string.auth_username), maxLines = 1, overflow = TextOverflow.Ellipsis) }, prefix = { Text("@") },
             supportingText = { UsernameSupport(usernameCheck) }, isError = usernameCheck is UsernameCheck.Taken,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), modifier = Modifier.fillMaxWidth().testTag("profile_username"),
         )

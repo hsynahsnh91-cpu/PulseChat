@@ -209,7 +209,7 @@ fun MessageRow(
             val maxBubble = min(maxWidth * 0.84f, Spacing.bubbleMaxWidth)
             Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, modifier = Modifier.widthIn(max = maxBubble)) {
                 Bubble(item, mine, names, isGroup, isAi, hideTicks, searchQuery, voice, showReadReceipts, callbacks, me)
-                val reactions = m.reactionMap()
+                val reactions = remember(m.reactions) { m.reactionMap() }
                 if (reactions.isNotEmpty()) {
                     // The chip overlaps the bubble's lower edge; the ring in the chat background colour
                     // separates them without a shadow.

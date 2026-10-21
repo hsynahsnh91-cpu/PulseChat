@@ -164,7 +164,6 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.using
 
 data class ChatNav(
     val back: () -> Unit,
