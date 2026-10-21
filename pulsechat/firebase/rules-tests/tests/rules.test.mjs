@@ -120,6 +120,27 @@ describe("direct chats and messages", () => {
     await assertSucceeds(setDoc(doc(db("bob"), `conversations/${DM}/messages/x`), messageData("bob")));
   });
 
+  test("a message ID can be created only once, so scheduled-message retries can never duplicate it", async () => {
+    await seedPeople();
+    await seedDm();
+    const fs = db("alice");
+    const msg = doc(fs, `conversations/${DM}/messages/sched-1`);
+    // Before sending, the app checks the server: reading a message ID that doesn't exist is allowed.
+    await assertSucceeds(getDoc(msg));
+    await assertSucceeds(setDoc(msg, messageData("alice", { text: "scheduled" })));
+    // A retry of the same scheduled message (same ID, same batch as the app) is rejected as a whole.
+    const conv = doc(fs, `conversations/${DM}`);
+    const retry = writeBatch(fs);
+    retry.set(conv, { type: "direct", participants: ["alice", "bob"] }, { merge: true });
+    retry.set(msg, messageData("alice", { text: "scheduled" }));
+    retry.update(conv, { lastMessage: { id: "sched-1", senderId: "alice", type: "TEXT", preview: "scheduled", createdAt: serverTimestamp() },
+      lastMessageAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await assertFails(retry.commit());
+    await assertFails(setDoc(msg, messageData("alice", { text: "scheduled" })));
+    const stored = await getDoc(msg);
+    if (stored.data().text !== "scheduled") throw new Error("the first copy must stay untouched");
+  });
+
   test("a blocked user cannot message the person who blocked them", async () => {
     await seedPeople();
     await seedDm();
