@@ -435,11 +435,16 @@ fun isolateIfForeign(text: String, rtlLayout: Boolean): String {
 }
 
 private fun firstStrongIsRtl(text: String): Boolean? {
-    for (ch in text) {
-        when (Character.getDirectionality(ch)) {
+    // By code point: surrogate halves (emoji) have bidi class L as single chars, which would make a
+    // message starting with an emoji look left-to-right.
+    var i = 0
+    while (i < text.length) {
+        val cp = text.codePointAt(i)
+        when (Character.getDirectionality(cp)) {
             Character.DIRECTIONALITY_LEFT_TO_RIGHT -> return false
             Character.DIRECTIONALITY_RIGHT_TO_LEFT, Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC -> return true
         }
+        i += Character.charCount(cp)
     }
     return null
 }

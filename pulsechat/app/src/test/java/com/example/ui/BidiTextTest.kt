@@ -26,5 +26,8 @@ class BidiTextTest {
         assertEquals("مرحبا", isolateIfForeign("مرحبا", rtlLayout = true))
         assertEquals("10:00 👍", isolateIfForeign("10:00 👍", rtlLayout = true))
         assertEquals("", isolateIfForeign("", rtlLayout = true))
+        // A leading emoji does not decide the direction; the first letter does.
+        assertEquals("👍 مرحبا", isolateIfForeign("👍 مرحبا", rtlLayout = true))
+        assertEquals("$fsi👍 مرحبا$pdi", isolateIfForeign("👍 مرحبا", rtlLayout = false))
     }
 }
