@@ -30,6 +30,8 @@ export const Fs = {
   STATUSES: "statuses",
   CALLS: "calls",
   REPORTS: "reports",
+  MEDIA: "media",
+  MEDIA_CHUNKS: "chunks",
   PHOTO_DOC: "photo",
   ABOUT_DOC: "about",
   TYPE_DIRECT: "direct",
@@ -99,8 +101,8 @@ export interface ConversationDoc {
 }
 
 export interface MediaDoc {
-  url: string;                  // download URL
-  path: string;                 // chat-media/{cid}/{senderUid}/{messageId}.{ext}; readers should prefer it over `url`
+  url: string;                  // download URL, or pulsemedia://{mediaId} for the built-in media store (media.ts)
+  path: string;                 // chat-media/{cid}/{senderUid}/{messageId}.{ext} or the same pulsemedia:// reference
   mime: string;
   size: number;                 // bytes
   name: string | null;          // original file name

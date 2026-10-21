@@ -49,6 +49,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -162,6 +163,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
     var username by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
     var confirm by rememberSaveable { mutableStateOf("") }
+    val usernameCheck by vm.usernameCheck.collectAsState()
 
     AuthFrame {
         TabRow(selectedTabIndex = tab) {
@@ -217,9 +219,9 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
             )
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
-                value = username, onValueChange = { username = it.trim().lowercase().take(20) }, singleLine = true,
+                value = username, onValueChange = { v -> username = v.trim().lowercase().take(20); vm.onUsernameChanged(username) }, singleLine = true,
                 label = { Text(stringResource(R.string.auth_username)) }, prefix = { Text("@") },
-                supportingText = { Text(stringResource(R.string.auth_username_rules)) },
+                supportingText = { UsernameSupport(usernameCheck) }, isError = usernameCheck is UsernameCheck.Taken,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth().testTag("register_username"),
             )
@@ -230,7 +232,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
             PasswordField(confirm, { confirm = it }, stringResource(R.string.auth_confirm_password), ImeAction.Done, { vm.register(name, username, newPassword, confirm) }, "register_confirm")
             Spacer(Modifier.height(20.dp))
             PrimaryButton(stringResource(R.string.auth_create_account), ui.loading,
-                name.isNotBlank() && username.isNotBlank() && newPassword.isNotBlank() && confirm.isNotBlank(), "register_button") {
+                name.isNotBlank() && username.isNotBlank() && newPassword.isNotBlank() && confirm.isNotBlank() && usernameCheck !is UsernameCheck.Taken, "register_button") {
                 vm.register(name, username, newPassword, confirm)
             }
         }
@@ -253,7 +255,9 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
 @Composable
 private fun CompleteProfileScreen(suggestedName: String, ui: AuthUiState, vm: AuthViewModel) {
     var name by rememberSaveable { mutableStateOf(suggestedName.take(50)) }
-    var username by rememberSaveable { mutableStateOf(suggestedName.lowercase().filter { it.isLetterOrDigit() || it == '_' || it == '.' }.take(20)) }
+    var username by rememberSaveable { mutableStateOf(suggestedName.lowercase().filter { (it in 'a'..'z') || (it in '0'..'9') || it == '_' || it == '.' }.take(20)) }
+    val usernameCheck by vm.usernameCheck.collectAsState()
+    LaunchedEffect(Unit) { vm.onUsernameChanged(username) }
     AuthFrame {
         Text(stringResource(R.string.auth_complete_profile_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Text(stringResource(R.string.auth_complete_profile_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -263,14 +267,26 @@ private fun CompleteProfileScreen(suggestedName: String, ui: AuthUiState, vm: Au
             modifier = Modifier.fillMaxWidth().testTag("profile_name"))
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
-            value = username, onValueChange = { username = it.trim().lowercase().take(20) }, singleLine = true,
+            value = username, onValueChange = { v -> username = v.trim().lowercase().take(20); vm.onUsernameChanged(username) }, singleLine = true,
             label = { Text(stringResource(R.string.auth_username)) }, prefix = { Text("@") },
-            supportingText = { Text(stringResource(R.string.auth_username_rules)) },
+            supportingText = { UsernameSupport(usernameCheck) }, isError = usernameCheck is UsernameCheck.Taken,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), modifier = Modifier.fillMaxWidth().testTag("profile_username"),
         )
         Spacer(Modifier.height(20.dp))
-        PrimaryButton(stringResource(R.string.action_continue), ui.loading, name.isNotBlank() && username.isNotBlank(), "profile_continue") { vm.completeProfile(username, name) }
+        PrimaryButton(stringResource(R.string.action_continue), ui.loading, name.isNotBlank() && username.isNotBlank() && usernameCheck !is UsernameCheck.Taken,
+            "profile_continue") { vm.completeProfile(username, name) }
         TextButton(onClick = vm::signOut, enabled = !ui.loading) { Text(stringResource(R.string.auth_use_other_account)) }
+    }
+}
+
+/** Username rules, or the live availability of the typed username (it can never be shared). */
+@Composable
+private fun UsernameSupport(check: UsernameCheck) {
+    when (check) {
+        UsernameCheck.Idle -> Text(stringResource(R.string.auth_username_rules))
+        UsernameCheck.Checking -> Text(stringResource(R.string.username_checking))
+        is UsernameCheck.Available -> Text(stringResource(R.string.username_available, check.username), color = MaterialTheme.colorScheme.primary)
+        is UsernameCheck.Taken -> Text(stringResource(R.string.username_taken, check.username), color = MaterialTheme.colorScheme.error)
     }
 }
 

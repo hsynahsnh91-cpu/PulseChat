@@ -24,7 +24,7 @@ A message sent on the web appears on Android in real time, and the other way rou
 | Accounts | username → email/password account `<username>@<projectId>.firebaseapp.com` (`Ids.authEmailForUsername`); Google sign-in | same formula (`authEmailForUsername`) and Google popup → **same Firebase UID** on both platforms |
 | Data model | `FirestoreSchema.kt`, `RemoteMappers.kt`, `ChatRepository.kt` | `src/pulsechat/schema.ts`, `messages.ts` (1:1 ports) |
 | Security | `pulsechat/firestore.rules`, `pulsechat/storage.rules` (server-side) | the same rules apply to web requests automatically |
-| Files | bucket `gen-lang-client-0426516505.firebasestorage.app`, `chat-media/{cid}/{senderUid}/{messageId}.{ext}` | same bucket and paths |
+| Files | bucket `gen-lang-client-0426516505.firebasestorage.app`, `chat-media/{cid}/{senderUid}/{messageId}.{ext}`; without a usable bucket: built-in media store `media/{id}` + `chunks/{n}` in Firestore (`pulsemedia://{id}` references) | same bucket and paths; `sendMedia` falls back the same way and `mediaUrl`/`mediaBytes` read both |
 | Server logic | Cloud Functions (Firestore triggers: push fan-out, call invites, cleanup) | triggered by web writes too, so Android devices get push notifications for web messages |
 
 Real-time sync uses Firestore snapshot listeners (`onSnapshot`) on both sides. No extra server is involved.
@@ -219,8 +219,9 @@ await signIn(pc, "sara", "Passw0rd1");          // or the 10-digit ID shown in t
 observeSession(pc, (s) => { if (s.state === "signedIn") console.log(s.profile.displayName, s.profile.uniqueId10); });
 const stopPresence = startPresence(pc);        // online / last seen, like Android (await stopPresence() before signOut)
 
-// Users: search by username prefix or 10-digit ID.
-const [friend] = await searchUsers(pc, "ahmad");
+// Users: find someone by exact username (with or without "@") or 10-digit ID. Display names are
+// not searched: they are not unique.
+const [friend] = await searchUsers(pc, "@ahmad");
 
 // Conversations: real-time chat list (direct + groups), newest first.
 const stopChats = observeConversations(pc, (chats) => render(chats));

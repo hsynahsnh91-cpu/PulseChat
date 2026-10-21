@@ -139,7 +139,8 @@ class StatusRepository(
         val me = currentUid() ?: return
         val aud = audience(me)
         if (aud.isEmpty()) throw StatusAudienceEmptyException()
-        val local = media.importUri(uri, type, if (type == MessageType.VIDEO) MediaLimits.MAX_VIDEO_BYTES else MediaLimits.MAX_IMAGE_BYTES)
+        val limit = minOf(if (type == MessageType.VIDEO) MediaLimits.MAX_VIDEO_BYTES else MediaLimits.MAX_IMAGE_BYTES, media.effectiveMaxBytes(type))
+        val local = media.importUri(uri, type, limit)
         val id = Ids.newId("st")
         val now = System.currentTimeMillis()
         val self = db.userDao().get(me)
@@ -158,12 +159,12 @@ class StatusRepository(
         scope.launch(Dispatchers.IO) {
             try {
                 var last = -10
-                val url = media.upload(item.statusId, File(item.localMediaPath!!), item.storagePath!!, mime) { p ->
-                    if (p - last >= 5) { last = p; scope.launch(Dispatchers.IO) { db.statusDao().setUpload(item.statusId, StatusItem.UPLOAD_UPLOADING, p) } }
+                val uploaded = media.upload(item.statusId, File(item.localMediaPath!!), item.storagePath!!, mime) { p ->
+                    if (p < 100 && (p < last || p - last >= 5)) { last = p; scope.launch(Dispatchers.IO) { db.statusDao().setUpload(item.statusId, StatusItem.UPLOAD_UPLOADING, p) } }
                 }
-                db.statusDao().upsert(item.copy(mediaUrl = url, uploadState = StatusItem.UPLOAD_PENDING, uploadProgress = 100))
+                db.statusDao().upsert(item.copy(mediaUrl = uploaded.url, storagePath = uploaded.path, uploadState = StatusItem.UPLOAD_PENDING, uploadProgress = 100))
                 write(item.statusId, item.userId, item.mediaType, item.text, item.backgroundColorHex, item.fontFamily,
-                    mapOf("url" to url, "path" to item.storagePath, "mime" to mime), item.audience.split(",").filter { it.isNotBlank() }, item.createdAt)
+                    mapOf("url" to uploaded.url, "path" to uploaded.path, "mime" to mime), item.audience.split(",").filter { it.isNotBlank() }, item.createdAt)
             } catch (e: Exception) {
                 Log.w(TAG, "status upload failed", e)
                 db.statusDao().setUpload(item.statusId, StatusItem.UPLOAD_FAILED, 0)

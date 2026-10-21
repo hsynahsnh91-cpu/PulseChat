@@ -23,13 +23,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardReturn
 import androidx.compose.material.icons.filled.Language
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
@@ -69,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.BuildConfig
@@ -93,6 +99,8 @@ import com.example.ui.common.SwitchItem
 import com.example.ui.common.containerFactory
 import com.example.ui.components.AutoReplySettingsDialog
 import com.example.ui.components.UserAvatar
+import com.example.ui.security.PinSetupDialog
+import com.example.ui.security.PinVerifyDialog
 import com.example.util.LocaleHelper
 
 @Composable
@@ -201,6 +209,7 @@ fun PrivacySettingsScreen(nav: SettingsNav) {
     val blocked by vm.blockedUsers.collectAsState()
     val contacts by vm.contacts.collectAsState()
     var dialog by remember { mutableStateOf<String?>(null) }
+    val biometricAvailable = remember { vm.biometricAvailable() }
     val options = listOf(Visibility.EVERYONE, Visibility.CONTACTS, Visibility.NOBODY)
     SettingsScaffold(stringResource(R.string.settings_privacy), nav.back, vm) {
         SectionHeader(stringResource(R.string.privacy_who_can_see))
@@ -221,10 +230,23 @@ fun PrivacySettingsScreen(nav: SettingsNav) {
             nav.open("settings/blocked")
         }
         SectionHeader(stringResource(R.string.privacy_security))
-        val secure = remember { vm.isDeviceSecure() }
-        SwitchItem(Icons.Default.Fingerprint, stringResource(R.string.app_lock), stringResource(if (secure) R.string.app_lock_sub else R.string.app_lock_needs_screen_lock),
-            s.appLockEnabled, enabled = secure || s.appLockEnabled) { vm.setAppLock(it, s.appLockTimeoutMs) }
-        if (s.appLockEnabled) SettingsItem(null, stringResource(R.string.app_lock_timeout), lockTimeoutLabel(s.appLockTimeoutMs)) { dialog = "lockTimeout" }
+        SwitchItem(Icons.Default.Lock, stringResource(R.string.app_lock), stringResource(R.string.app_lock_sub), s.appLockEnabled) { on ->
+            dialog = when {
+                on -> "pinSetup"
+                s.appLockHasPin -> "pinDisable"
+                else -> { vm.disableAppLock(); null }
+            }
+        }
+        if (s.appLockEnabled) {
+            SettingsItem(null, stringResource(R.string.app_lock_timeout), lockTimeoutLabel(s.appLockTimeoutMs)) { dialog = "lockTimeout" }
+            if (biometricAvailable) {
+                SwitchItem(Icons.Default.Fingerprint, stringResource(R.string.app_lock_biometric_switch), stringResource(R.string.app_lock_biometric_sub),
+                    s.appLockBiometric, onChange = vm::setAppLockBiometric)
+            }
+            SettingsItem(null, stringResource(if (s.appLockHasPin) R.string.app_lock_change_pin else R.string.app_lock_set_pin_title)) {
+                dialog = if (s.appLockHasPin) "pinChangeVerify" else "pinChange"
+            }
+        }
         SettingsItem(Icons.Default.Security, stringResource(R.string.privacy_encryption_title), stringResource(R.string.privacy_encryption_body), onClick = null)
     }
     when (dialog) {
@@ -238,8 +260,54 @@ fun PrivacySettingsScreen(nav: SettingsNav) {
             s.defaultDisappearingSeconds, onSelect = { dialog = null; vm.setDefaultDisappearing(it) }, onDismiss = { dialog = null })
         "lockTimeout" -> ChoiceDialog(stringResource(R.string.app_lock_timeout), listOf(0L, 60_000L, 30 * 60_000L).map { it to lockTimeoutLabel(it) }, s.appLockTimeoutMs,
             onSelect = { dialog = null; vm.setAppLock(true, it) }, onDismiss = { dialog = null })
+        "pinSetup" -> PinSetupDialog(stringResource(R.string.app_lock_set_pin_title), onDismiss = { dialog = null }) { pin -> dialog = null; vm.enableAppLock(pin) }
+        "pinChange" -> PinSetupDialog(stringResource(R.string.app_lock_change_pin), onDismiss = { dialog = null }) { pin -> dialog = null; vm.changeAppLockPin(pin) }
+        "pinDisable" -> PinVerifyDialog(onDismiss = { dialog = null }, onCheckPin = vm::checkAppLockPin) { dialog = null; vm.disableAppLock() }
+        "pinChangeVerify" -> PinVerifyDialog(onDismiss = { dialog = null }, onCheckPin = vm::checkAppLockPin) { dialog = "pinChange" }
         "status" -> StatusAudienceDialog(s.statusAudienceMode, s.statusAudienceList, contacts.map { it.userId to it.shownName },
             onSave = { mode, list -> dialog = null; vm.setStatusAudience(mode, list) }, onDismiss = { dialog = null })
+    }
+}
+
+/** Status privacy (opened from the Updates tab menu): who sees new status updates. Saved immediately. */
+@Composable
+fun StatusPrivacyScreen(nav: SettingsNav) {
+    val vm = settingsVm()
+    val s by vm.settings.collectAsState()
+    val contacts by vm.contacts.collectAsState()
+    SettingsScaffold(stringResource(R.string.privacy_status), nav.back, vm) {
+        SectionHeader(stringResource(R.string.status_privacy_who))
+        listOf(
+            StatusPolicy.AudienceMode.MY_CONTACTS to R.string.status_audience_contacts,
+            StatusPolicy.AudienceMode.CONTACTS_EXCEPT to R.string.status_audience_except,
+            StatusPolicy.AudienceMode.ONLY_SHARE_WITH to R.string.status_audience_only,
+        ).forEach { (mode, label) ->
+            com.example.ui.common.RadioRow(stringResource(label), s.statusAudienceMode == mode, onSelect = { vm.setStatusAudience(mode, s.statusAudienceList) })
+        }
+        if (s.statusAudienceMode != StatusPolicy.AudienceMode.MY_CONTACTS) {
+            SectionHeader(stringResource(if (s.statusAudienceMode == StatusPolicy.AudienceMode.CONTACTS_EXCEPT) R.string.status_privacy_hide_from else R.string.status_privacy_share_with))
+            if (contacts.isEmpty()) {
+                Text(stringResource(R.string.contacts_empty_title), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+            contacts.forEach { contact ->
+                val checked = contact.userId in s.statusAudienceList
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        val list = if (checked) s.statusAudienceList - contact.userId else s.statusAudienceList + contact.userId
+                        vm.setStatusAudience(s.statusAudienceMode, list)
+                    }.padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = checked, onCheckedChange = null)
+                    Spacer(Modifier.width(8.dp))
+                    UserAvatar(contact.shownName, avatarUrl = contact.avatarUrl, size = 36.dp, colorHex = contact.avatarColorHex)
+                    Spacer(Modifier.width(12.dp))
+                    Text(contact.shownName)
+                }
+            }
+        }
+        Text(stringResource(R.string.status_audience_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(16.dp))
     }
 }
 
@@ -451,11 +519,30 @@ fun AiSettingsScreen(nav: SettingsNav) {
 fun AboutScreen(nav: SettingsNav) {
     val vm = settingsVm()
     SettingsScaffold(stringResource(R.string.settings_about), nav.back, vm) {
-        SettingsItem(Icons.Default.Info, stringResource(R.string.app_name), stringResource(R.string.about_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE), onClick = null)
-        SectionHeader(stringResource(R.string.about_security_title))
-        Text(stringResource(R.string.about_security_body), modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
-        SectionHeader(stringResource(R.string.about_data_title))
-        Text(stringResource(R.string.about_data_body), modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(24.dp))
+        Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Forum, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.about_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.about_tagline), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 32.dp))
+        }
+        SectionHeader(stringResource(R.string.about_features_title))
+        listOf(
+            Icons.Default.Forum to R.string.about_feature_messaging,
+            Icons.Default.PhotoLibrary to R.string.about_feature_media,
+            Icons.Default.Groups to R.string.about_feature_groups,
+            Icons.Default.AutoStories to R.string.about_feature_status,
+            Icons.Default.Call to R.string.about_feature_calls,
+            Icons.Default.Timer to R.string.about_feature_disappearing,
+            Icons.Default.AutoAwesome to R.string.about_feature_assistant,
+            Icons.Default.Lock to R.string.about_feature_lock,
+            Icons.Default.Visibility to R.string.about_feature_privacy,
+            Icons.Default.Language to R.string.about_feature_languages,
+        ).forEach { (icon, text) -> SettingsItem(icon, stringResource(text), onClick = null) }
+        Text(stringResource(R.string.about_footer), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(24.dp))
     }
 }

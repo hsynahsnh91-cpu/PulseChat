@@ -7,8 +7,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import {
-  ANDROID_FIREBASE_PROJECT, ANDROID_FIRESTORE_DATABASE_ID, avatarColorFor, authEmailForUsername, configFromEnv, deliveryStatus,
-  directConversationId, extensionFor, Fs, generate10DigitId, javaHashCode, lastMessageData, messageCreateData, passwordError, preview,
+  ANDROID_FIREBASE_PROJECT, ANDROID_FIRESTORE_DATABASE_ID, avatarColorFor, authEmailForUsername, chunkCount, configFromEnv, deliveryStatus,
+  directConversationId, extensionFor, Fs, generate10DigitId, isStorageUnavailable, isStoreRef, javaHashCode, lastMessageData, MEDIA_CHUNK_BYTES,
+  MEDIA_MAX_BYTES, MEDIA_MAX_CHUNKS, MEDIA_SCHEME, mediaIdFor, messageCreateData, newMediaId, passwordError, preview, storeIdOf, storeRef,
   typeForMime, userProfileData, usernameError, type ChatMessage, type Conversation,
 } from "../src/pulsechat";
 
@@ -162,5 +163,44 @@ describe("text, media and delivery helpers", () => {
     assert.equal(config.firebase.storageBucket, ANDROID_FIREBASE_PROJECT.storageBucket);
     assert.equal(config.firebase.authDomain, ANDROID_FIREBASE_PROJECT.authDomain);
     assert.equal(config.emulators, undefined);
+  });
+});
+
+describe("built-in media store (MediaRefs.kt and the media rules)", () => {
+  test("constants equal the Android ones and firestore.rules", () => {
+    const refs = kotlin("domain/MediaRefs.kt");
+    assert.match(refs, new RegExp(`const val SCHEME = "${MEDIA_SCHEME}"`));
+    assert.match(refs, /const val CHUNK_BYTES = 512 \* 1024/);
+    assert.equal(MEDIA_CHUNK_BYTES, 512 * 1024);
+    assert.match(refs, new RegExp(`const val MAX_CHUNKS = ${MEDIA_MAX_CHUNKS}\\b`));
+    const media = rules.slice(rules.indexOf("match /media/{mediaId}"));
+    assert.ok(media.includes(`request.resource.data['size'] <= ${MEDIA_MAX_BYTES}`), "rules size limit");
+    assert.ok(media.includes(`request.resource.data.chunks <= ${MEDIA_MAX_CHUNKS}`), "rules chunk limit");
+    assert.ok(media.includes(`request.resource.data.data.size() <= ${MEDIA_CHUNK_BYTES}`), "rules chunk size");
+    assert.deepEqual(rulesKeys("match /media/{mediaId}"), ["owner", "mime", "size", "chunks", "createdAt"]);
+    assert.deepEqual(rulesKeys("match /chunks/{index}"), ["owner", "data"]);
+  });
+
+  test("references and chunking", () => {
+    const id = newMediaId();
+    assert.equal(storeIdOf(storeRef(id)), id);
+    assert.ok(isStoreRef(`pulsemedia://${id}`));
+    assert.ok(!isStoreRef("https://example.com/a.jpg"));
+    assert.ok(!isStoreRef("chat-media/c/u/m.jpg"));
+    assert.equal(chunkCount(0), 0);
+    assert.equal(chunkCount(MEDIA_CHUNK_BYTES), 1);
+    assert.equal(chunkCount(MEDIA_CHUNK_BYTES + 1), 2);
+    assert.equal(chunkCount(MEDIA_MAX_BYTES), MEDIA_MAX_CHUNKS);
+    const key = "123e4567-e89b-12d3-a456-426614174000";
+    assert.equal(mediaIdFor(key), `md${key.replace(/-/g, "")}`, "same derivation as MediaRefs.mediaIdFor");
+  });
+
+  test("only 'no usable bucket' errors switch to the built-in store", () => {
+    assert.ok(isStorageUnavailable({ code: "storage/object-not-found" }));
+    assert.ok(isStorageUnavailable({ code: "storage/unknown", status: 402 }));
+    assert.ok(isStorageUnavailable({ code: "storage/no-default-bucket" }));
+    assert.ok(!isStorageUnavailable({ code: "storage/retry-limit-exceeded" }));
+    assert.ok(!isStorageUnavailable({ code: "storage/canceled" }));
+    assert.ok(!isStorageUnavailable(new Error("offline")));
   });
 });

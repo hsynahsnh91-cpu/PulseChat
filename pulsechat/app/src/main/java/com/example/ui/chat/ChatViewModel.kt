@@ -17,6 +17,7 @@ import com.example.data.repository.AiException
 import com.example.data.repository.ChatException
 import com.example.data.repository.GroupValidationException
 import com.example.domain.Ids
+import com.example.domain.MediaRefs
 import com.example.domain.Mentions
 import com.example.domain.MessagePolicy
 import com.example.domain.MessageTimeline
@@ -327,8 +328,19 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
     fun clearSelection() { selection.value = emptySet() }
 
     fun toggleVoice(m: Message) {
-        val source = m.localMediaPath?.takeIf { File(it).exists() } ?: m.mediaUrl ?: return
-        c.voicePlayer.toggle(m.messageId, source, m.mediaDurationSeconds * 1000L)
+        val local = m.localMediaPath?.takeIf { File(it).exists() }
+        val remote = m.mediaUrl
+        when {
+            local != null -> c.voicePlayer.toggle(m.messageId, local, m.mediaDurationSeconds * 1000L)
+            remote == null -> Unit
+            // Built-in media store files cannot be streamed: download, then play.
+            MediaRefs.isPulse(remote) -> viewModelScope.launch {
+                repo.downloadMedia(m.messageId)
+                val path = c.db.messageDao().get(m.messageId)?.localMediaPath?.takeIf { File(it).exists() } ?: return@launch
+                c.voicePlayer.toggle(m.messageId, path, m.mediaDurationSeconds * 1000L)
+            }
+            else -> c.voicePlayer.toggle(m.messageId, remote, m.mediaDurationSeconds * 1000L)
+        }
     }
 
     fun seekVoice(m: Message, fraction: Float) = c.voicePlayer.seekTo(m.messageId, fraction)

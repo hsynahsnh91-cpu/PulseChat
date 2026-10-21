@@ -15,10 +15,16 @@ class CallAudio(context: Context) {
     private var tone: ToneGenerator? = null
     private var active = false
 
+    /**
+     * Puts the phone in voice-call mode before the call's microphone and speaker streams open:
+     * MODE_IN_COMMUNICATION routes audio through the platform's voice-call path, which is what
+     * makes the phone's echo canceller and noise suppressor work. Safe to call again.
+     */
     fun start(speaker: Boolean) {
-        if (active) return
-        active = true
         am.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (am.isMicrophoneMute) am.isMicrophoneMute = false
+        if (active) { setSpeaker(speaker); return }
+        active = true
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)

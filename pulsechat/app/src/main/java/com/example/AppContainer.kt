@@ -64,7 +64,7 @@ class AppContainer(val app: Application) {
         FirebaseStorage.getInstance().also { st -> EmulatorConfig.host?.let { st.useEmulator(it, EmulatorConfig.STORAGE_PORT) } }
     }
 
-    val media = MediaRepository(app) { storage }
+    val media = MediaRepository(app, { storage }, { firestore }, prefs, { authRepository.currentUid })
     val authRepository: AuthRepository by lazy {
         AuthRepository(auth, firestore, db, prefs, FirebaseApp.getInstance().options.projectId ?: "pulsechat", appScope)
     }
@@ -79,7 +79,7 @@ class AppContainer(val app: Application) {
     val pushTokens by lazy { PushTokenManager(firestore, prefs, appScope, uid) }
     val callManager by lazy { CallManager(app, firestore, db, callRepository, userRepository, notifications, appScope, uid) }
     val voicePlayer by lazy { VoicePlayer(app) }
-    val appLock by lazy { AppLockManager(prefs) }
+    val appLock by lazy { AppLockManager(prefs) { callManager.ui.value.isLive } }
     val autoReply by lazy { AutoReplyManager(app) }
 
     private var backgroundJob: Job? = null

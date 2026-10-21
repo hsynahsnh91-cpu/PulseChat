@@ -1,6 +1,9 @@
 package com.example.calls
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.MediaRecorder
+import android.os.Build
 import android.util.Log
 import com.example.data.db.AppDatabase
 import com.example.data.model.CallRecord
@@ -411,9 +414,24 @@ class CallManager(
     private fun ensureFactory(): PeerConnectionFactory {
         factory?.let { return it }
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions())
+        // Echo control. WebRTC's own echo canceller always runs: when the phone's built-in canceller
+        // is handed the job instead, WebRTC switches its own off, and on many phones the built-in one
+        // alone lets the far end hear itself. The phone's voice processing still applies on top,
+        // because capture uses the voice-communication microphone path and playback the voice-call
+        // stream (with the audio mode set to MODE_IN_COMMUNICATION by CallAudio). Noise suppression
+        // uses the phone's suppressor on Android 10+ (WebRTC's otherwise); gain control and a
+        // high-pass filter keep voices natural (see audioConstraints).
+        val hardwareNs = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && JavaAudioDeviceModule.isBuiltInNoiseSuppressorSupported()
         val adm = JavaAudioDeviceModule.builder(context.applicationContext)
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
+            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+            )
+            .setUseHardwareAcousticEchoCanceler(false)
+            .setUseHardwareNoiseSuppressor(hardwareNs)
+            .setUseStereoInput(false)
+            .setUseStereoOutput(false)
             .createAudioDeviceModule()
         val created = PeerConnectionFactory.builder()
             .setAudioDeviceModule(adm)
@@ -450,13 +468,22 @@ class CallManager(
         }
         val connection = f.createPeerConnection(config, observer(callId, me)) ?: throw IllegalStateException("createPeerConnection")
         pc = connection
-        val aSource = f.createAudioSource(MediaConstraints())
+        // Voice-call mode first, so the microphone/speaker streams open on the voice path.
+        audio.start(speaker = video)
+        val aSource = f.createAudioSource(audioConstraints())
         audioSource = aSource
         val aTrack = f.createAudioTrack("audio0", aSource)
         audioTrack = aTrack
         connection.addTrack(aTrack, listOf("stream0"))
         if (video) startCamera(f)?.let { connection.addTrack(it, listOf("stream0")) }
-        audio.start(speaker = video)
+    }
+
+    /** WebRTC audio processing: echo cancellation, noise suppression, gain control, high-pass filter. */
+    private fun audioConstraints() = MediaConstraints().apply {
+        listOf("googEchoCancellation", "googAutoGainControl", "googNoiseSuppression", "googHighpassFilter")
+            .forEach { mandatory.add(MediaConstraints.KeyValuePair(it, "true")) }
+        optional.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "true"))
+        optional.add(MediaConstraints.KeyValuePair("googAudioMirroring", "false"))
     }
 
     private fun startCamera(f: PeerConnectionFactory): VideoTrack? {

@@ -3,9 +3,13 @@ import {
   collection, deleteField, doc, onSnapshot, orderBy, limitToLast, query, serverTimestamp, Timestamp, updateDoc, writeBatch,
   type FirestoreError, type Unsubscribe,
 } from "firebase/firestore";
-import { getDownloadURL, ref as storageRef, uploadBytes, uploadBytesResumable } from "firebase/storage";
+import { getBytes, getDownloadURL, ref as storageRef, uploadBytes, uploadBytesResumable } from "firebase/storage";
 import { PulseChatError, requireUid, type PulseChat } from "./firebase";
 import { newMessageId } from "./ids";
+import {
+  MEDIA_MAX_BYTES, downloadFromStore, isStorageUnavailable, isStoreRef, markStorageUnavailable, mediaIdFor, storageLikelyAvailable, toBytes,
+  uploadToStore,
+} from "./media";
 import {
   EDIT_WINDOW_MS, DELETE_FOR_EVERYONE_WINDOW_MS, Fs, MAX_TEXT_LENGTH, expiresAtFor, lastMessageData, messageCreateData, toMessage,
   type ChatMessage, type Conversation, type OutgoingMessage, type ReplyToDoc, type MediaDoc,
@@ -119,14 +123,16 @@ const byteLength = (data: Blob | Uint8Array | ArrayBuffer): number =>
   data instanceof Uint8Array ? data.byteLength : data instanceof ArrayBuffer ? data.byteLength : data.size;
 
 /**
- * Uploads a file to chat-media/{cid}/{myUid}/{messageId}.{ext} (the path storage.rules allow) and
- * then sends the message with the same `media` fields Android writes.
+ * Uploads a file and then sends the message with the same `media` fields Android writes. Like
+ * Android, uploads go to chat-media/{cid}/{myUid}/{messageId}.{ext} in Cloud Storage (the path
+ * storage.rules allow) when the project has a usable bucket, otherwise to the built-in media store
+ * (media.ts). `store: "builtin"` skips Cloud Storage.
  */
 export async function sendMedia(
   pc: PulseChat,
   conv: Conversation,
   input: MediaInput,
-  options: { replyTo?: ChatMessage | null; onProgress?: (percent: number) => void } = {},
+  options: { replyTo?: ChatMessage | null; onProgress?: (percent: number) => void; store?: "auto" | "builtin" } = {},
 ): Promise<string> {
   const me = requireUid(pc);
   assertCanSend(conv, me);
@@ -135,23 +141,21 @@ export async function sendMedia(
   if (size === 0) throw new PulseChatError("EMPTY");
   if (size > maxBytesFor(type)) throw new PulseChatError("TOO_LARGE");
   const id = newMessageId();
-  const path = `chat-media/${conv.id}/${me}/${id}.${extensionFor(input.mime, input.fileName ?? "")}`;
-  const fileRef = storageRef(pc.storage, path);
-  const metadata = { contentType: input.mime };
-  if (options.onProgress) {
-    const report = options.onProgress;
-    await new Promise<void>((resolve, reject) => {
-      uploadBytesResumable(fileRef, input.data, metadata).on(
-        "state_changed",
-        (s) => report(Math.round((100 * s.bytesTransferred) / Math.max(1, s.totalBytes))),
-        reject,
-        () => resolve(),
-      );
-    });
-  } else {
-    await uploadBytes(fileRef, input.data, metadata);
+  let path = `chat-media/${conv.id}/${me}/${id}.${extensionFor(input.mime, input.fileName ?? "")}`;
+  let url: string | null = null;
+  if (options.store !== "builtin" && storageLikelyAvailable(pc)) {
+    try {
+      url = await uploadToStorage(pc, path, input, options.onProgress);
+    } catch (e) {
+      if (!isStorageUnavailable(e)) throw e;
+      markStorageUnavailable(pc);
+    }
   }
-  const url = await getDownloadURL(fileRef);
+  if (url === null) {
+    if (size > MEDIA_MAX_BYTES) throw new PulseChatError("TOO_LARGE");
+    url = await uploadToStore(pc, await toBytes(input.data), input.mime, mediaIdFor(id), options.onProgress);
+    path = url;
+  }
   const now = Date.now();
   const media: MediaDoc = {
     url,
@@ -171,8 +175,33 @@ export async function sendMedia(
   return id;
 }
 
-/** URL to display/download media. Prefers the Storage path (always current), like Android. */
+async function uploadToStorage(pc: PulseChat, path: string, input: MediaInput, onProgress?: (percent: number) => void): Promise<string> {
+  const fileRef = storageRef(pc.storage, path);
+  const metadata = { contentType: input.mime };
+  if (onProgress) {
+    await new Promise<void>((resolve, reject) => {
+      uploadBytesResumable(fileRef, input.data, metadata).on(
+        "state_changed",
+        (s) => onProgress(Math.round((100 * s.bytesTransferred) / Math.max(1, s.totalBytes))),
+        reject,
+        () => resolve(),
+      );
+    });
+  } else {
+    await uploadBytes(fileRef, input.data, metadata);
+  }
+  return getDownloadURL(fileRef);
+}
+
+/**
+ * URL to display/download media. Prefers the Storage path (always current), like Android. Media in
+ * the built-in store is downloaded and returned as an object URL (revoke it when done).
+ */
 export async function mediaUrl(pc: PulseChat, media: MediaDoc): Promise<string> {
+  if (isStoreRef(media.url) || isStoreRef(media.path)) {
+    const bytes = await mediaBytes(pc, media);
+    return URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: media.mime || "application/octet-stream" }));
+  }
   if (media.path) {
     try {
       return await getDownloadURL(storageRef(pc.storage, media.path));
@@ -181,6 +210,13 @@ export async function mediaUrl(pc: PulseChat, media: MediaDoc): Promise<string> 
     }
   }
   return media.url;
+}
+
+/** The file's bytes, from Cloud Storage or the built-in media store. */
+export async function mediaBytes(pc: PulseChat, media: MediaDoc, onProgress?: (percent: number) => void): Promise<Uint8Array> {
+  const store = isStoreRef(media.url) ? media.url : isStoreRef(media.path) ? media.path : null;
+  if (store) return downloadFromStore(pc, store, onProgress);
+  return new Uint8Array(await getBytes(storageRef(pc.storage, media.path)));
 }
 
 // ---------------------------------------------------------------------------------- receipts

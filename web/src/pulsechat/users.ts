@@ -1,9 +1,7 @@
 /** Profiles, search, privacy-controlled fields and presence (UserRepository.kt). */
-import {
-  collection, doc, endAt, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, startAt, type Unsubscribe,
-} from "firebase/firestore";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, type Unsubscribe } from "firebase/firestore";
 import { requireUid, type PulseChat } from "./firebase";
-import { isTenDigitId } from "./ids";
+import { isTenDigitId, normalizeUsername, usernameError } from "./ids";
 import { Fs, millis, toUser, type ChatUser, type PresenceDoc } from "./schema";
 
 export async function getUser(pc: PulseChat, uid: string): Promise<ChatUser | null> {
@@ -15,33 +13,21 @@ export function observeUser(pc: PulseChat, uid: string, callback: (user: ChatUse
 }
 
 /**
- * Finds people by 10-digit ID (exact) or by username / display-name prefix, like Android.
- * Index-free single-field queries; excludes me and users I blocked.
+ * Finds a person by their exact username (with or without "@") or exact 10-digit ID, like Android.
+ * Display names are not searched: they are not unique, so a match could be the wrong person.
+ * Lookups go through the usernames/uniqueIds reservations; me and users I blocked are excluded.
  */
 export async function searchUsers(pc: PulseChat, text: string): Promise<ChatUser[]> {
   const me = requireUid(pc);
-  const q = text.trim().replace(/^@/, "").toLowerCase();
-  if (q.length < 2) return [];
-  const found = new Map<string, ChatUser>();
-  if (isTenDigitId(q)) {
-    const uid = (await getDoc(doc(pc.db, Fs.UNIQUE_IDS, q))).get("uid");
-    if (typeof uid === "string") {
-      const user = await getUser(pc, uid);
-      if (user) found.set(uid, user);
-    }
-  } else {
-    const users = collection(pc.db, Fs.USERS);
-    const [byUsername, byName] = await Promise.all([
-      getDocs(query(users, orderBy("username"), startAt(q), endAt(`${q}\uf8ff`), limit(15))),
-      getDocs(query(users, orderBy("displayNameLower"), startAt(q), endAt(`${q}\uf8ff`), limit(15))),
-    ]);
-    for (const d of [...byUsername.docs, ...byName.docs]) {
-      const user = toUser(d);
-      if (user) found.set(d.id, user);
-    }
-  }
-  const blocked = new Set((await getDocs(collection(pc.db, Fs.USERS, me, Fs.BLOCKED))).docs.map((d) => d.id));
-  return [...found.values()].filter((u) => u.uid !== me && !blocked.has(u.uid));
+  const q = normalizeUsername(text);
+  let uid: unknown = null;
+  if (isTenDigitId(q)) uid = (await getDoc(doc(pc.db, Fs.UNIQUE_IDS, q))).get("uid");
+  else if (usernameError(q) === null) uid = (await getDoc(doc(pc.db, Fs.USERNAMES, q))).get("uid");
+  if (typeof uid !== "string" || uid === me) return [];
+  const user = await getUser(pc, uid);
+  if (!user) return [];
+  const blocked = await getDoc(doc(pc.db, Fs.USERS, me, Fs.BLOCKED, uid));
+  return blocked.exists() ? [] : [user];
 }
 
 /**

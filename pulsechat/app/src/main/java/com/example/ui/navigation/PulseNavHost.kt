@@ -44,6 +44,7 @@ import com.example.ui.settings.BlockedUsersScreen
 import com.example.ui.settings.ChatSettingsScreen
 import com.example.ui.settings.NotificationSettingsScreen
 import com.example.ui.settings.PrivacySettingsScreen
+import com.example.ui.settings.StatusPrivacyScreen
 import com.example.ui.settings.ProfileSettingsScreen
 import com.example.ui.settings.SettingsHomeScreen
 import com.example.ui.settings.SettingsNav
@@ -117,7 +118,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                     openArchived = { nav.go("archived") },
                     openSearch = { nav.go(Routes.search(it)) },
                     openStatus = { nav.go(Routes.status(it)) },
-                    openStatusPrivacy = { nav.go("settings/privacy") },
+                    openStatusPrivacy = { nav.go("settings/status-privacy") },
                     openCall = { nav.go(Routes.CALL) },
                 )
             )
@@ -172,6 +173,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
         composable("settings") { SettingsHomeScreen(settingsNav) }
         composable("settings/profile") { ProfileSettingsScreen(settingsNav) }
         composable("settings/privacy") { PrivacySettingsScreen(settingsNav) }
+        composable("settings/status-privacy") { StatusPrivacyScreen(settingsNav) }
         composable("settings/blocked") { BlockedUsersScreen(settingsNav) }
         composable("settings/chats") { ChatSettingsScreen(settingsNav) }
         composable("settings/notifications") { NotificationSettingsScreen(settingsNav) }

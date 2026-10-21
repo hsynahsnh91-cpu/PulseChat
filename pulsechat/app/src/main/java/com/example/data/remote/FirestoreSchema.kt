@@ -25,6 +25,8 @@ import java.util.Date
  * calls/{callId}                   WebRTC signalling (offer/answer/state)
  * calls/{callId}/candidates/{id}   ICE candidates
  * reports/{reportId}               abuse reports (create-only)
+ * media/{mediaId}                  built-in media store when Cloud Storage is unavailable (see MediaRefs)
+ * media/{mediaId}/chunks/{index}   file content, at most 512 KB per document
  */
 object Fs {
     const val USERS = "users"
@@ -45,6 +47,8 @@ object Fs {
     const val CALLS = "calls"
     const val CANDIDATES = "candidates"
     const val REPORTS = "reports"
+    const val MEDIA = "media"
+    const val MEDIA_CHUNKS = "chunks"
 
     const val PHOTO_DOC = "photo"
     const val ABOUT_DOC = "about"

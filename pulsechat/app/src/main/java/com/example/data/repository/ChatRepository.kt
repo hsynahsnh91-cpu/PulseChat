@@ -20,7 +20,6 @@ import com.example.domain.DisappearingPolicy
 import com.example.domain.GroupError
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
-import com.example.domain.MediaLimits
 import com.example.domain.MessagePolicy
 import com.example.domain.PresencePolicy
 import com.example.domain.TextTools
@@ -263,7 +262,7 @@ class ChatRepository(
         val me = requireUid()
         val conv = requireWritable(cid, me)
         val local = try {
-            media.importUri(uri, type, MediaLimits.maxBytes(type))
+            media.importUri(uri, type, media.effectiveMaxBytes(type))
         } catch (e: MediaTooLargeException) {
             throw ChatException(ChatError.TOO_LARGE)
         } catch (e: Exception) {
@@ -307,19 +306,24 @@ class ChatRepository(
             var lastReported = -10
             try {
                 db.messageDao().setTransfer(m.messageId, TransferState.UPLOADING, 0)
-                val url = media.upload(m.messageId, File(m.localMediaPath!!), m.storagePath!!, m.mediaMimeType ?: "application/octet-stream") { p ->
-                    if (p - lastReported >= 5 || p == 100) {
+                val uploaded = media.upload(m.messageId, File(m.localMediaPath!!), m.storagePath!!, m.mediaMimeType ?: "application/octet-stream") { p ->
+                    // 100 % is recorded by setUploadedRef; a late progress write must not undo it.
+                    if (p < 100 && (p < lastReported || p - lastReported >= 5)) {
                         lastReported = p
                         scope.launch(Dispatchers.IO) { db.messageDao().setTransfer(m.messageId, TransferState.UPLOADING, p) }
                     }
                 }
-                db.messageDao().setUploaded(m.messageId, url)
-                pushMessage(m.copy(mediaUrl = url, transferState = TransferState.UPLOADED), conv)
+                db.messageDao().setUploadedRef(m.messageId, uploaded.url, uploaded.path)
+                pushMessage(m.copy(mediaUrl = uploaded.url, storagePath = uploaded.path, transferState = TransferState.UPLOADED), conv)
             } catch (e: Exception) {
                 val cancelled = e is CancellationException || e.javaClass.simpleName.contains("Cancel")
                 Log.w(TAG, "upload failed for ${m.messageId}: ${e.message}")
                 db.messageDao().setTransfer(m.messageId, TransferState.UPLOAD_FAILED, 0)
-                markFailed(m.messageId, if (cancelled) "cancelled" else "upload")
+                markFailed(m.messageId, when {
+                    cancelled -> "cancelled"
+                    e is MediaTooLargeException -> "too_large"
+                    else -> "upload"
+                })
             }
         }
     }
@@ -692,7 +696,7 @@ class ChatRepository(
         val photoUrl = photo?.let { uri ->
             runCatching {
                 val bytes = media.compressImage(uri, 640, 85) ?: return@runCatching null
-                media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg")
+                media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg").url
             }.getOrNull()
         }
         val now = System.currentTimeMillis()
@@ -793,7 +797,7 @@ class ChatRepository(
         var photoUrl = c.avatarUrl
         if (photo != null) {
             val bytes = media.compressImage(photo, 640, 85) ?: throw ChatException(ChatError.FILE_UNREADABLE)
-            photoUrl = media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg")
+            photoUrl = media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg").url
             update["photoUrl"] = photoUrl
         }
         val event = when {
@@ -884,7 +888,7 @@ class ChatRepository(
         var lastReported = -10
         try {
             val file = media.download(messageId, m.storagePath, m.mediaUrl, m.fileName, m.mediaMimeType) { p ->
-                if (p - lastReported >= 5) {
+                if (p < 100 && p - lastReported >= 5) {
                     lastReported = p
                     scope.launch(Dispatchers.IO) { db.messageDao().setTransfer(messageId, TransferState.DOWNLOADING, p) }
                 }

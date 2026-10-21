@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -44,10 +45,12 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.domain.MediaLimits
+import com.example.domain.MediaRefs
 import com.example.domain.model.MessageType
 import com.example.domain.model.TransferState
 import com.example.ui.common.Formatters
 import com.example.ui.common.appContainer
+import com.example.ui.common.playerUri
 import com.example.ui.status.VideoPlayerView
 import kotlinx.coroutines.launch
 import java.io.File
@@ -64,12 +67,20 @@ fun MediaViewerScreen(messageId: String, onBack: () -> Unit) {
     var offset by remember { mutableStateOf(Offset.Zero) }
     val m = message
     val local = m?.localMediaPath?.takeIf { File(it).exists() }
+    // Videos in the built-in media store cannot be streamed: fetch them as soon as the viewer opens.
+    LaunchedEffect(m?.messageId, local == null) {
+        if (m != null && local == null && m.type == MessageType.VIDEO && MediaRefs.isPulse(m.mediaUrl) && m.transferState != TransferState.DOWNLOADING) {
+            runCatching { container.chatRepository.downloadMedia(m.messageId) }
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (m != null) {
             when {
-                m.type == MessageType.VIDEO && (local != null || m.mediaUrl != null) ->
-                    VideoPlayerView(local ?: m.mediaUrl!!, Modifier.fillMaxWidth().align(Alignment.Center), autoPlay = true)
+                m.type == MessageType.VIDEO && local != null ->
+                    VideoPlayerView(playerUri(local), Modifier.fillMaxWidth().align(Alignment.Center), autoPlay = true)
+                m.type == MessageType.VIDEO && m.mediaUrl != null && !MediaRefs.isPulse(m.mediaUrl) ->
+                    VideoPlayerView(m.mediaUrl, Modifier.fillMaxWidth().align(Alignment.Center), autoPlay = true)
                 m.type == MessageType.IMAGE && local != null -> AsyncImage(
                     model = File(local), contentDescription = m.content, contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().pointerInput(Unit) {

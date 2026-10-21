@@ -20,7 +20,7 @@ data/remote    Firestore schema + mappers
 data/repository Auth, sync, chats/messages, users/contacts/blocks, media, statuses, calls, AI
 calls/         WebRTC session + Firestore signalling + foreground service
 notifications/ FCM service, notification channels, inline reply / mark-as-read actions
-security/      App lock (biometric / device credential)
+security/      App lock (PulseChat PIN, optional fingerprint/face)
 firebase/      Cloud Functions (TypeScript) and Firestore rules tests
 ```
 
@@ -38,10 +38,15 @@ firebase/      Cloud Functions (TypeScript) and Firestore rules tests
 * **Security** – `firestore.rules` and `storage.rules` enforce participants, admin roles, blocking,
   edit (15 min) / delete-for-everyone (48 h) windows, per-user reactions/votes/receipts, privacy of
   last seen / photo / about, status audiences and call signalling transitions.
+* **Media** – photos, videos, voice notes, documents, statuses and profile/group photos go to Cloud
+  Storage when the project has a usable bucket. Projects without one (Cloud Storage needs the Blaze
+  plan) automatically use the built-in media store instead: Firestore documents `media/{id}` with
+  the file in 512 KB chunks (up to 32 MB per file), readable like Storage objects by signed-in users
+  who hold the random ID, writable only by the uploader (`domain/MediaRefs.kt`, `firestore.rules`).
 * **Gemini** – Firebase AI Logic (no API key in the APK). Features run only after explicit consent,
   output is labelled as AI-generated, and requests are rate limited client-side.
 * **Encryption** – data is encrypted in transit (TLS) and at rest (Google Cloud). PulseChat does
-  **not** provide end-to-end encryption and the app says so.
+  **not** provide end-to-end encryption and never claims to.
 
 ## Firebase setup (required)
 
@@ -50,13 +55,18 @@ database `ai-studio-android-pulsecha-2c0cef4c-b560-4944-a812-3a390d3cee6a`
 (`app/src/main/res/values/firebase_applet_config.xml`).
 
 1. **Authentication** → Sign-in method: enable **Email/Password** and **Google**. Add the SHA-1/SHA-256
-   of your signing keys to the Android app in Project settings.
+   of your signing keys to the Android app in Project settings (see *Stable signing key* below; every
+   CI run prints the fingerprints of its APK in the "CI log digest (Android)" check and job summary).
 2. **Deploy rules, indexes/TTL and Storage rules** (from this `pulsechat/` directory):
    ```bash
    npm install -g firebase-tools
    firebase login
-   firebase deploy --only firestore,storage
+   firebase deploy --only firestore          # rules + TTL settings (works on the free plan)
+   firebase deploy --only storage            # only once Cloud Storage is set up (Blaze plan)
    ```
+   Without the CLI, paste `firestore.rules` into Firebase console → Firestore → Rules (database
+   `ai-studio-android-pulsecha-…`) and press **Publish**. Re-publish whenever this file changes
+   (for example the `media` rules of the built-in media store).
    `firestore.indexes.json` also defines TTL policies on `messages.expiresAt` and
    `statuses.expiresAt` (disappearing messages and 24-hour statuses).
 3. **Cloud Functions** (push notifications; requires the Blaze plan):
@@ -95,6 +105,23 @@ build signed elsewhere before installing yours.
 Ready-made debug APKs: every CI run uploads the artifact **pulsechat-debug-apk** (Actions → Android
 CI → a run → Artifacts).
 
+### Stable signing key (Google sign-in on CI-built APKs)
+
+Google sign-in only works for APKs whose signing-certificate fingerprint is registered in Firebase.
+By default every CI run creates a new debug key, so each new APK needs its fingerprint added. To sign
+every CI build with one key instead, create it once and store it as a repository secret:
+
+```bash
+keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android \
+  -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+keytool -list -v -keystore debug.keystore -storepass android     # SHA-1 and SHA-256 to add in Firebase
+base64 -w0 debug.keystore                                          # PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("debug.keystore"))
+```
+
+Add the base64 text as the secret **DEBUG_KEYSTORE_BASE64** (GitHub → Settings → Secrets and
+variables → Actions), register both fingerprints in Firebase, and keep the file in this directory
+for local builds so they use the same key. Do not commit it.
+
 Release builds read `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` from the environment.
 
 ## Tests
@@ -122,8 +149,12 @@ emulator and runs the instrumented tests against the Firebase emulators. The `e2
 UI of a debug build. Accounts take turns on one device and local storage is wiped between them, so
 everything a user sees must come from the server. They cover:
 
-* registration and sign-in by username and by 10-digit ID, user search (username, ID, display name);
+* registration and sign-in by username and by 10-digit ID; user search by exact username or ID only
+  (display names and partial usernames find nobody);
 * one direct chat per pair, text and photo messages (Storage upload, download on the other side);
+* the built-in media store (`BuiltInMediaStoreE2ETest`): photo, multi-chunk voice note and profile
+  photo without Cloud Storage, identical bytes on the other device, owner-only writes; the home
+  screen's per-tab titles and menus;
 * unread counters, read receipts and reactions reaching the sender, edit and delete for everyone;
 * groups: creation, sync to members, disappearing timer, admin-only sending, leaving;
 * per-user chat preferences (pin, favourite, mute, unread mark, archive) and saved contacts
@@ -151,7 +182,9 @@ security config (`src/debug`). Release builds always use the real backend with c
 
 * No end-to-end encryption; message content is protected by Firestore rules and TLS.
 * Storage rules cannot read the named Firestore database, so chat media is protected by
-  unguessable paths and Firebase download tokens rather than by membership checks.
+  unguessable paths and Firebase download tokens rather than by membership checks. The built-in
+  media store uses the same model (random IDs) and is limited to 32 MB per file.
+* Videos are not re-encoded, so long recordings can exceed the size limit.
 * Group calls are not supported (one-to-one calls only). Calls need TURN for some networks.
 * New group members can read history sent before they joined.
 * Presence is heartbeat based (offline is shown up to ~100 s after a device disappears).

@@ -201,6 +201,9 @@ interface MessageDao {
     @Query("UPDATE messages SET mediaUrl = :url, transferState = 'UPLOADED', transferProgress = 100 WHERE messageId = :id")
     suspend fun setUploaded(id: String, url: String)
 
+    @Query("UPDATE messages SET mediaUrl = :url, storagePath = :path, transferState = 'UPLOADED', transferProgress = 100 WHERE messageId = :id")
+    suspend fun setUploadedRef(id: String, url: String, path: String)
+
     @Query("UPDATE messages SET localMediaPath = :path, transferState = :state, transferProgress = 100 WHERE messageId = :id")
     suspend fun setLocalMedia(id: String, path: String?, state: TransferState)
 

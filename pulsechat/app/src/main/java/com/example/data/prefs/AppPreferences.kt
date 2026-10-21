@@ -33,7 +33,9 @@ data class AppSettings(
     val aiConsent: Boolean = false,
     val aiSmartReplies: Boolean = false,
     val appLockEnabled: Boolean = false,
-    val appLockTimeoutMs: Long = 60_000L,
+    val appLockTimeoutMs: Long = 0L,
+    val appLockHasPin: Boolean = false,
+    val appLockBiometric: Boolean = false,
 )
 
 /**
@@ -80,6 +82,8 @@ class AppPreferences(context: Context) {
             aiSmartReplies = prefs.getBoolean("ai_smart_replies", false),
             appLockEnabled = secure.getBoolean("app_lock", false),
             appLockTimeoutMs = secure.getLong("app_lock_timeout", d.appLockTimeoutMs),
+            appLockHasPin = secure.getString("app_lock_pin", null) != null,
+            appLockBiometric = secure.getBoolean("app_lock_biometric", false),
         )
     }
 
@@ -119,6 +123,30 @@ class AppPreferences(context: Context) {
     }
     fun setAiSmartReplies(value: Boolean) = edit { putBoolean("ai_smart_replies", value) }
     fun setAppLock(enabled: Boolean, timeoutMs: Long) = editSecure { putBoolean("app_lock", enabled); putLong("app_lock_timeout", timeoutMs) }
+    fun setAppLockBiometric(enabled: Boolean) = editSecure { putBoolean("app_lock_biometric", enabled) }
+
+    /** Salted PIN hash record written by AppLockManager (never the PIN itself). Excluded from backups. */
+    val appLockPinRecord: String? get() = secure.getString("app_lock_pin", null)
+    fun setAppLockPinRecord(record: String?) = editSecure { if (record == null) remove("app_lock_pin") else putString("app_lock_pin", record) }
+
+    /** Failed PIN attempts and the lockout they caused (persisted, so restarting the app doesn't reset them). */
+    var appLockFailures: Int
+        get() = secure.getInt("app_lock_failures", 0)
+        set(value) { secure.edit().putInt("app_lock_failures", value).apply() }
+    var appLockLockoutUntil: Long
+        get() = secure.getLong("app_lock_lockout_until", 0L)
+        set(value) { secure.edit().putLong("app_lock_lockout_until", value).apply() }
+
+    /** Turns app lock off and forgets the PIN (sign-out, "forgot PIN"). */
+    fun resetAppLock() = editSecure {
+        putBoolean("app_lock", false); remove("app_lock_pin"); remove("app_lock_biometric")
+        remove("app_lock_failures"); remove("app_lock_lockout_until")
+    }
+
+    /** Until when uploads skip Cloud Storage because the project has no usable bucket (see MediaRepository). */
+    var storageUnavailableUntil: Long
+        get() = prefs.getLong("storage_unavailable_until", 0L)
+        set(value) { prefs.edit().putLong("storage_unavailable_until", value).apply() }
 
     // ---- Account conveniences (no secrets) ----
     fun recentAccounts(): List<String> = prefs.getString("recent_accounts", "")!!.split("\n").filter { it.isNotBlank() }
@@ -148,7 +176,11 @@ class AppPreferences(context: Context) {
             .remove("status_mode").remove("status_list").remove("default_disappearing")
             .remove("ai_consent").remove("ai_smart_replies")
             .apply()
-        secure.edit().remove("push_token").apply()
+        // App lock belongs to the signed-in account (and signing out is the way out of a forgotten PIN).
+        secure.edit().remove("push_token")
+            .putBoolean("app_lock", false).remove("app_lock_pin").remove("app_lock_biometric")
+            .remove("app_lock_failures").remove("app_lock_lockout_until")
+            .apply()
         _settings.value = load()
     }
 }
