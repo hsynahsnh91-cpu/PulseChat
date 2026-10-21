@@ -14,13 +14,42 @@
       },
       "oauth_client": [
         {
-          "client_id": "677612835092-btuckmacbop059qlik2t05sms3rn2ntd.apps.googleusercontent.com",
+          "client_id": "677612835092-co0v8r1dde0qpojn1gkskdvtvs43lr31.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.aistudio.pulsechat.kxmpzq",
-            "certificate_hash": "a71455657cdcd2fe3e382440c9996fe5d8eba746"
+            "certificate_hash": "9ff887ea488de5dfd432730fd879669473e5c2a7"
           }
         },
+        {
+          "client_id": "677612835092-p44t8l18e15kn53g9kgrq643a3aq74oc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCox4qFQOxXR2gtRNQVLOOnF_HQvjcckBs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "677612835092-p44t8l18e15kn53g9kgrq643a3aq74oc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:677612835092:android:2b193711475c1114c4f201",
+        "android_client_info": {
+          "package_name": "com.pulsechat"
+        }
+      },
+      "oauth_client": [
         {
           "client_id": "677612835092-p44t8l18e15kn53g9kgrq643a3aq74oc.apps.googleusercontent.com",
           "client_type": 3
