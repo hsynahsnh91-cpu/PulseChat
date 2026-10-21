@@ -365,7 +365,7 @@ private fun DrawScope.drawCropOverlay(crop: ImageEditMath.Box, shown: ImageEditM
 // ---------------------------------------------------------------------------- bitmap work
 
 /** Decodes the photo upright (EXIF orientation applied), at most [maxDim] px on its long side. */
-private fun loadForEditing(context: Context, uri: Uri, maxDim: Int = 2048): Bitmap? = runCatching {
+private fun loadForEditing(context: Context, uri: Uri, maxDim: Int = 1600): Bitmap? = runCatching {
     if (Build.VERSION.SDK_INT >= 28) {
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
             val w = info.size.width; val h = info.size.height

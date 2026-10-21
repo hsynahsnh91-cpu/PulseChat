@@ -153,9 +153,18 @@ every table. The exported `4.json` matches the migration SQL.
 
 ## Verification (CI)
 
-See the commit's CI run on PR #3 (`android-ci.yml`): build + unit/Robolectric tests, release build
-with lint-vital, Windows build, rules + functions tests, web client tests, and the instrumented
-suite on an API 34 emulator against the Firebase emulators. Exact counts are listed in the PR.
+Run [39647918513](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39647918513) (push, commit
+`3d7c18b`) and the PR run on the same commit: all jobs green.
+
+* `assembleDebug`, `assembleRelease` with lint-vital, Windows fresh-clone build: passing.
+* JVM/Robolectric unit tests: **109/109** (72 before + 37 new: call routing/processing/stats, scheduling,
+  reminder times, links, AI parsing, editor geometry, v3→v4 migration, feature DAOs).
+* Firestore rules (emulator): **28/28** (new: a message ID can be created only once). Functions: 4/4.
+* Web client: unit/contract 17/17, emulator integration 7/7 (one earlier run hit a known emulator
+  flake, `RESOURCE_EXHAUSTED`, unrelated to these changes; it passed on re-run).
+* Instrumented on an API 34 emulator against the Firebase emulators: **10/10** - the 6 existing suites
+  (launch, messaging, groups/status/privacy, built-in media store, web interop) plus
+  `Phase1FeaturesE2ETest` (3 tests) and `CallLifecycleE2ETest`.
 
 **Not verified (needs real devices, people or the deployed project):** echo/feedback on two phones
 (test plan in CALL_AUDIO.md), Bluetooth/wired routing, Doze timing of scheduled messages and
