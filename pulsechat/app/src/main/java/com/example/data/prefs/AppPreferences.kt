@@ -2,6 +2,7 @@ package com.example.data.prefs
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.calls.EchoCancellerMode
 import com.example.domain.AutoDownloadSettings
 import com.example.domain.StatusPolicy
 import com.example.domain.model.MessageType
@@ -36,6 +37,12 @@ data class AppSettings(
     val appLockTimeoutMs: Long = 0L,
     val appLockHasPin: Boolean = false,
     val appLockBiometric: Boolean = false,
+    // Calls (Settings › Diagnostics › Call audio)
+    val callEchoMode: EchoCancellerMode = EchoCancellerMode.AUTO,
+    val callAutoGain: Boolean = false,
+    val callShowDetails: Boolean = false,
+    // In-chat translation: BCP-47 tag of the target language ("" = the app language)
+    val translationTarget: String = "",
 )
 
 /**
@@ -84,6 +91,10 @@ class AppPreferences(context: Context) {
             appLockTimeoutMs = secure.getLong("app_lock_timeout", d.appLockTimeoutMs),
             appLockHasPin = secure.getString("app_lock_pin", null) != null,
             appLockBiometric = secure.getBoolean("app_lock_biometric", false),
+            callEchoMode = runCatching { EchoCancellerMode.valueOf(prefs.getString("call_echo_mode", d.callEchoMode.name)!!) }.getOrDefault(d.callEchoMode),
+            callAutoGain = prefs.getBoolean("call_auto_gain", d.callAutoGain),
+            callShowDetails = prefs.getBoolean("call_show_details", d.callShowDetails),
+            translationTarget = prefs.getString("translation_target", "") ?: "",
         )
     }
 
@@ -142,6 +153,21 @@ class AppPreferences(context: Context) {
         putBoolean("app_lock", false); remove("app_lock_pin"); remove("app_lock_biometric")
         remove("app_lock_failures"); remove("app_lock_lockout_until")
     }
+
+    fun setCallEchoMode(mode: EchoCancellerMode) = edit { putString("call_echo_mode", mode.name) }
+    fun setCallAutoGain(value: Boolean) = edit { putBoolean("call_auto_gain", value) }
+    fun setCallShowDetails(value: Boolean) = edit { putBoolean("call_show_details", value) }
+    fun setTranslationTarget(tag: String) = edit { putString("translation_target", tag) }
+
+    /** Summary of the last call for Settings › Diagnostics (JSON, no personal data). */
+    var lastCallSummary: String?
+        get() = prefs.getString("last_call_summary", null)
+        set(value) { prefs.edit().putString("last_call_summary", value).apply() }
+
+    /** When the realtime sync last received data from the server (Settings › Diagnostics). */
+    var lastServerSyncAt: Long
+        get() = prefs.getLong("last_server_sync_at", 0L)
+        set(value) { prefs.edit().putLong("last_server_sync_at", value).apply() }
 
     /** Until when uploads skip Cloud Storage because the project has no usable bucket (see MediaRepository). */
     var storageUnavailableUntil: Long

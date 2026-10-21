@@ -82,6 +82,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Folder
 import com.example.data.repository.SyncState
 import com.example.domain.NetworkKind
 import com.example.ui.calls.rememberCallStarter
@@ -110,6 +112,8 @@ data class HomeNav(
     val openStatus: (String) -> Unit,
     val openStatusPrivacy: () -> Unit,
     val openCall: () -> Unit,
+    val openReminders: () -> Unit = {},
+    val openFolders: () -> Unit = {},
 )
 
 private const val TAB_CHATS = 0
@@ -133,6 +137,7 @@ fun HomeScreen(nav: HomeNav) {
     var textStatus by remember { mutableStateOf(false) }
     var pendingMedia by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
     var clearCalls by remember { mutableStateOf(false) }
+    var assignFolders by remember { mutableStateOf(false) }
 
     val chats by vm.chats.collectAsState()
     val filter by vm.filter.collectAsState()
@@ -145,6 +150,9 @@ fun HomeScreen(nav: HomeNav) {
     val unread by vm.unreadChats.collectAsState()
     val sync by vm.sync.collectAsState()
     val network by vm.network.collectAsState()
+    val folders by vm.folders.collectAsState()
+    val foldersWithCounts by vm.foldersWithCounts.collectAsState()
+    val selectedFolder by vm.selectedFolder.collectAsState()
     val startCall = rememberCallStarter(onStarted = nav.openCall)
 
     LaunchedEffect(Unit) { vm.events.collect { snackbar.showSnackbar(chatErrorText(context, it)) } }
@@ -186,6 +194,8 @@ fun HomeScreen(nav: HomeNav) {
                                     onClick = { selectionMenu = false; vm.markSelected(!flags.anyUnread) })
                                 DropdownMenuItem(text = { Text(stringResource(if (flags.allFavorite) R.string.action_remove_favorite else R.string.action_add_favorite)) },
                                     onClick = { selectionMenu = false; vm.favoriteSelected() })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.folder_add_to)) }, leadingIcon = { Icon(Icons.Default.Folder, null) },
+                                    onClick = { selectionMenu = false; assignFolders = true }, modifier = Modifier.testTag("menu_add_to_folder"))
                                 DropdownMenuItem(text = { Text(stringResource(R.string.action_delete_chat)) }, leadingIcon = { Icon(Icons.Default.Delete, null) },
                                     onClick = { selectionMenu = false; confirmDelete = true })
                             }
@@ -248,6 +258,8 @@ fun HomeScreen(nav: HomeNav) {
                                         })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.starred_messages)) }, leadingIcon = { Icon(Icons.Default.Star, null) },
                                         onClick = { menuOpen = false; nav.openStarred() })
+                                    DropdownMenuItem(text = { Text(stringResource(R.string.reminders_title)) }, leadingIcon = { Icon(Icons.Default.NotificationsActive, null) },
+                                        onClick = { menuOpen = false; nav.openReminders() }, modifier = Modifier.testTag("menu_reminders"))
                                     DropdownMenuItem(text = { Text(stringResource(R.string.archived_chats)) }, leadingIcon = { Icon(Icons.Default.Archive, null) },
                                         onClick = { menuOpen = false; nav.openArchived() })
                                 }
@@ -321,8 +333,9 @@ fun HomeScreen(nav: HomeNav) {
             when (tab) {
                 TAB_CHATS -> ChatsTab(
                     ui = chats, filter = filter, query = query, selection = selection, me = vm.me,
-                    onFilter = { vm.filter.value = it }, onOpen = nav.openChat, onToggleSelect = vm::toggleSelection,
+                    onFilter = vm::selectFilter, onOpen = nav.openChat, onToggleSelect = vm::toggleSelection,
                     onOpenArchived = nav.openArchived, onSearchMessages = { nav.openSearch(query) }, onNewChat = nav.openNewChat, contentPadding = listPadding,
+                    folders = folders, selectedFolder = selectedFolder, onFolder = vm::selectFolder, onManageFolders = nav.openFolders,
                 )
                 TAB_UPDATES -> UpdatesTab(
                     ui = updates, me = meUser, onMyStatus = { nav.openStatus(vm.me) }, onAddText = { textStatus = true },
@@ -349,6 +362,13 @@ fun HomeScreen(nav: HomeNav) {
             selected = null,
             onSelect = { d -> muteDialog = false; vm.muteSelected(if (d < 0) Long.MAX_VALUE else System.currentTimeMillis() + d) },
             onDismiss = { muteDialog = false },
+        )
+    }
+    if (assignFolders) {
+        AssignFoldersDialog(
+            folders = foldersWithCounts, initiallyChecked = remember { vm.foldersOfSelection() },
+            onSave = { ids -> vm.assignSelectedToFolders(ids); assignFolders = false },
+            onNewFolder = { assignFolders = false; nav.openFolders() }, onDismiss = { assignFolders = false },
         )
     }
     if (clearCalls) {

@@ -1,5 +1,13 @@
 package com.example.ui.navigation
 
+import com.example.ui.settings.DiagnosticsScreen
+
+import com.example.ui.home.FoldersScreen
+
+import com.example.ui.reminders.RemindersScreen
+
+import com.example.ui.chat.ChatMediaScreen
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -76,6 +84,11 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     val intent by pendingIntent.collectAsState()
 
     fun openPeer(peerId: String) { scope.launch { nav.go(Routes.chat(container.chatRepository.openDirectChat(peerId))) } }
+    /** Opens a chat at a message; an already open chat screen receives the jump through chatJumps. */
+    fun openChatAt(cid: String, messageId: String?) {
+        if (messageId != null) container.chatJumps.value = cid to messageId
+        nav.go(Routes.chat(cid, messageId))
+    }
 
     // Incoming calls while the app is open go straight to the call screen.
     LaunchedEffect(callUi.state, callUi.callId) {
@@ -85,7 +98,8 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     // Notification taps / call actions.
     LaunchedEffect(intent) {
         val i = intent ?: return@LaunchedEffect
-        i.getStringExtra(NotificationHelper.EXTRA_CONVERSATION)?.let { nav.go(Routes.chat(it)) }
+        i.getStringExtra(NotificationHelper.EXTRA_CONVERSATION)?.let { openChatAt(it, i.getStringExtra(NotificationHelper.EXTRA_MESSAGE)) }
+        if (i.getBooleanExtra(NotificationHelper.EXTRA_OPEN_REMINDERS, false)) nav.go("reminders")
         i.getStringExtra(NotificationHelper.EXTRA_CALL_ID)?.let { callId ->
             container.callManager.handleIncoming(callId)
             val ui = container.callManager.ui.value
@@ -120,6 +134,8 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                     openStatus = { nav.go(Routes.status(it)) },
                     openStatusPrivacy = { nav.go("settings/status-privacy") },
                     openCall = { nav.go(Routes.CALL) },
+                    openReminders = { nav.go("reminders") },
+                    openFolders = { nav.go("folders") },
                 )
             )
         }
@@ -133,8 +149,16 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                 openInfo = { nav.go(Routes.info(it)) },
                 openMedia = { nav.go(Routes.media(it)) },
                 openCall = { nav.go(Routes.CALL) },
+                openMediaBrowser = { nav.go("chat-media/$it") },
             ))
         }
+        composable("chat-media/{cid}", arguments = listOf(navArgument("cid") { type = NavType.StringType })) { entry ->
+            val cid = entry.arguments?.getString("cid") ?: return@composable
+            ChatMediaScreen(cid, onBack = { nav.popBackStack() }, openMedia = { nav.go(Routes.media(it)) },
+                showInChat = { mid -> container.chatJumps.value = cid to mid; nav.popBackStack() })
+        }
+        composable("reminders") { RemindersScreen(onBack = { nav.popBackStack() }, openMessage = { cid, mid -> openChatAt(cid, mid) }) }
+        composable("folders") { FoldersScreen(onBack = { nav.popBackStack() }) }
         composable("info/{cid}", arguments = listOf(navArgument("cid") { type = NavType.StringType })) { entry ->
             val cid = entry.arguments?.getString("cid") ?: return@composable
             ConversationInfoScreen(cid, InfoNav(
@@ -180,6 +204,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
         composable("settings/storage") { StorageSettingsScreen(settingsNav) }
         composable("settings/ai") { AiSettingsScreen(settingsNav) }
         composable("settings/about") { AboutScreen(settingsNav) }
+        composable("settings/diagnostics") { DiagnosticsScreen(settingsNav) }
     }
 }
 

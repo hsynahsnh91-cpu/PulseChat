@@ -152,6 +152,11 @@ dependencies {
   implementation(libs.firebase.storage)
   implementation(libs.androidx.lifecycle.process)
   implementation(libs.stream.webrtc.android)
+  // Scheduled messages (deferrable work that survives restarts and waits for a network).
+  implementation(libs.androidx.work.runtime.ktx)
+  // On-device translation (message text never leaves the phone; language packs download on demand).
+  implementation(libs.mlkit.translate)
+  implementation(libs.mlkit.language.id)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)

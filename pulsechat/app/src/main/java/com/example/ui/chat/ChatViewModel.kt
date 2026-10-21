@@ -13,7 +13,18 @@ import com.example.data.model.Message
 import com.example.data.model.Receipt
 import com.example.data.model.User
 import com.example.data.prefs.AppSettings
+import com.example.data.repository.AiError
 import com.example.data.repository.AiException
+import com.example.data.repository.AiRepository
+import com.example.data.repository.ChatError
+import com.example.data.repository.DiagnosticsLog
+import com.example.data.repository.ScheduleException
+import com.example.data.repository.TranslationException
+import com.example.data.model.MessageTranscript
+import com.example.data.model.ReminderSource
+import com.example.data.model.ScheduledMessage
+import com.example.domain.AiParsing
+import com.example.domain.TextTools
 import com.example.data.repository.ChatException
 import com.example.data.repository.GroupValidationException
 import com.example.domain.Ids
@@ -53,6 +64,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.update
+import java.util.TimeZone
 import java.io.File
 import java.util.Calendar
 
@@ -64,6 +80,8 @@ data class UnreadItem(val count: Int) : ChatItem { override val key: String get(
 sealed interface ChatEvent {
     data class Toast(val text: String) : ChatEvent
     data class NeedAiConsent(val action: () -> Unit) : ChatEvent
+    /** On-device translation needs language packs; the user confirms the download. */
+    data class NeedLanguageDownload(val messageId: String, val languages: List<String>) : ChatEvent
 }
 
 data class AiPanel(val busy: Boolean = false, val title: Int = 0, val suggestions: List<String> = emptyList(), val text: String? = null, val replaceDraft: Boolean = false)
@@ -134,6 +152,23 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
 
     private var typingJob: Job? = null
 
+    // ---- phase 1: scheduled messages, reminders, translation, transcripts, AI summary & tasks
+    val scheduled: StateFlow<List<ScheduledMessage>> = c.scheduledMessages.observeForConversation(conversationId)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val translations = MutableStateFlow<Map<String, TranslationUi>>(emptyMap())
+    private val transcriptState = MutableStateFlow<Map<String, TranscriptUi>>(emptyMap())
+    /** Saved transcripts (Room) merged with in-flight/failed requests of this screen. */
+    val transcripts: StateFlow<Map<String, TranscriptUi>> = combine(c.db.transcriptDao().observeForConversation(conversationId), transcriptState) { saved, local ->
+        val out = saved.associate { it.messageId to TranscriptUi(text = it.text) }.toMutableMap()
+        local.forEach { (id, ui) -> out[id] = if (ui.loading || ui.error != null || out[id] == null) ui else out.getValue(id).copy(hidden = ui.hidden) }
+        out.toMap()
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    val summary = MutableStateFlow<SummaryUi?>(null)
+    val actionSuggestions = MutableStateFlow<List<ActionCandidateUi>?>(null)
+    /** Messages from others since the last visit (read watermark when the chat was opened). */
+    val newSinceVisit = MutableStateFlow(0)
+    val newBannerDismissed = MutableStateFlow(false)
+
     init {
         viewModelScope.launch {
             val conv = conversation.filterNotNull().first()
@@ -149,6 +184,11 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
         }
         viewModelScope.launch { repo.errors.collect { _events.tryEmit(ChatEvent.Toast(chatErrorText(c.app, it))) } }
         if (initialJump != null) jumpTo(initialJump)
+        viewModelScope.launch {
+            items.first { it.isNotEmpty() }
+            val since = unreadSnapshot?.first ?: return@launch
+            if (since > 0) newSinceVisit.value = runCatching { c.db.messageDao().countIncomingSince(conversationId, me, since) }.getOrDefault(0)
+        }
     }
 
     private fun buildItems(desc: List<Message>, isGroup: Boolean, snapshot: Pair<Long, Long>?): List<ChatItem> {
@@ -507,5 +547,253 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
         ai.value = AiPanel()
     }
 
-    companion object { const val PAGE = 60 }
+    // ------------------------------------------------------------------ scheduled messages
+
+    private fun scheduleErrorToast(e: ScheduleException) = toast(when (e.error) {
+        com.example.domain.ScheduledPolicy.Error.TOO_SOON -> R.string.schedule_error_too_soon
+        com.example.domain.ScheduledPolicy.Error.TOO_FAR -> R.string.schedule_error_too_far
+        com.example.domain.ScheduledPolicy.Error.TOO_LONG -> R.string.error_too_long
+        com.example.domain.ScheduledPolicy.Error.EMPTY -> R.string.error_empty
+    })
+
+    /** Schedules [text]; on success the composer is cleared. */
+    fun schedule(text: String, at: Long) = viewModelScope.launch {
+        try {
+            c.scheduledMessages.schedule(conversationId, text, at)
+            if (draft.value.text.trim() == text.trim()) { draft.value = TextFieldValue(""); repo.setDraft(conversationId, "") }
+            toast(R.string.schedule_done)
+        } catch (e: ScheduleException) { scheduleErrorToast(e) }
+        catch (e: ChatException) { _events.tryEmit(ChatEvent.Toast(chatErrorText(c.app, e.error))) }
+        catch (e: Exception) { if (e is CancellationException) throw e; toast(R.string.error_update_failed) }
+    }
+
+    fun editScheduled(id: String, text: String, at: Long) = viewModelScope.launch {
+        try { if (!c.scheduledMessages.edit(id, text, at)) toast(R.string.scheduled_locked) }
+        catch (e: ScheduleException) { scheduleErrorToast(e) }
+    }
+
+    fun cancelScheduled(id: String) = viewModelScope.launch { if (!c.scheduledMessages.cancel(id)) toast(R.string.scheduled_locked) }
+
+    fun sendScheduledNow(id: String) = viewModelScope.launch { if (!c.scheduledMessages.sendNow(id)) toast(R.string.scheduled_locked) }
+
+    // ------------------------------------------------------------------ reminders
+
+    val exactAlarmsAllowed: Boolean get() = c.reminders.scheduler.canScheduleExact()
+
+    fun remindAbout(m: Message, at: Long) = launchSafely {
+        c.reminders.createForMessage(m, at)
+        _events.tryEmit(ChatEvent.Toast(c.app.getString(R.string.reminder_set, com.example.ui.common.Formatters.dateTime(c.app, at))))
+    }
+
+    // ------------------------------------------------------------------ translation (on device)
+
+    fun translationTarget(): String = settings.value.translationTarget.ifBlank {
+        c.translations.defaultTarget(settings.value.language.tag ?: java.util.Locale.getDefault().language)
+    }
+
+    fun languageName(tag: String): String = c.translations.displayName(tag)
+
+    fun languageChoices(): List<Pair<String, String>> = c.translations.supportedLanguages().map { it to c.translations.displayName(it) }
+
+    fun translate(m: Message, allowDownload: Boolean = false, target: String = translationTarget()) {
+        translations.update { it + (m.messageId to TranslationUi(loading = true, targetLang = target)) }
+        viewModelScope.launch {
+            val ui = try {
+                val r = c.translations.translate(m, target, allowDownload)
+                TranslationUi(text = r.text, sourceLang = r.sourceLang, targetLang = r.targetLang)
+            } catch (e: TranslationException) {
+                when (e.reason) {
+                    TranslationException.Reason.NEEDS_DOWNLOAD -> {
+                        _events.tryEmit(ChatEvent.NeedLanguageDownload(m.messageId, e.languages))
+                        null
+                    }
+                    else -> {
+                        if (e.reason == TranslationException.Reason.DOWNLOAD_FAILED) c.diagnosticsLog.record(DiagnosticsLog.TRANSLATION, "translation_download_failed")
+                        TranslationUi(targetLang = target, error = c.app.getString(when (e.reason) {
+                            TranslationException.Reason.SAME_LANGUAGE -> R.string.translate_error_same
+                            TranslationException.Reason.UNDETECTED -> R.string.translate_error_undetected
+                            TranslationException.Reason.UNSUPPORTED -> R.string.translate_error_unsupported
+                            TranslationException.Reason.DOWNLOAD_FAILED -> R.string.translate_error_download
+                            TranslationException.Reason.EMPTY -> R.string.translate_error_empty
+                            else -> R.string.translate_error_failed
+                        }))
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                TranslationUi(targetLang = target, error = c.app.getString(R.string.translate_error_failed))
+            }
+            translations.update { if (ui == null) it - m.messageId else it + (m.messageId to ui) }
+        }
+    }
+
+    fun translateById(id: String, allowDownload: Boolean) = viewModelScope.launch { repo.getMessage(id)?.let { translate(it, allowDownload) } }
+
+    fun setTranslationTarget(tag: String, retranslate: Message?) {
+        c.prefs.setTranslationTarget(tag)
+        if (retranslate != null) translate(retranslate, target = tag)
+    }
+
+    fun toggleOriginal(id: String) = translations.update { m -> m[id]?.let { m + (id to it.copy(showOriginal = !it.showOriginal)) } ?: m }
+    fun closeTranslation(id: String) = translations.update { it - id }
+
+    // ------------------------------------------------------------------ AI (explicit actions after consent)
+
+    private fun reportAi(e: AiException) {
+        _events.tryEmit(ChatEvent.Toast(aiErrorText(c.app, e.error)))
+        if (e.error == AiError.NOT_CONFIGURED || e.error == AiError.RATE_LIMITED || e.error == AiError.NETWORK || e.error == AiError.TIMEOUT) {
+            c.diagnosticsLog.record(DiagnosticsLog.AI, "ai_" + e.error.name.lowercase())
+        }
+    }
+
+    /** Lines "m1 | Sara: text" for the model, plus the alias -> message ID map (only aliases are sent). */
+    private fun aiLines(msgs: List<Message>): Pair<String, Map<String, String>> {
+        val names = participants.value.associate { it.userId to it.displayName }
+        val aliases = LinkedHashMap<String, String>()
+        val lines = ArrayList<String>()
+        var budget = AI_CONTEXT_CHARS
+        msgs.asReversed().forEach { m ->
+            val body = when (m.type) {
+                MessageType.TEXT, MessageType.AI_RESPONSE -> m.content
+                MessageType.IMAGE -> "[photo] " + m.content
+                MessageType.VIDEO -> "[video] " + m.content
+                MessageType.AUDIO -> "[voice message]" + (transcripts.value[m.messageId]?.text?.let { " transcript: $it" } ?: "")
+                MessageType.DOCUMENT -> "[document] " + (m.fileName ?: "")
+                MessageType.POLL -> "[poll] " + (m.pollQuestion ?: "")
+                MessageType.LOCATION -> "[location]"
+                MessageType.CONTACT -> "[contact card]"
+                else -> ""
+            }.trim().take(600)
+            if (body.isEmpty() || budget <= 0) return@forEach
+            val sender = if (m.senderId == me) "Me" else names[m.senderId] ?: "Member"
+            lines += "${m.messageId}\u0000$sender: $body"
+            budget -= body.length + sender.length + 8
+        }
+        val ordered = lines.asReversed().mapIndexed { i, l ->
+            val alias = "m${i + 1}"
+            aliases[alias] = l.substringBefore('\u0000')
+            "$alias | " + l.substringAfter('\u0000')
+        }
+        return ordered.joinToString("\n") to aliases
+    }
+
+    fun summarizeSinceLastVisit() = withConsent {
+        val since = unreadSnapshot?.first
+        if (since == null || newSinceVisit.value == 0) { toast(R.string.ai_nothing_to_summarize); return@withConsent }
+        aiJob?.cancel()
+        summary.value = SummaryUi(busy = true)
+        aiJob = viewModelScope.launch {
+            try {
+                val msgs = repo.messagesSince(conversationId, since, AI_MAX_MESSAGES).filter { it.type != MessageType.SYSTEM }
+                if (msgs.isEmpty()) { summary.value = null; toast(R.string.ai_nothing_to_summarize); return@launch }
+                val (lines, aliases) = aiLines(msgs)
+                val raw = c.aiRepository.summarizeWithReferences(lines, languageName())
+                val points = AiParsing.parseSummary(raw, aliases.keys)
+                if (points.isEmpty()) throw AiException(AiError.BAD_RESPONSE)
+                summary.value = SummaryUi(points = points.map { p -> SummaryPointUi(p.text, p.refs.mapNotNull { aliases[it] }) }, coveredCount = msgs.size)
+                newBannerDismissed.value = true
+            } catch (e: AiException) {
+                summary.value = null
+                reportAi(e)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                summary.value = null
+                toast(R.string.error_unknown)
+            }
+        }
+    }
+
+    fun closeSummary() { aiJob?.cancel(); summary.value = null }
+
+    /** Suggests tasks/events from recent messages; nothing is created until the user confirms. */
+    fun findTasksAndEvents() = withConsent {
+        aiJob?.cancel()
+        ai.value = AiPanel(busy = true, title = R.string.ai_find_tasks)
+        aiJob = viewModelScope.launch {
+            try {
+                val since = unreadSnapshot?.first
+                val msgs = (if (since != null && newSinceVisit.value >= 5) repo.messagesSince(conversationId, since, AI_MAX_MESSAGES) else repo.recentMessages(conversationId, 80))
+                    .filter { it.type != MessageType.SYSTEM }
+                if (msgs.isEmpty()) { ai.value = AiPanel(); toast(R.string.ai_nothing_to_summarize); return@launch }
+                val (lines, aliases) = aiLines(msgs)
+                val zone = TimeZone.getDefault()
+                val now = System.currentTimeMillis()
+                val raw = c.aiRepository.extractActions(lines, AiParsing.nowIso(now, zone), zone.id, languageName())
+                val items = AiParsing.parseActions(raw, aliases.keys)
+                actionSuggestions.value = items.mapIndexed { i, item ->
+                    val due = item.due?.let { AiParsing.parseDateTime(it, zone) }
+                    val event = item.kind == AiParsing.ActionItem.Kind.EVENT
+                    // Events: remind 30 minutes before when there is time; tasks: at the stated time.
+                    val at = due?.let { if (event && it - 30 * 60_000L > now + 60_000L) it - 30 * 60_000L else it }?.takeIf { it > now }
+                    ActionCandidateUi(i, event, item.title, at, item.refs.mapNotNull { aliases[it] }, checked = at != null)
+                }
+                ai.value = AiPanel()
+            } catch (e: AiException) {
+                ai.value = AiPanel()
+                reportAi(e)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ai.value = AiPanel()
+                toast(R.string.error_unknown)
+            }
+        }
+    }
+
+    fun createRemindersFrom(items: List<ActionCandidateUi>) = launchSafely {
+        var created = 0
+        items.forEach { item ->
+            val at = item.at ?: return@forEach
+            c.reminders.create(item.title, conversationId, item.messageIds.firstOrNull(), at, if (item.event) ReminderSource.AI_EVENT else ReminderSource.AI_TASK)
+            created++
+        }
+        actionSuggestions.value = null
+        _events.tryEmit(ChatEvent.Toast(c.app.resources.getQuantityString(R.plurals.reminders_created, created, created)))
+    }
+
+    fun dismissSuggestions() { actionSuggestions.value = null }
+
+    /** Voice message -> text. The audio is sent to the AI service only after this explicit action. */
+    fun transcribe(m: Message) = withConsent {
+        if (m.type != MessageType.AUDIO) return@withConsent
+        transcriptState.update { it + (m.messageId to TranscriptUi(loading = true)) }
+        viewModelScope.launch {
+            try {
+                var path = m.localMediaPath
+                if (path == null || !File(path).exists()) {
+                    repo.downloadMedia(m.messageId)
+                    path = repo.getMessage(m.messageId)?.localMediaPath
+                }
+                val file = path?.let { File(it) }?.takeIf { it.exists() } ?: throw ChatException(ChatError.FILE_UNREADABLE)
+                if (file.length() > AiRepository.MAX_AUDIO_BYTES) throw AiException(AiError.TOO_LARGE)
+                val bytes = withContext(Dispatchers.IO) { file.readBytes() }
+                val text = c.aiRepository.transcribe(bytes, m.mediaMimeType?.takeIf { it.startsWith("audio/") } ?: "audio/mp4")
+                c.db.transcriptDao().upsert(MessageTranscript(m.messageId, text.take(TRANSCRIPT_MAX), "gemini", System.currentTimeMillis()))
+                transcriptState.update { it - m.messageId }
+            } catch (e: AiException) {
+                transcriptState.update { it + (m.messageId to TranscriptUi(error = aiErrorText(c.app, e.error))) }
+                if (e.error != AiError.TOO_LARGE) c.diagnosticsLog.record(DiagnosticsLog.AI, "ai_" + e.error.name.lowercase())
+            } catch (e: ChatException) {
+                transcriptState.update { it + (m.messageId to TranscriptUi(error = chatErrorText(c.app, e.error))) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                transcriptState.update { it + (m.messageId to TranscriptUi(error = c.app.getString(R.string.error_unknown))) }
+            }
+        }
+    }
+
+    fun toggleTranscript(id: String) = transcriptState.update { m ->
+        val cur = m[id] ?: transcripts.value[id] ?: return@update m
+        m + (id to cur.copy(hidden = !cur.hidden, loading = false, error = null))
+    }
+
+    companion object {
+        const val PAGE = 60
+        private const val AI_MAX_MESSAGES = 300
+        private const val AI_CONTEXT_CHARS = 24_000
+        private const val TRANSCRIPT_MAX = 8_000
+    }
 }

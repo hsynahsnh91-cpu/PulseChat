@@ -100,4 +100,5 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     fun unblock(uid: String) = act { c.userRepository.unblock(uid) }
     fun clearMedia(conversationId: String) = act(R.string.toast_media_cleared) { c.chatRepository.clearMediaFor(conversationId); refreshStorage() }
     fun signOut() = act { c.authRepository.signOut() }
+    fun setTranslationTarget(tag: String) = c.prefs.setTranslationTarget(tag)
 }

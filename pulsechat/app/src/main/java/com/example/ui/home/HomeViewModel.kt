@@ -14,6 +14,9 @@ import com.example.data.repository.SyncStatus
 import com.example.domain.ChatListPolicy
 import com.example.domain.NetworkKind
 import com.example.domain.StatusPolicy
+import com.example.data.model.ChatFolder
+import com.example.data.model.ChatFolderMember
+import com.example.data.model.FolderWithCount
 import com.example.domain.model.ChatFilter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -59,11 +62,43 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
     private val rows: Flow<List<ChatListRow>> = c.chatRepository.observeChatList(me)
 
-    val chats: StateFlow<ChatsUi> = combine(rows, filter, query, c.chatRepository.observeAllTyping()) { list, f, q, typing ->
+    // ---- chat folders (phase 1)
+    val selectedFolder = MutableStateFlow<String?>(null)
+    val folders: StateFlow<List<ChatFolder>> = c.folders.observeFolders().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val foldersWithCounts: StateFlow<List<FolderWithCount>> = c.folders.observeFoldersWithCounts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val folderMembers: StateFlow<List<ChatFolderMember>> = c.folders.observeMembers().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private val folderFilter: Flow<Set<String>?> = combine(selectedFolder, folderMembers) { id, members ->
+        id?.let { fid -> members.filter { it.folderId == fid }.map { it.conversationId }.toSet() }
+    }
+
+    fun selectFolder(id: String?) {
+        if (id != null) filter.value = ChatFilter.ALL
+        selectedFolder.value = id
+    }
+
+    fun selectFilter(f: ChatFilter) {
+        selectedFolder.value = null
+        filter.value = f
+    }
+
+    /** Folders that already contain every selected chat (pre-checked in "Add to folder"). */
+    fun foldersOfSelection(): Set<String> {
+        val ids = selection.value
+        if (ids.isEmpty()) return emptySet()
+        return folderMembers.value.groupBy { it.folderId }.filterValues { m -> m.map { it.conversationId }.containsAll(ids) }.keys
+    }
+
+    fun assignSelectedToFolders(folderIds: Set<String>) {
+        val ids = selection.value.toList()
+        viewModelScope.launch { c.folders.assign(ids, folderIds); selection.value = emptySet() }
+    }
+
+    val chats: StateFlow<ChatsUi> = combine(rows, filter, query, c.chatRepository.observeAllTyping(), folderFilter) { list, f, q, typing, inFolder ->
         val archived = list.filter { it.conversation.isArchived }
+        val shown = if (inFolder == null) list else list.filter { it.conversation.conversationId in inFolder }
         ChatsUi(
             loaded = true,
-            chats = ChatListPolicy.arrange(list, f, q, archived = false),
+            chats = ChatListPolicy.arrange(shown, f, q, archived = false),
             archivedCount = archived.size,
             archivedUnread = archived.count { ChatListPolicy.hasUnread(it) },
             typing = typing,

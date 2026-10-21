@@ -5,6 +5,13 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.model.BlockedUser
+import com.example.data.model.ChatFolder
+import com.example.data.model.ChatFolderMember
+import com.example.data.model.DiagnosticEvent
+import com.example.data.model.MessageTranscript
+import com.example.data.model.MessageTranslation
+import com.example.data.model.Reminder
+import com.example.data.model.ScheduledMessage
 import com.example.data.model.CallRecord
 import com.example.data.model.Contact
 import com.example.data.model.Conversation
@@ -25,8 +32,16 @@ import com.example.data.model.User
         Receipt::class,
         BlockedUser::class,
         StatusView::class,
+        // v4
+        ScheduledMessage::class,
+        Reminder::class,
+        ChatFolder::class,
+        ChatFolderMember::class,
+        MessageTranslation::class,
+        MessageTranscript::class,
+        DiagnosticEvent::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +53,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun statusDao(): StatusDao
     abstract fun receiptDao(): ReceiptDao
     abstract fun legacyMigrationDao(): LegacyMigrationDao
+    abstract fun scheduledMessageDao(): ScheduledMessageDao
+    abstract fun reminderDao(): ReminderDao
+    abstract fun folderDao(): FolderDao
+    abstract fun translationDao(): TranslationDao
+    abstract fun transcriptDao(): TranscriptDao
+    abstract fun diagnosticDao(): DiagnosticDao
 
     companion object {
         const val NAME = "pulsechat_database"

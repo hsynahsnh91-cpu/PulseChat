@@ -113,5 +113,55 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_2_3)
+    /**
+     * v3 -> v4: scheduled messages, reminders, chat folders, translation/transcript caches and the
+     * diagnostics log. Only new tables: existing tables and rows are untouched.
+     */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `scheduled_messages` (`id` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `conversationId` TEXT NOT NULL, " +
+                    "`text` TEXT NOT NULL, `scheduledAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                    "`state` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `lastError` TEXT, `sentAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_scheduled_messages_state_scheduledAt` ON `scheduled_messages` (`state`, `scheduledAt`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_scheduled_messages_conversationId` ON `scheduled_messages` (`conversationId`)")
+
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `reminders` (`id` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `conversationId` TEXT, `messageId` TEXT, " +
+                    "`title` TEXT NOT NULL, `remindAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `state` TEXT NOT NULL, " +
+                    "`source` TEXT NOT NULL, `firedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_reminders_state_remindAt` ON `reminders` (`state`, `remindAt`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_reminders_messageId` ON `reminders` (`messageId`)")
+
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `chat_folders` (`folderId` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                    "`sortOrder` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`folderId`))"
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_chat_folders_ownerId` ON `chat_folders` (`ownerId`)")
+
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `chat_folder_members` (`folderId` TEXT NOT NULL, `conversationId` TEXT NOT NULL, " +
+                    "`addedAt` INTEGER NOT NULL, PRIMARY KEY(`folderId`, `conversationId`))"
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_chat_folder_members_conversationId` ON `chat_folder_members` (`conversationId`)")
+
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `message_translations` (`messageId` TEXT NOT NULL, `targetLang` TEXT NOT NULL, `sourceLang` TEXT NOT NULL, " +
+                    "`sourceHash` TEXT NOT NULL, `text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`messageId`, `targetLang`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `message_transcripts` (`messageId` TEXT NOT NULL, `text` TEXT NOT NULL, `engine` TEXT NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL, PRIMARY KEY(`messageId`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `diagnostic_events` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `at` INTEGER NOT NULL, " +
+                    "`category` TEXT NOT NULL, `code` TEXT NOT NULL, `detail` TEXT)"
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_diagnostic_events_at` ON `diagnostic_events` (`at`)")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_2_3, MIGRATION_3_4)
 }

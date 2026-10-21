@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.util.Log
+import com.example.calls.CallDiagnostics
 import com.example.calls.CallManager
 import com.example.data.db.AppDatabase
 import com.example.data.model.Conversation
@@ -12,6 +13,11 @@ import com.example.data.repository.AuthRepository
 import com.example.data.repository.AutoReplyManager
 import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
+import com.example.data.repository.DiagnosticsLog
+import com.example.data.repository.FolderRepository
+import com.example.data.repository.ReminderRepository
+import com.example.data.repository.ScheduledMessageRepository
+import com.example.data.repository.TranslationRepository
 import com.example.data.repository.MediaRepository
 import com.example.data.repository.SessionState
 import com.example.data.repository.StatusRepository
@@ -77,10 +83,19 @@ class AppContainer(val app: Application) {
     val aiRepository by lazy { AiRepository() }
     val notifications by lazy { NotificationHelper(app, prefs, db) }
     val pushTokens by lazy { PushTokenManager(firestore, prefs, appScope, uid) }
-    val callManager by lazy { CallManager(app, firestore, db, callRepository, userRepository, notifications, appScope, uid) }
+    val callDiagnostics by lazy { CallDiagnostics(prefs, BuildConfig.DEBUG) }
+    val callManager by lazy { CallManager(app, firestore, db, callRepository, userRepository, notifications, prefs, callDiagnostics, appScope, uid) }
     val voicePlayer by lazy { VoicePlayer(app) }
+    val diagnosticsLog by lazy { DiagnosticsLog(db, appScope) }
+    val scheduledMessages by lazy { ScheduledMessageRepository(app, db, chatRepository, diagnosticsLog, uid) }
+    val reminders by lazy { ReminderRepository(app, db, notifications, diagnosticsLog, uid) }
+    val folders by lazy { FolderRepository(db, uid) }
+    val translations by lazy { TranslationRepository(db) }
     val appLock by lazy { AppLockManager(prefs) { callManager.ui.value.isLive } }
     val autoReply by lazy { AutoReplyManager(app) }
+
+    /** "Show in chat" requests (conversationId to messageId) for an already open chat screen. */
+    val chatJumps = kotlinx.coroutines.flow.MutableStateFlow<Pair<String, String>?>(null)
 
     private var backgroundJob: Job? = null
 
@@ -91,6 +106,8 @@ class AppContainer(val app: Application) {
             return
         }
         installAppCheck()
+        chatRepository.diagnostics = diagnosticsLog
+        syncManager.diagnostics = diagnosticsLog
         authRepository.addSignOutHook { id -> onSignedOut(id) }
         syncManager.onIncoming = { conv, messages -> handleIncoming(conv, messages) }
 
@@ -153,6 +170,9 @@ class AppContainer(val app: Application) {
         userRepository.pullOwnSettings()
         runCatching { chatRepository.resendPending() }
         runCatching { chatRepository.purgeExpired() }
+        // Idempotent: re-queues anything a force-stop or an update may have dropped.
+        runCatching { scheduledMessages.rescheduleAll() }
+        runCatching { reminders.rescheduleAll() }
     }
 
     private fun startRealtime(id: String) {
@@ -171,6 +191,8 @@ class AppContainer(val app: Application) {
 
     private suspend fun onSignedOut(id: String) {
         callManager.hangUp()
+        runCatching { scheduledMessages.clearForSignOut(id) }
+        runCatching { reminders.clearForSignOut(id) }
         userRepository.goOffline(id)
         userRepository.stopPresence()
         pushTokens.unregister(id)

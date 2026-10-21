@@ -42,6 +42,9 @@ credentials = "1.5.0"
 googleid = "1.1.1"
 lifecycleProcess = "2.8.7"
 streamWebrtc = "1.3.10"
+workRuntime = "2.11.2"
+mlkitTranslate = "17.0.3"
+mlkitLanguageId = "17.0.6"
 
 
 [libraries]
@@ -101,6 +104,9 @@ firebase-storage = { group = "com.google.firebase", name = "firebase-storage" }
 firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
 androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycleProcess" }
 stream-webrtc-android = { group = "io.getstream", name = "stream-webrtc-android", version.ref = "streamWebrtc" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
+mlkit-translate = { group = "com.google.mlkit", name = "translate", version.ref = "mlkitTranslate" }
+mlkit-language-id = { group = "com.google.mlkit", name = "language-id", version.ref = "mlkitLanguageId" }
 
 
 [plugins]

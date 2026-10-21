@@ -54,6 +54,7 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
             },
             NotificationChannel(CH_MISSED, context.getString(R.string.channel_missed_calls), NotificationManager.IMPORTANCE_DEFAULT),
             NotificationChannel(CH_ONGOING, context.getString(R.string.channel_ongoing_call), NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(CH_REMINDERS, context.getString(R.string.channel_reminders), NotificationManager.IMPORTANCE_HIGH),
         )
         manager.createNotificationChannels(channels)
     }
@@ -214,6 +215,42 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
 
     fun cancelIncomingCall() = nm.cancel(CALL_NOTIFICATION_ID)
 
+    /** Reminder notification; tapping opens the chat at the message. Returns false if it can't be shown. */
+    @SuppressLint("MissingPermission")
+    fun showReminder(r: com.example.data.model.Reminder, chatTitle: String?): Boolean {
+        if (!canPost()) return false
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            data = android.net.Uri.parse("pulsechat://reminder/${r.id}")
+            r.conversationId?.let { putExtra(EXTRA_CONVERSATION, it) }
+            r.messageId?.let { putExtra(EXTRA_MESSAGE, it) }
+            if (r.conversationId == null) putExtra(EXTRA_OPEN_REMINDERS, true)
+        }
+        val openPi = PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        fun action(action: String): PendingIntent = PendingIntent.getBroadcast(
+            context, 0,
+            Intent(context, ReminderReceiver::class.java).setAction(action).setData(android.net.Uri.parse("pulsechat://reminder/${r.id}"))
+                .putExtra(ReminderReceiver.EXTRA_ID, r.id),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val showContent = prefs.current.notificationPreviews
+        val builder = NotificationCompat.Builder(context, CH_REMINDERS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.reminder_notification_title))
+            .setContentText(if (showContent) r.title else context.getString(R.string.reminder_notification_hidden))
+            .setSubText(if (showContent) chatTitle else null)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(openPi)
+            .addAction(0, context.getString(R.string.reminder_done), action(ReminderReceiver.ACTION_DONE))
+            .addAction(0, context.getString(R.string.reminder_snooze_hour), action(ReminderReceiver.ACTION_SNOOZE))
+        if (showContent) builder.setStyle(NotificationCompat.BigTextStyle().bigText(r.title))
+        return runCatching { nm.notify(r.id, REMINDER_NOTIFICATION_ID, builder.build()); true }.getOrDefault(false)
+    }
+
+    fun cancelReminder(id: String) = nm.cancel(id, REMINDER_NOTIFICATION_ID)
+
     @SuppressLint("MissingPermission")
     fun showMissedCall(peerId: String, callerName: String, video: Boolean) {
         if (!canPost() || !prefs.current.callNotifications) return
@@ -254,6 +291,10 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         const val CH_CALLS = "calls_incoming"
         const val CH_MISSED = "missed_calls"
         const val CH_ONGOING = "ongoing_call"
+        const val CH_REMINDERS = "reminders"
+        const val REMINDER_NOTIFICATION_ID = 5
+        const val EXTRA_MESSAGE = "open_message"
+        const val EXTRA_OPEN_REMINDERS = "open_reminders"
         const val GROUP_KEY = "pulsechat_messages"
         const val MESSAGE_NOTIFICATION_ID = 100
         const val SUMMARY_ID = 1

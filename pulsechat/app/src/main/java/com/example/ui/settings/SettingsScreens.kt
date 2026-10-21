@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.KeyboardReturn
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
@@ -148,6 +150,7 @@ fun SettingsHomeScreen(nav: SettingsNav) {
         SettingsItem(Icons.Default.Notifications, stringResource(R.string.settings_notifications), stringResource(R.string.settings_notifications_sub)) { nav.open("settings/notifications") }
         SettingsItem(Icons.Default.Storage, stringResource(R.string.settings_storage), stringResource(R.string.settings_storage_sub)) { nav.open("settings/storage") }
         SettingsItem(Icons.Default.AutoAwesome, stringResource(R.string.settings_ai), stringResource(R.string.settings_ai_sub)) { nav.open("settings/ai") }
+        SettingsItem(Icons.Default.NetworkCheck, stringResource(R.string.diag_title), stringResource(R.string.diag_sub)) { nav.open("settings/diagnostics") }
         SettingsItem(Icons.Default.Info, stringResource(R.string.settings_about)) { nav.open("settings/about") }
         HorizontalDivider()
         SettingsItem(Icons.Default.SwapHoriz, stringResource(R.string.settings_switch_account), stringResource(R.string.settings_switch_account_sub)) { logout = true }
@@ -385,6 +388,17 @@ fun ChatSettingsScreen(nav: SettingsNav) {
         SettingsItem(Icons.Default.Language, stringResource(R.string.settings_language), languageLabel(s.language)) { dialog = "language" }
         SectionHeader(stringResource(R.string.settings_chats))
         SwitchItem(Icons.Default.KeyboardReturn, stringResource(R.string.settings_enter_send), stringResource(R.string.settings_enter_send_sub), s.enterToSend, onChange = vm::setEnterToSend)
+        val translations = com.example.ui.common.appContainer().translations
+        val target = s.translationTarget.ifBlank { translations.defaultTarget(s.language.tag ?: java.util.Locale.getDefault().language) }
+        SettingsItem(Icons.Default.Translate, stringResource(R.string.settings_translation_language), translations.displayName(target)) { dialog = "translation" }
+        Text(stringResource(R.string.settings_translation_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        if (dialog == "translation") {
+            com.example.ui.chat.LanguagePickerDialog(
+                translations.supportedLanguages().map { it to translations.displayName(it) }, target,
+                onPick = { tag -> dialog = null; vm.setTranslationTarget(tag) }, onDismiss = { dialog = null },
+            )
+        }
     }
     when (dialog) {
         "theme" -> ChoiceDialog(stringResource(R.string.settings_theme), ThemeMode.entries.map { it to themeLabel(it) }, s.themeMode,

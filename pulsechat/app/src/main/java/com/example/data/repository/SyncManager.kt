@@ -58,6 +58,8 @@ class SyncManager(
     private val scope: CoroutineScope,
     private val currentUid: () -> String?,
 ) {
+    /** Problems are reported to Settings › Diagnostics (set by AppContainer). */
+    var diagnostics: DiagnosticsLog? = null
     private val _status = MutableStateFlow(SyncStatus(SyncState.STOPPED))
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
@@ -146,6 +148,7 @@ class SyncManager(
             err.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION ||
             err.code == FirebaseFirestoreException.Code.NOT_FOUND
         _status.value = SyncStatus(SyncState.ERROR, backendNotReady = backend, message = err.code.name)
+        diagnostics?.record(DiagnosticsLog.SYNC, if (err.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) "sync_denied" else "sync_error", err.code.name)
     }
 
     // ------------------------------------------------------------------ conversations
@@ -167,7 +170,10 @@ class SyncManager(
             ensureMessageListener(me, conv)
         }
         users.ensureProfiles(profileIds)
-        if (!fromCache) _status.value = SyncStatus(SyncState.LIVE)
+        if (!fromCache) {
+            _status.value = SyncStatus(SyncState.LIVE)
+            prefs.lastServerSyncAt = System.currentTimeMillis()
+        }
     }
 
     suspend fun applyConversationDoc(me: String, doc: DocumentSnapshot): Conversation = db.withTransaction {

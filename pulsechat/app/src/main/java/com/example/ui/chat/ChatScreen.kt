@@ -109,6 +109,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
+import androidx.compose.material.icons.filled.PermMedia
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.TaskAlt
+import com.example.ui.reminders.openExactAlarmSettings
+import com.example.data.model.ScheduledState
+import com.example.data.model.ScheduledMessage
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.domain.DisappearingPolicy
@@ -140,6 +146,7 @@ data class ChatNav(
     val openInfo: (String) -> Unit,
     val openMedia: (String) -> Unit,
     val openCall: () -> Unit,
+    val openMediaBrowser: (String) -> Unit = {},
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -177,6 +184,13 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     val aiTyping by vm.aiTyping.collectAsState()
     val receipts by vm.receipts.collectAsState()
     val peerContact by vm.peerContact.collectAsState()
+    val scheduled by vm.scheduled.collectAsState()
+    val translations by vm.translations.collectAsState()
+    val transcripts by vm.transcripts.collectAsState()
+    val summary by vm.summary.collectAsState()
+    val suggestions by vm.actionSuggestions.collectAsState()
+    val newSinceVisit by vm.newSinceVisit.collectAsState()
+    val newBannerDismissed by vm.newBannerDismissed.collectAsState()
 
     var emojiOpen by rememberSaveable { mutableStateOf(false) }
     var attachOpen by remember { mutableStateOf(false) }
@@ -202,6 +216,12 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     var reportOpen by remember { mutableStateOf(false) }
     var captureUri by remember { mutableStateOf<Uri?>(null) }
     var captureVideo by remember { mutableStateOf(false) }
+    var scheduleDialog by remember { mutableStateOf<Pair<String, ScheduledMessage?>?>(null) }
+    var scheduledSheet by remember { mutableStateOf(false) }
+    var reminderFor by remember { mutableStateOf<Message?>(null) }
+    var languagePickerFor by remember { mutableStateOf<Message?>(null) }
+    var downloadPrompt by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
+    var editImage by remember { mutableStateOf<Uri?>(null) }
 
     val conv = conversation
     val me = vm.me
@@ -241,8 +261,12 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
             when (e) {
                 is ChatEvent.Toast -> snackbar.showSnackbar(e.text)
                 is ChatEvent.NeedAiConsent -> consentAction = e.action
+                is ChatEvent.NeedLanguageDownload -> downloadPrompt = e.messageId to e.languages
             }
         }
+    }
+    LaunchedEffect(Unit) {
+        container.chatJumps.collect { j -> if (j != null && j.first == conversationId) { container.chatJumps.value = null; vm.jumpTo(j.second) } }
     }
     LaunchedEffect(Unit) { vm.scrollTo.collect { idx -> if (idx >= 0) listState.animateScrollToItem(idx) } }
     LaunchedEffect(listState, items.size) {
@@ -385,12 +409,18 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                             if (!isAi) DropdownMenuItem(text = { Text(stringResource(if (isGroup) R.string.group_info else R.string.contact_info)) },
                                 onClick = { menuOpen = false; nav.openInfo(conversationId) })
                             DropdownMenuItem(text = { Text(stringResource(R.string.action_search)) }, onClick = { menuOpen = false; vm.setSearchActive(true) })
+                            if (!isAi) DropdownMenuItem(text = { Text(stringResource(R.string.media_browser_title)) }, leadingIcon = { Icon(Icons.Default.PermMedia, null) },
+                                onClick = { menuOpen = false; nav.openMediaBrowser(conversationId) }, modifier = Modifier.testTag("menu_media_browser"))
                             if (!isAi && !readOnlyLegacy) {
                                 DropdownMenuItem(text = { Text(stringResource(if (conv?.isMuted() == true) R.string.action_unmute else R.string.action_mute)) },
                                     onClick = { menuOpen = false; if (conv?.isMuted() == true) vm.setMuted(0L) else muteOpen = true })
                                 DropdownMenuItem(text = { Text(stringResource(R.string.disappearing_title)) }, onClick = { menuOpen = false; disappearingOpen = true })
                                 DropdownMenuItem(text = { Text(stringResource(R.string.ai_summarize)) }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
                                     onClick = { menuOpen = false; vm.aiSummarize() })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.ai_find_tasks)) }, leadingIcon = { Icon(Icons.Default.TaskAlt, null) },
+                                    onClick = { menuOpen = false; vm.findTasksAndEvents() })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.scheduled_messages)) }, leadingIcon = { Icon(Icons.Default.Schedule, null) },
+                                    onClick = { menuOpen = false; scheduledSheet = true }, modifier = Modifier.testTag("menu_scheduled"))
                             }
                             DropdownMenuItem(text = { Text(stringResource(R.string.action_clear_chat)) }, onClick = { menuOpen = false; clearOpen = true })
                             if (!isGroup && !isAi && peerId != null && !readOnlyLegacy) {
@@ -414,6 +444,9 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                 stringResource(R.string.disappearing_banner, Formatters.disappearingLabel(context, conv!!.disappearingSeconds)), Icons.Default.Timer,
                 MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (!isAi && !readOnlyLegacy && newSinceVisit >= 3 && !newBannerDismissed && summary == null) {
+                NewSinceVisitBanner(newSinceVisit, onSummarize = vm::summarizeSinceLastVisit, onDismiss = { vm.newBannerDismissed.value = true })
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (items.isEmpty() && conv != null) {
                     Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -454,12 +487,19 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                     }
                     items(items, key = { it.key }, contentType = { it::class.simpleName }) { item ->
                         when (item) {
-                            is MessageItem -> MessageRow(
-                                item = item, me = me, names = names, isGroup = isGroup, isAi = isAi, hideTicks = readOnlyLegacy,
-                                selected = item.message.messageId in selection, selectionMode = selection.isNotEmpty(),
-                                highlighted = highlighted == item.message.messageId, searchQuery = if (searchActive) searchQuery else "",
-                                voice = voice, showReadReceipts = showReadReceipts, canSwipeReply = !readOnlyLegacy && !isAi, callbacks = callbacks,
-                            )
+                            is MessageItem -> Column {
+                                MessageRow(
+                                    item = item, me = me, names = names, isGroup = isGroup, isAi = isAi, hideTicks = readOnlyLegacy,
+                                    selected = item.message.messageId in selection, selectionMode = selection.isNotEmpty(),
+                                    highlighted = highlighted == item.message.messageId, searchQuery = if (searchActive) searchQuery else "",
+                                    voice = voice, showReadReceipts = showReadReceipts, canSwipeReply = !readOnlyLegacy && !isAi, callbacks = callbacks,
+                                )
+                                MessageExtras(
+                                    m = item.message, mine = item.message.senderId == me,
+                                    translation = translations[item.message.messageId], transcript = transcripts[item.message.messageId],
+                                    vm = vm, onPickLanguage = { languagePickerFor = it },
+                                )
+                            }
                             is DayItem -> Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                                 Text(Formatters.dayHeader(context, item.at), style = MaterialTheme.typography.labelMedium, color = PulseTheme.colors.metaText,
                                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(PulseTheme.colors.systemChip).padding(horizontal = 10.dp, vertical = 4.dp))
@@ -480,6 +520,10 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                     ) { Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.action_jump_latest)) }
                 }
+            }
+            summary?.let { SummaryPanel(it, onJump = { id -> vm.jumpTo(id) }, onClose = vm::closeSummary) }
+            if (scheduled.isNotEmpty() && !isAi) {
+                ScheduledBar(count = scheduled.size, failed = scheduled.count { it.state == ScheduledState.FAILED }, onOpen = { scheduledSheet = true })
             }
             // AI results panel
             if (aiPanel.busy || aiPanel.suggestions.isNotEmpty() || aiPanel.text != null) {
@@ -514,6 +558,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         emojiOpen = emojiOpen, onEmojiToggle = { emojiOpen = !emojiOpen }, recording = recording,
                         onStartRecording = { if (has(Manifest.permission.RECORD_AUDIO)) vm.startRecording() else micPermission.launch(Manifest.permission.RECORD_AUDIO) },
                         onFinishRecording = vm::finishRecording, enterToSend = settings.enterToSend, isAiChat = isAi, editing = edit != null,
+                        onSchedule = if (!isAi && edit == null) ({ scheduleDialog = vm.draft.value.text to null }) else null,
                     )
                     if (emojiOpen) EmojiPickerView(onEmojiSelected = { emoji ->
                         val v = vm.draft.value
@@ -545,6 +590,9 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                 onSelect = { vm.toggleSelect(m.messageId); actionTarget = null },
                 onInfo = { infoFor = m; actionTarget = null },
                 onRetry = { vm.retry(m.messageId); actionTarget = null },
+                onTranslate = if (m.content.isNotBlank() && !m.deletedForEveryone && m.type != MessageType.SYSTEM && m.type != MessageType.POLL) ({ actionTarget = null; vm.translate(m) }) else null,
+                onRemind = if (!m.deletedForEveryone && m.type != MessageType.SYSTEM && !readOnlyLegacy) ({ actionTarget = null; reminderFor = m }) else null,
+                onTranscribe = if (m.type == MessageType.AUDIO && !m.deletedForEveryone && !isAi) ({ actionTarget = null; vm.transcribe(m) }) else null,
             ),
         )
     }
@@ -583,7 +631,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
         }
     }
     pendingMedia?.let { (uri, video) ->
-        MediaCaptionDialog(uri, video, title, onDismiss = { pendingMedia = null }) { caption ->
+        MediaCaptionDialog(uri, video, title, onDismiss = { pendingMedia = null }, onEdit = if (!video) ({ editImage = uri }) else null) { caption ->
             pendingMedia = null
             vm.sendMedia(uri, if (video) MessageType.VIDEO else MessageType.IMAGE, caption)
         }
@@ -599,6 +647,41 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     pendingLocation?.let { (lat, lng) ->
         ConfirmDialog(title = stringResource(R.string.location_send_title), text = String.format(java.util.Locale.US, "%.5f, %.5f", lat, lng),
             confirmLabel = stringResource(R.string.action_send), onConfirm = { vm.sendLocation(lat, lng); pendingLocation = null }, onDismiss = { pendingLocation = null })
+    }
+    editImage?.let { src ->
+        ImageEditorDialog(src, onDone = { out -> editImage = null; pendingMedia = out to false }, onDismiss = { editImage = null })
+    }
+    scheduleDialog?.let { (text, existing) ->
+        ScheduleMessageDialog(
+            initialText = existing?.text ?: text, initialAt = existing?.scheduledAt, editing = existing != null,
+            onConfirm = { t, at -> scheduleDialog = null; if (existing != null) vm.editScheduled(existing.id, t, at) else vm.schedule(t, at) },
+            onDismiss = { scheduleDialog = null },
+        )
+    }
+    if (scheduledSheet) {
+        ScheduledMessagesSheet(
+            scheduled, onEdit = { scheduledSheet = false; scheduleDialog = it.text to it },
+            onSendNow = { vm.sendScheduledNow(it.id) }, onDelete = { vm.cancelScheduled(it.id) }, onDismiss = { scheduledSheet = false },
+        )
+    }
+    reminderFor?.let { m ->
+        ReminderTimeDialog(stringResource(R.string.reminder_title), onPick = { at -> reminderFor = null; vm.remindAbout(m, at) }, onDismiss = { reminderFor = null },
+            exactAllowed = vm.exactAlarmsAllowed, onAllowExact = { openExactAlarmSettings(context) })
+    }
+    languagePickerFor?.let { m ->
+        LanguagePickerDialog(vm.languageChoices(), vm.translationTarget(), onPick = { tag -> languagePickerFor = null; vm.setTranslationTarget(tag, m) },
+            onDismiss = { languagePickerFor = null })
+    }
+    downloadPrompt?.let { (id, langs) ->
+        ConfirmDialog(
+            title = stringResource(R.string.translate_download_title),
+            text = stringResource(R.string.translate_download_body, langs.joinToString { vm.languageName(it) }),
+            confirmLabel = stringResource(R.string.translate_download_confirm),
+            onConfirm = { downloadPrompt = null; vm.translateById(id, allowDownload = true) }, onDismiss = { downloadPrompt = null },
+        )
+    }
+    suggestions?.let { list ->
+        ActionSuggestionsSheet(list, onJump = { id -> vm.dismissSuggestions(); vm.jumpTo(id) }, onCreate = vm::createRemindersFrom, onDismiss = vm::dismissSuggestions)
     }
     if (pollOpen) PollDialog(onCreate = { q, o -> vm.sendPoll(q, o); pollOpen = false }, onDismiss = { pollOpen = false })
     if (aiToolsOpen) {
@@ -763,4 +846,34 @@ fun dial(context: Context, phone: String) {
     if (phone.isBlank()) return
     try { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone)))) }
     catch (e: ActivityNotFoundException) { Toast.makeText(context, R.string.error_no_app, Toast.LENGTH_SHORT).show() }
+}
+
+/** Translation and transcript cards under a message, aligned with its bubble (RTL-aware). */
+@Composable
+private fun MessageExtras(m: Message, mine: Boolean, translation: TranslationUi?, transcript: TranscriptUi?, vm: ChatViewModel, onPickLanguage: (Message) -> Unit) {
+    if (translation == null && transcript == null) return
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+        val width = Modifier.fillMaxWidth(0.85f)
+        transcript?.let { TranscriptCard(it, onRetry = { vm.transcribe(m) }, onToggle = { vm.toggleTranscript(m.messageId) }, modifier = width) }
+        translation?.let {
+            TranslationCard(
+                it, languageName = vm::languageName, onToggleOriginal = { vm.toggleOriginal(m.messageId) }, onChangeLanguage = { onPickLanguage(m) },
+                onRetry = { vm.translate(m) }, onClose = { vm.closeTranslation(m.messageId) }, modifier = width.padding(top = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScheduledBar(count: Int, failed: Int, onOpen: () -> Unit) {
+    val context = LocalContext.current
+    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).testTag("scheduled_bar")) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(context.resources.getQuantityString(R.plurals.scheduled_count, count, count), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            if (failed > 0) Text(context.resources.getQuantityString(R.plurals.scheduled_failed_count, failed, failed), color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelMedium)
+        }
+    }
 }
