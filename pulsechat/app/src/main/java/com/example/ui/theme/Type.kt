@@ -5,6 +5,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextDirection
 
 /*
  * Type scale. The system font is kept (Roboto for Latin, the platform's Arabic face for Arabic), so
@@ -32,8 +33,12 @@ val Typography = Typography(
     labelSmall = Base.copy(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.2.sp),
 )
 
-/** Message text inside bubbles: slightly larger than body for comfortable reading. */
-val MessageTextStyle = Base.copy(fontWeight = FontWeight.Normal, fontSize = 15.5.sp, lineHeight = 21.sp, letterSpacing = 0.1.sp)
+/**
+ * Message text inside bubbles: slightly larger than body for comfortable reading. Its direction comes
+ * from the message itself (an English message in the Arabic UI reads left-to-right, with its
+ * punctuation in place, and vice versa) — Compose otherwise uses the layout direction.
+ */
+val MessageTextStyle = Base.copy(fontWeight = FontWeight.Normal, fontSize = 15.5.sp, lineHeight = 21.sp, letterSpacing = 0.1.sp, textDirection = TextDirection.Content)
 
 /** Messages that consist only of emoji (up to three) are shown large. */
-val EmojiOnlyTextStyle = Base.copy(fontSize = 34.sp, lineHeight = 40.sp)
+val EmojiOnlyTextStyle = Base.copy(fontSize = 34.sp, lineHeight = 40.sp, textDirection = TextDirection.Content)

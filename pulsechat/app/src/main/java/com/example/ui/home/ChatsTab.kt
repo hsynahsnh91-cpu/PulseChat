@@ -144,14 +144,14 @@ fun ChatsTab(
         if (ui.chats.isEmpty()) {
             item(key = "empty") {
                 when {
-                    query.isNotBlank() -> EmptyState(Icons.Default.Search, stringResource(R.string.empty_search_title), stringResource(R.string.empty_search_body))
-                    selectedFolder != null -> EmptyState(Icons.Default.Folder, stringResource(R.string.folder_empty_title), stringResource(R.string.folder_empty_body)) {
+                    query.isNotBlank() -> EmptyState(Icons.Default.Search, stringResource(R.string.empty_search_title), stringResource(R.string.empty_search_body), avoidFab = true)
+                    selectedFolder != null -> EmptyState(Icons.Default.Folder, stringResource(R.string.folder_empty_title), stringResource(R.string.folder_empty_body), avoidFab = true) {
                         TextButton(onClick = onManageFolders) { Text(stringResource(R.string.folders_edit)) }
                     }
-                    filter != ChatFilter.ALL -> EmptyState(Icons.Outlined.ChatBubbleOutline, stringResource(R.string.empty_filter_title), stringResource(R.string.empty_filter_body)) {
+                    filter != ChatFilter.ALL -> EmptyState(Icons.Outlined.ChatBubbleOutline, stringResource(R.string.empty_filter_title), stringResource(R.string.empty_filter_body), avoidFab = true) {
                         TextButton(onClick = { onFilter(ChatFilter.ALL) }) { Text(stringResource(R.string.filter_show_all)) }
                     }
-                    else -> EmptyState(Icons.Outlined.ChatBubbleOutline, stringResource(R.string.empty_chats_title), stringResource(R.string.empty_chats_body)) {
+                    else -> EmptyState(Icons.Outlined.ChatBubbleOutline, stringResource(R.string.empty_chats_title), stringResource(R.string.empty_chats_body), avoidFab = true) {
                         TextButton(onClick = onNewChat) { Text(stringResource(R.string.action_start_chat)) }
                     }
                 }

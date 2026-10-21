@@ -164,6 +164,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.platform.LocalConfiguration
 
 data class ChatNav(
     val back: () -> Unit,
@@ -434,12 +435,17 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                     },
                     navigationIcon = { IconButton(onClick = nav.back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
                     actions = {
-                        if (!isGroup && !isAi && !readOnlyLegacy && peerId != null && !peerBlocked) {
-                            IconButton(onClick = { startCall(peerId, true) }) { Icon(Icons.Default.Videocam, stringResource(R.string.action_video_call)) }
+                        val canCall = !isGroup && !isAi && !readOnlyLegacy && peerId != null && !peerBlocked
+                        // On narrow screens the video call moves into the menu so the name stays readable.
+                        val narrowBar = LocalConfiguration.current.screenWidthDp < 360
+                        if (canCall && peerId != null) {
+                            if (!narrowBar) IconButton(onClick = { startCall(peerId, true) }) { Icon(Icons.Default.Videocam, stringResource(R.string.action_video_call)) }
                             IconButton(onClick = { startCall(peerId, false) }, modifier = Modifier.testTag("chat_voice_call")) { Icon(Icons.Default.Call, stringResource(R.string.action_voice_call)) }
                         }
                         IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("chat_menu")) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (canCall && narrowBar && peerId != null) DropdownMenuItem(text = { Text(stringResource(R.string.action_video_call)) },
+                                leadingIcon = { Icon(Icons.Default.Videocam, null) }, onClick = { menuOpen = false; startCall(peerId, true) })
                             if (!isAi) DropdownMenuItem(text = { Text(stringResource(if (isGroup) R.string.group_info else R.string.contact_info)) },
                                 onClick = { menuOpen = false; nav.openInfo(conversationId) })
                             DropdownMenuItem(text = { Text(stringResource(R.string.action_search)) }, onClick = { menuOpen = false; vm.setSearchActive(true) })

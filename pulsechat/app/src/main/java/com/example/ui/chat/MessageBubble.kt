@@ -125,6 +125,7 @@ import com.example.ui.theme.Spacing
 import com.example.ui.theme.Radii
 import com.example.ui.theme.MessageTextStyle
 import com.example.ui.theme.EmojiOnlyTextStyle
+import com.example.ui.common.isolateIfForeign
 
 class BubbleCallbacks(
     val onClick: (Message) -> Unit,
@@ -438,8 +439,10 @@ fun ReplyQuote(senderName: String, senderId: String, type: MessageType, preview:
         Column(Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs)) {
             Text(senderName, color = accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val label = typeLabel(type)
+            val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
             Text(
-                listOfNotNull(label, preview.ifBlank { null }).joinToString(" · ").ifBlank { stringResource(R.string.message_unavailable) },
+                listOfNotNull(label, preview.ifBlank { null }?.let { isolateIfForeign(it, rtl) }).joinToString(" · ")
+                    .ifBlank { stringResource(R.string.message_unavailable) },
                 style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
         }

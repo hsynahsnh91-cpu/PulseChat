@@ -76,6 +76,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.ColumnScope
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.Radii
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 
 // ---------------------------------------------------------------------- DI helpers
 
@@ -113,10 +115,16 @@ fun BackTopBar(title: String, onBack: () -> Unit, subtitle: String? = null, acti
 }
 
 @Composable
-fun EmptyState(icon: ImageVector, title: String, message: String? = null, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
+fun EmptyState(
+    icon: ImageVector, title: String, message: String? = null, modifier: Modifier = Modifier,
+    /** On screens with a floating action button: keeps the text clear of the button's column (both sides, for RTL). */
+    avoidFab: Boolean = false,
+    action: (@Composable () -> Unit)? = null,
+) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
     Column(
-        modifier = Modifier.widthIn(max = Spacing.contentMaxWidth).padding(horizontal = Spacing.xxxl, vertical = Spacing.xxl),
+        modifier = Modifier.widthIn(max = Spacing.contentMaxWidth)
+            .padding(horizontal = if (avoidFab) 76.dp else Spacing.xxxl, vertical = Spacing.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
@@ -299,7 +307,7 @@ fun typeLabel(type: MessageType): String? = when (type) {
 fun previewLine(type: MessageType?, text: String?, deleted: Boolean): String {
     if (deleted) return stringResource(R.string.message_deleted)
     val label = type?.let { typeLabel(it) }
-    val body = text.orEmpty()
+    val body = isolateIfForeign(text.orEmpty(), LocalLayoutDirection.current == LayoutDirection.Rtl)
     return when {
         label == null -> body
         type == MessageType.SYSTEM -> label
@@ -414,4 +422,24 @@ fun groupErrorText(context: Context, errors: List<GroupError>): String = errors.
             GroupError.TOO_MANY_MEMBERS -> R.string.group_error_too_many
         }
     )
+}
+
+/**
+ * Wraps [text] in a Unicode first-strong isolate when its direction differs from the layout's (an
+ * English message previewed in the Arabic UI, or the reverse). The row keeps the UI's alignment while
+ * the text keeps its own order and punctuation. Text in the UI's direction is returned unchanged.
+ */
+fun isolateIfForeign(text: String, rtlLayout: Boolean): String {
+    val rtlText = firstStrongIsRtl(text) ?: return text
+    return if (rtlText != rtlLayout) "\u2068$text\u2069" else text
+}
+
+private fun firstStrongIsRtl(text: String): Boolean? {
+    for (ch in text) {
+        when (Character.getDirectionality(ch)) {
+            Character.DIRECTIONALITY_LEFT_TO_RIGHT -> return false
+            Character.DIRECTIONALITY_RIGHT_TO_LEFT, Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC -> return true
+        }
+    }
+    return null
 }

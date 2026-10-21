@@ -96,6 +96,15 @@ import com.example.ui.theme.Spacing
 import com.example.ui.common.rememberReducedMotion
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import android.os.SystemClock
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.style.TextDirection
+import com.example.ui.common.isolateIfForeign
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.platform.LocalDensity
 
 @Composable
 fun Composer(
@@ -167,7 +176,9 @@ private fun InputRow(
     focusRequester: FocusRequester?,
 ) {
     val v = value.value
+    // What is typed sets the direction (English in the Arabic UI and vice versa); the hint follows the UI.
     val textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
+    val inputStyle = textStyle.copy(textDirection = TextDirection.Content)
     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.Bottom) {
@@ -179,7 +190,7 @@ private fun InputRow(
                 val placeholder = stringResource(if (isAiChat) R.string.ai_composer_hint else R.string.composer_hint)
                 BasicTextField(
                     value = v, onValueChange = onValueChange,
-                    textStyle = textStyle,
+                    textStyle = inputStyle,
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = if (enterToSend) ImeAction.Send else ImeAction.Default),
@@ -211,8 +222,15 @@ private fun InputRow(
         }
         Spacer(Modifier.width(6.dp))
         val showSend = v.text.isNotBlank() || isAiChat || editing
+        // Sending clears the text, which turns this button into the mic; a fast double tap must not
+        // start a voice recording right after a message was sent.
+        var lastSendAt by remember { mutableLongStateOf(0L) }
         FilledIconButton(
-            onClick = { if (showSend) onSend() else onStartRecording() },
+            onClick = {
+                val now = SystemClock.uptimeMillis()
+                if (showSend) { lastSendAt = now; onSend() }
+                else if (now - lastSendAt > 700) onStartRecording()
+            },
             enabled = !showSend || v.text.isNotBlank(),
             modifier = Modifier.size(48.dp).testTag(if (showSend) "composer_send" else "composer_mic"),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -286,7 +304,8 @@ fun ReplyOrEditBar(title: String, preview: String, editing: Boolean, onCancel: (
                 Column(Modifier.padding(horizontal = Spacing.sm, vertical = 6.dp)) {
                     Text(title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(preview, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                    Text(isolateIfForeign(preview, LocalLayoutDirection.current == LayoutDirection.Rtl), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall)
                 }
             }
             IconButton(onClick = onCancel) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel)) }
@@ -331,13 +350,17 @@ fun AttachmentSheet(showPoll: Boolean, showAi: Boolean, onDismiss: () -> Unit, o
             if (showPoll) add(Triple(AttachOption.POLL, Icons.Default.Poll, R.string.attach_poll))
             if (showAi) add(Triple(AttachOption.AI_TOOLS, Icons.Default.AutoAwesome, R.string.ai_tools))
         }
-        Column(Modifier.padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.xxl)) {
-            options.chunked(4).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    row.forEach { (opt, icon, label) -> AttachTile(icon, stringResource(label), Modifier.weight(1f)) { onPick(opt) } }
-                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+        // Three columns on narrow screens or with large text, so labels such as "Document" are not split.
+        BoxWithConstraints(Modifier.padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.xxl)) {
+            val columns = if (maxWidth < 340.dp || LocalDensity.current.fontScale > 1.15f) 3 else 4
+            Column {
+                options.chunked(columns).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        row.forEach { (opt, icon, label) -> AttachTile(icon, stringResource(label), Modifier.weight(1f)) { onPick(opt) } }
+                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                    Spacer(Modifier.height(Spacing.sm))
                 }
-                Spacer(Modifier.height(Spacing.sm))
             }
         }
     }

@@ -118,7 +118,7 @@ fun UpdatesTab(
             }
         }
         if (ui.recent.isEmpty() && ui.viewed.isEmpty()) {
-            item(key = "empty") { EmptyState(Icons.Outlined.PhotoCamera, stringResource(R.string.updates_empty_title), stringResource(R.string.updates_empty_body)) }
+            item(key = "empty") { EmptyState(Icons.Outlined.PhotoCamera, stringResource(R.string.updates_empty_title), stringResource(R.string.updates_empty_body), avoidFab = true) }
         }
         if (ui.recent.isNotEmpty()) item(key = "recent_h") { SectionHeader(stringResource(R.string.updates_recent)) }
         items(ui.recent, key = { "r_" + it.ownerId }) { owner -> StatusOwnerRow(owner) { onOpen(owner.ownerId) } }
@@ -170,7 +170,7 @@ fun GroupsTab(groups: List<Conversation>, onOpen: (String) -> Unit, onNewGroup: 
                 Text(stringResource(R.string.new_group), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
         }
-        if (groups.isEmpty()) item(key = "empty") { EmptyState(Icons.Default.Groups, stringResource(R.string.groups_empty_title), stringResource(R.string.groups_empty_body)) }
+        if (groups.isEmpty()) item(key = "empty") { EmptyState(Icons.Default.Groups, stringResource(R.string.groups_empty_title), stringResource(R.string.groups_empty_body), avoidFab = true) }
         items(groups, key = { it.conversationId }) { g ->
             Row(
                 Modifier.fillMaxWidth().clickable { onOpen(g.conversationId) }.heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -199,7 +199,7 @@ fun CallsTab(calls: List<CallRecord>, me: String, onCall: (peerId: String, video
     val context = LocalContext.current
     var deleting by remember { mutableStateOf<CallRecord?>(null) }
     if (calls.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(contentPadding)) { EmptyState(Icons.Outlined.Call, stringResource(R.string.calls_empty_title), stringResource(R.string.calls_empty_body)) }
+        Box(Modifier.fillMaxSize().padding(contentPadding)) { EmptyState(Icons.Outlined.Call, stringResource(R.string.calls_empty_title), stringResource(R.string.calls_empty_body), avoidFab = true) }
         return
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {

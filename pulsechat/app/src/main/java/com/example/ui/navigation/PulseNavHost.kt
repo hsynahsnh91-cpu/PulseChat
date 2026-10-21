@@ -70,6 +70,8 @@ import androidx.navigation.NavController
 import android.util.Log
 import com.example.BuildConfig
 import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object Routes {
     const val HOME = "home"
@@ -93,7 +95,12 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     val callUi by container.callManager.ui.collectAsState()
     val intent by pendingIntent.collectAsState()
 
-    fun openPeer(peerId: String) { scope.launch { nav.go(Routes.chat(container.chatRepository.openDirectChat(peerId))) } }
+    fun openPeer(peerId: String) {
+        scope.launch {
+            val cid = container.chatRepository.openDirectChat(peerId)
+            withContext(Dispatchers.Main.immediate) { nav.go(Routes.chat(cid)) } // navigation on the main thread only
+        }
+    }
     /** Opens a chat at a message; an already open chat screen receives the jump through chatJumps. */
     fun openChatAt(cid: String, messageId: String?) {
         if (messageId != null) container.chatJumps.value = cid to messageId

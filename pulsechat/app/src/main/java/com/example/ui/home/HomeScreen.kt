@@ -290,12 +290,12 @@ fun HomeScreen(nav: HomeNav) {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                 NavigationBarItem(
                     selected = tab == TAB_CHATS, onClick = { tab = TAB_CHATS }, label = { Text(stringResource(R.string.tab_chats)) },
-                    icon = { BadgedBox(badge = { if (unread > 0) Badge { Text(if (unread > 99) "99+" else unread.toString()) } }) { Icon(Icons.Outlined.ChatBubbleOutline, null) } },
+                    icon = { BadgedBox(badge = { if (unread > 0) Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { Text(if (unread > 99) "99+" else unread.toString()) } }) { Icon(Icons.Outlined.ChatBubbleOutline, null) } },
                     modifier = Modifier.testTag("tab_chats"),
                 )
                 NavigationBarItem(
                     selected = tab == TAB_UPDATES, onClick = { tab = TAB_UPDATES }, label = { Text(stringResource(R.string.tab_updates)) },
-                    icon = { BadgedBox(badge = { if (updates.recent.isNotEmpty()) Badge() }) { Icon(Icons.Outlined.Update, null) } },
+                    icon = { BadgedBox(badge = { if (updates.recent.isNotEmpty()) Badge(containerColor = MaterialTheme.colorScheme.primary) }) { Icon(Icons.Outlined.Update, null) } },
                     modifier = Modifier.testTag("tab_updates"),
                 )
                 NavigationBarItem(selected = tab == TAB_GROUPS, onClick = { tab = TAB_GROUPS }, label = { Text(stringResource(R.string.tab_groups)) },

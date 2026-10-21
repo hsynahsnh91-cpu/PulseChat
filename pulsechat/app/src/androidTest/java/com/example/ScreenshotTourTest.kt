@@ -234,7 +234,8 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             Log.i("PulseTour", "starting call on ${v.id}")
             tap("chat_voice_call")
             // Starting a call writes to the backend first; wait for the call screen itself.
-            val callShown = runCatching { compose.waitUntil(30_000) { exists("call_end") } }.isSuccess
+            val callShown = runCatching { compose.waitUntil(30_000) { exists("call_end") } }
+                .onFailure { Log.e("PulseTour", "call screen did not appear", it) }.isSuccess
             Log.i("PulseTour", "call screen shown=$callShown")
             settle(1_200)
             shot("${v.id}-5-call")
