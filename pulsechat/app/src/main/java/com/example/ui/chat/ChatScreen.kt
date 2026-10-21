@@ -140,6 +140,25 @@ import com.example.ui.status.MediaCaptionDialog
 import com.example.ui.theme.PulseTheme
 import com.example.util.LocationHelper
 import kotlinx.coroutines.launch
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.text.style.TextAlign
+import com.example.ui.theme.Motion
+import com.example.ui.theme.Radii
+import com.example.ui.theme.Spacing
 
 data class ChatNav(
     val back: () -> Unit,
@@ -167,9 +186,12 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     val blocked by vm.blockedIds.collectAsState()
     val settings by vm.settings.collectAsState()
     val network by vm.network.collectAsState()
-    val voice by vm.voice.collectAsState()
-    val recording by vm.recording.collectAsState()
-    val draft by vm.draft.collectAsState()
+    // Fast-changing state (voice playback position, recording level, the draft being typed) is
+    // handed down as State objects and read only by the composables that show it, so typing or
+    // playing a voice note does not recompose the whole screen.
+    val voiceState = vm.voice.collectAsState()
+    val recordingState = vm.recording.collectAsState()
+    val draftState = vm.draft.collectAsState()
     val replyTo by vm.replyTo.collectAsState()
     val editing by vm.editing.collectAsState()
     val selection by vm.selection.collectAsState()
@@ -178,7 +200,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     val searchResults by vm.searchResults.collectAsState()
     val searchIndex by vm.searchIndex.collectAsState()
     val highlighted by vm.highlighted.collectAsState()
-    val mentionSuggestions by vm.mentionSuggestions.collectAsState()
+    val mentionState = vm.mentionSuggestions.collectAsState()
     val loadingOlder by vm.loadingOlder.collectAsState()
     val aiPanel by vm.ai.collectAsState()
     val aiTyping by vm.aiTyping.collectAsState()
@@ -225,8 +247,8 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
 
     val conv = conversation
     val me = vm.me
-    val usersById = participants.associateBy { it.userId }
-    val names = participants.associate { it.userId to it.displayName }
+    val usersById = remember(participants) { participants.associateBy { it.userId } }
+    val names = remember(participants) { participants.associate { it.userId to it.displayName } }
     val isAi = conv?.isAiConversation == true
     val isGroup = conv?.isGroup == true
     val peerId = conv?.peerId
@@ -378,7 +400,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                                     Icon(Icons.Default.Groups, contentDescription = null)
                                 }
                             } else {
-                                UserAvatar(title, avatarUrl = if (isGroup) conv?.avatarUrl else peer?.avatarUrl, size = 40.dp, isAiAssistant = isAi, colorHex = peer?.avatarColorHex ?: "#4F46E5")
+                                UserAvatar(title, avatarUrl = if (isGroup) conv?.avatarUrl else peer?.avatarUrl, size = 40.dp, isAiAssistant = isAi, colorHex = peer?.avatarColorHex)
                             }
                             Spacer(Modifier.width(10.dp))
                             Column {
@@ -433,9 +455,11 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        // Bottom insets are applied once, by the composer area below (navigation bar or keyboard,
+        // whichever is taller), so the message list ends right above the composer.
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).background(PulseTheme.colors.chatBackground).imePadding()) {
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).background(PulseTheme.colors.chatBackground)) {
             if (network == NetworkKind.NONE && !isAi) Banner(stringResource(R.string.banner_offline_chat), Icons.Default.WifiOff,
                 MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
             if (readOnlyLegacy) Banner(stringResource(R.string.chat_local_only), Icons.Default.History, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
@@ -476,7 +500,10 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         onReactions = { m -> reactionsDetailFor = m },
                     )
                 }
-                LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize().testTag("message_list")) {
+                LazyColumn(
+                    state = listState, reverseLayout = true, contentPadding = PaddingValues(top = Spacing.sm, bottom = Spacing.sm),
+                    modifier = Modifier.fillMaxSize().testTag("message_list"),
+                ) {
                     if (aiTyping) item(key = "ai_typing") {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -487,12 +514,13 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                     }
                     items(items, key = { it.key }, contentType = { it::class.simpleName }) { item ->
                         when (item) {
-                            is MessageItem -> Column {
+                            // New messages fade in once; items never slide around when the list changes.
+                            is MessageItem -> Column(Modifier.animateItem(fadeInSpec = Motion.enter(Motion.STANDARD), placementSpec = null, fadeOutSpec = null)) {
                                 MessageRow(
                                     item = item, me = me, names = names, isGroup = isGroup, isAi = isAi, hideTicks = readOnlyLegacy,
                                     selected = item.message.messageId in selection, selectionMode = selection.isNotEmpty(),
                                     highlighted = highlighted == item.message.messageId, searchQuery = if (searchActive) searchQuery else "",
-                                    voice = voice, showReadReceipts = showReadReceipts, canSwipeReply = !readOnlyLegacy && !isAi, callbacks = callbacks,
+                                    voice = voiceState, showReadReceipts = showReadReceipts, canSwipeReply = !readOnlyLegacy && !isAi, callbacks = callbacks,
                                 )
                                 MessageExtras(
                                     m = item.message, mine = item.message.senderId == me,
@@ -500,11 +528,11 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                                     vm = vm, onPickLanguage = { languagePickerFor = it },
                                 )
                             }
-                            is DayItem -> Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(Formatters.dayHeader(context, item.at), style = MaterialTheme.typography.labelMedium, color = PulseTheme.colors.metaText,
-                                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(PulseTheme.colors.systemChip).padding(horizontal = 10.dp, vertical = 4.dp))
+                            is DayItem -> Box(Modifier.fillMaxWidth().padding(vertical = Spacing.sm), contentAlignment = Alignment.Center) {
+                                Text(Formatters.dayHeader(context, item.at), style = MaterialTheme.typography.labelMedium, color = PulseTheme.colors.onSystemChip,
+                                    modifier = Modifier.clip(RoundedCornerShape(Radii.sm)).background(PulseTheme.colors.systemChip).padding(horizontal = Spacing.md, vertical = Spacing.xs))
                             }
-                            is UnreadItem -> Box(Modifier.fillMaxWidth().padding(vertical = 6.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+                            is UnreadItem -> Box(Modifier.fillMaxWidth().padding(vertical = Spacing.sm).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
                                 Text(context.resources.getQuantityString(R.plurals.unread_messages, item.count, item.count), style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(6.dp))
                             }
@@ -514,58 +542,69 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) }
                     }
                 }
-                if (showJump) {
+                AnimatedVisibility(
+                    visible = showJump,
+                    enter = fadeIn(Motion.enter(Motion.QUICK)) + scaleIn(Motion.enter(Motion.QUICK), initialScale = 0.85f),
+                    exit = fadeOut(Motion.exit(Motion.QUICK)) + scaleOut(Motion.exit(Motion.QUICK), targetScale = 0.85f),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(Spacing.lg),
+                ) {
                     SmallFloatingActionButton(
                         onClick = { scope.launch { listState.animateScrollToItem(0) } },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
                     ) { Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.action_jump_latest)) }
                 }
+                SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
             }
-            summary?.let { SummaryPanel(it, onJump = { id -> vm.jumpTo(id) }, onClose = vm::closeSummary) }
-            if (scheduled.isNotEmpty() && !isAi) {
-                ScheduledBar(count = scheduled.size, failed = scheduled.count { it.state == ScheduledState.FAILED }, onOpen = { scheduledSheet = true })
-            }
-            // AI results panel
-            if (aiPanel.busy || aiPanel.suggestions.isNotEmpty() || aiPanel.text != null) {
-                AiResultPanel(aiPanel, onUse = vm::useSuggestion, onClose = vm::cancelAi, onCopy = { copyToClipboard(context, it) })
-            }
-            val reply = replyTo
-            val edit = editing
-            if (edit != null) ReplyOrEditBar(stringResource(R.string.editing_message), edit.content, editing = true, onCancel = vm::cancelEdit)
-            else if (reply != null) ReplyOrEditBar(
-                if (reply.senderId == me) stringResource(R.string.you) else names[reply.senderId] ?: stringResource(R.string.unknown_user),
-                listOfNotNull(com.example.ui.common.typeLabel(reply.type), reply.content.ifBlank { reply.fileName }).joinToString(" · "),
-                editing = false, onCancel = vm::cancelReply,
-            )
-            MentionSuggestions(mentionSuggestions, participants.associate { it.userId to it.avatarUrl }, onPick = vm::pickMention)
-            when {
-                conv == null -> Unit
-                readOnlyLegacy -> Unit
-                conv.isLeft -> Notice(stringResource(R.string.chat_left_group))
-                peerBlocked -> Surface(tonalElevation = 2.dp) {
-                    Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                        Icon(Icons.Default.Block, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.chat_blocked_notice), modifier = Modifier.weight(1f))
-                        FilledTonalButton(onClick = vm::unblockPeer) { Text(stringResource(R.string.action_unblock)) }
-                    }
+            // Everything under the list: panels, reply bar and the composer. It is lifted by the
+            // keyboard or the navigation bar (whichever is taller) — exactly once.
+            Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime).only(WindowInsetsSides.Bottom))) {
+                summary?.let { SummaryPanel(it, onJump = { id -> vm.jumpTo(id) }, onClose = vm::closeSummary) }
+                if (scheduled.isNotEmpty() && !isAi) {
+                    ScheduledBar(count = scheduled.size, failed = scheduled.count { it.state == ScheduledState.FAILED }, onOpen = { scheduledSheet = true })
                 }
-                !canSendInGroup -> Notice(stringResource(R.string.chat_only_admins))
-                else -> Column(Modifier.navigationBarsPadding()) {
-                    Composer(
-                        value = draft, onValueChange = vm::onDraftChange, onSend = vm::send,
-                        onAttach = { attachOpen = true }, onCamera = { requestCamera(false) },
-                        emojiOpen = emojiOpen, onEmojiToggle = { emojiOpen = !emojiOpen }, recording = recording,
-                        onStartRecording = { if (has(Manifest.permission.RECORD_AUDIO)) vm.startRecording() else micPermission.launch(Manifest.permission.RECORD_AUDIO) },
-                        onFinishRecording = vm::finishRecording, enterToSend = settings.enterToSend, isAiChat = isAi, editing = edit != null,
-                        onSchedule = if (!isAi && edit == null) ({ scheduleDialog = vm.draft.value.text to null }) else null,
-                    )
-                    if (emojiOpen) EmojiPickerView(onEmojiSelected = { emoji ->
-                        val v = vm.draft.value
-                        val pos = v.selection.end.coerceIn(0, v.text.length)
-                        val text = v.text.substring(0, pos) + emoji + v.text.substring(pos)
-                        vm.onDraftChange(androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(pos + emoji.length)))
-                    }, modifier = Modifier.height(280.dp))
+                // AI results panel
+                if (aiPanel.busy || aiPanel.suggestions.isNotEmpty() || aiPanel.text != null) {
+                    AiResultPanel(aiPanel, onUse = vm::useSuggestion, onClose = vm::cancelAi, onCopy = { copyToClipboard(context, it) })
+                }
+                val reply = replyTo
+                val edit = editing
+                if (edit != null) ReplyOrEditBar(stringResource(R.string.editing_message), edit.content, editing = true, onCancel = vm::cancelEdit)
+                else if (reply != null) ReplyOrEditBar(
+                    if (reply.senderId == me) stringResource(R.string.you) else names[reply.senderId] ?: stringResource(R.string.unknown_user),
+                    listOfNotNull(com.example.ui.common.typeLabel(reply.type), reply.content.ifBlank { reply.fileName }).joinToString(" · "),
+                    editing = false, onCancel = vm::cancelReply,
+                )
+                MentionSuggestions(mentionState, participants, onPick = vm::pickMention)
+                when {
+                    conv == null -> Unit
+                    readOnlyLegacy -> Unit
+                    conv.isLeft -> Notice(stringResource(R.string.chat_left_group))
+                    peerBlocked -> Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                            Icon(Icons.Default.Block, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.chat_blocked_notice), modifier = Modifier.weight(1f))
+                            FilledTonalButton(onClick = vm::unblockPeer) { Text(stringResource(R.string.action_unblock)) }
+                        }
+                    }
+                    !canSendInGroup -> Notice(stringResource(R.string.chat_only_admins))
+                    else -> Column {
+                        Composer(
+                            value = draftState, onValueChange = vm::onDraftChange, onSend = vm::send,
+                            onAttach = { attachOpen = true }, onCamera = { requestCamera(false) },
+                            emojiOpen = emojiOpen, onEmojiToggle = { emojiOpen = !emojiOpen }, recording = recordingState,
+                            onStartRecording = { if (has(Manifest.permission.RECORD_AUDIO)) vm.startRecording() else micPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                            onFinishRecording = vm::finishRecording, enterToSend = settings.enterToSend, isAiChat = isAi, editing = edit != null,
+                            onSchedule = if (!isAi && edit == null) ({ scheduleDialog = vm.draft.value.text to null }) else null,
+                        )
+                        if (emojiOpen) EmojiPickerView(onEmojiSelected = { emoji ->
+                            val v = vm.draft.value
+                            val pos = v.selection.end.coerceIn(0, v.text.length)
+                            val text = v.text.substring(0, pos) + emoji + v.text.substring(pos)
+                            vm.onDraftChange(androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(pos + emoji.length)))
+                        }, modifier = Modifier.height(280.dp))
+                    }
                 }
             }
         }
@@ -771,9 +810,9 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, position: Int, t
 
 @Composable
 private fun Notice(text: String) {
-    Surface(tonalElevation = 2.dp) {
-        Text(text, modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+        Text(text, modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.lg), style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 

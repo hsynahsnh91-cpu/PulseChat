@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
@@ -24,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,6 +42,7 @@ import com.example.ui.common.LoadingBox
 import com.example.ui.navigation.PulseNavHost
 import com.example.ui.security.LockScreen
 import com.example.ui.theme.PulseChatTheme
+import com.example.ui.theme.isAppInDarkTheme
 import com.example.util.LocaleHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -63,6 +66,16 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) pendingIntent.value = intent
         setContent {
             val settings by container.prefs.settings.collectAsState()
+            // System bar icons follow the theme chosen in the app (not only the device setting), so
+            // the clock and battery stay readable when the two differ.
+            val dark = isAppInDarkTheme(settings.themeMode)
+            DisposableEffect(dark) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark },
+                    navigationBarStyle = SystemBarStyle.auto(LIGHT_NAV_SCRIM, DARK_NAV_SCRIM) { dark },
+                )
+                onDispose { }
+            }
             PulseChatTheme(settings.themeMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     if (!container.firebaseAvailable) ConfigErrorScreen()
@@ -157,3 +170,7 @@ private fun ConfigErrorScreen() {
         Text(stringResource(R.string.config_error_body), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+// Same scrims androidx.activity uses by default; only visible with 3-button navigation on Android 9 and older.
+private val LIGHT_NAV_SCRIM = android.graphics.Color.argb(0xE6, 0xFF, 0xFF, 0xFF)
+private val DARK_NAV_SCRIM = android.graphics.Color.argb(0x80, 0x1B, 0x1B, 0x1B)

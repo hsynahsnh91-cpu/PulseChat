@@ -146,7 +146,7 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                             Box(Modifier.size(112.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(56.dp))
                             }
-                        } else UserAvatar(title, avatarUrl = if (c.isGroup) c.avatarUrl else peer?.avatarUrl, size = 112.dp, colorHex = peer?.avatarColorHex ?: "#4F46E5")
+                        } else UserAvatar(title, avatarUrl = if (c.isGroup) c.avatarUrl else peer?.avatarUrl, size = 112.dp, colorHex = peer?.avatarColorHex)
                         if (canEdit) {
                             Box(Modifier.size(36.dp).align(Alignment.BottomEnd).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
                                 .clickable { editName = c.title; editDescription = c.description.orEmpty(); newPhoto = null; dialog = "editGroup" }, contentAlignment = Alignment.Center) {

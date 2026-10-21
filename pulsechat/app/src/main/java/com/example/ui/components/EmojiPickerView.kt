@@ -40,7 +40,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.PrimaryIndigo
 
 data class EmojiCategory(
     @androidx.annotation.StringRes val titleRes: Int,
@@ -142,7 +141,7 @@ fun EmojiPickerView(
                             imageVector = cat.icon,
                             contentDescription = androidx.compose.ui.res.stringResource(cat.titleRes),
                             modifier = Modifier.size(20.dp),
-                            tint = if (selectedCategoryIndex == index) PrimaryIndigo else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (selectedCategoryIndex == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 )
@@ -154,14 +153,14 @@ fun EmojiPickerView(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(PrimaryIndigo.copy(alpha = 0.1f))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Text(
                     text = androidx.compose.ui.res.stringResource(com.example.R.string.emoji_flags_banner),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PrimaryIndigo
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }

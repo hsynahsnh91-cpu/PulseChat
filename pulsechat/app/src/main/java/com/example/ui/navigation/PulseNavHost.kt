@@ -60,6 +60,10 @@ import com.example.ui.settings.StorageSettingsScreen
 import com.example.ui.status.StatusViewerScreen
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import com.example.ui.theme.Motion
 
 object Routes {
     const val HOME = "home"
@@ -117,7 +121,21 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     NotificationPermissionRequest()
 
     val settingsNav = SettingsNav(back = { nav.popBackStack() }, open = { nav.go(it) })
-    NavHost(navController = nav, startDestination = Routes.HOME) {
+    // Short, direction-aware transitions (the default is a 700 ms cross-fade, which made every screen
+    // change feel slow). Start/End follow the layout direction, so Arabic slides the other way.
+    NavHost(
+        navController = nav, startDestination = Routes.HOME,
+        enterTransition = {
+            fadeIn(Motion.enter(Motion.NAVIGATION)) +
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, Motion.enter(Motion.NAVIGATION)) { it / 10 }
+        },
+        exitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+        popEnterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) },
+        popExitTransition = {
+            fadeOut(Motion.exit(Motion.NAVIGATION)) +
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, Motion.exit(Motion.NAVIGATION)) { it / 10 }
+        },
+    ) {
         composable(Routes.HOME) {
             HomeScreen(
                 HomeNav(
@@ -187,13 +205,23 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
         composable("search?q={q}", arguments = listOf(navArgument("q") { type = NavType.StringType; defaultValue = "" })) { entry ->
             GlobalSearchScreen(entry.arguments?.getString("q").orEmpty(), onBack = { nav.popBackStack() }, openMessage = { cid, mid -> nav.go(Routes.chat(cid, mid)) })
         }
-        composable("status/{owner}", arguments = listOf(navArgument("owner") { type = NavType.StringType })) { entry ->
+        composable(
+            "status/{owner}", arguments = listOf(navArgument("owner") { type = NavType.StringType }),
+            enterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, popExitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+        ) { entry ->
             StatusViewerScreen(entry.arguments?.getString("owner").orEmpty(), onClose = { nav.popBackStack() }, openReply = { owner -> nav.popBackStack(); openPeer(owner) })
         }
-        composable("media/{mid}", arguments = listOf(navArgument("mid") { type = NavType.StringType })) { entry ->
+        composable(
+            "media/{mid}", arguments = listOf(navArgument("mid") { type = NavType.StringType }),
+            enterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, popExitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+        ) { entry ->
             MediaViewerScreen(entry.arguments?.getString("mid").orEmpty(), onBack = { nav.popBackStack() })
         }
-        composable(Routes.CALL) { CallScreen(onClose = { if (nav.currentBackStackEntry?.destination?.route == Routes.CALL) nav.popBackStack() }) }
+        composable(
+            Routes.CALL,
+            enterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, exitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+            popEnterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, popExitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+        ) { CallScreen(onClose = { if (nav.currentBackStackEntry?.destination?.route == Routes.CALL) nav.popBackStack() }) }
         composable("settings") { SettingsHomeScreen(settingsNav) }
         composable("settings/profile") { ProfileSettingsScreen(settingsNav) }
         composable("settings/privacy") { PrivacySettingsScreen(settingsNav) }

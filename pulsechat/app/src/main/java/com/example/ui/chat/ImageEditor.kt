@@ -92,6 +92,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+import com.example.ui.common.LightSystemBarIcons
 
 private enum class EditTool { CROP, DRAW, TEXT, ARROW, BLUR }
 
@@ -104,7 +105,7 @@ private sealed class EditOp {
     data class Crop(val before: ImageEditMath.Box) : EditOp() // undo record for crop changes
 }
 
-private val PALETTE = listOf(Color.White, Color.Black, Color(0xFFEF4444), Color(0xFFF59E0B), Color(0xFF22C55E), Color(0xFF3B82F6), Color(0xFFA855F7))
+private val PALETTE = com.example.ui.theme.DrawingPalette.Colors
 
 /**
  * Photo editor shown before sending: crop, draw, text, arrows and privacy blur. The blur replaces
@@ -142,6 +143,7 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
         Column(Modifier.fillMaxSize().background(Color.Black)) {
+            LightSystemBarIcons()
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.action_cancel), tint = Color.White) }
                 Text(stringResource(R.string.editor_title), color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))

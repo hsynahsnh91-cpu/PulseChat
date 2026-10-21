@@ -54,6 +54,7 @@ import com.example.ui.common.playerUri
 import com.example.ui.status.VideoPlayerView
 import kotlinx.coroutines.launch
 import java.io.File
+import com.example.ui.common.LightSystemBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,6 +76,7 @@ fun MediaViewerScreen(messageId: String, onBack: () -> Unit) {
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
+        LightSystemBarIcons()
         if (m != null) {
             when {
                 m.type == MessageType.VIDEO && local != null ->

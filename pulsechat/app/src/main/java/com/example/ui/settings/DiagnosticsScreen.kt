@@ -428,7 +428,7 @@ private fun buildReport(
 @Composable
 private fun CheckRow(ok: Boolean?, title: String, detail: String, busy: Boolean = false, action: Pair<String, () -> Unit>? = null) {
     val (icon: ImageVector, tint: Color) = when (ok) {
-        true -> Icons.Default.CheckCircle to Color(0xFF16A34A)
+        true -> Icons.Default.CheckCircle to com.example.ui.theme.PulseTheme.colors.success
         false -> Icons.Default.WarningAmber to MaterialTheme.colorScheme.error
         null -> Icons.Default.Info to MaterialTheme.colorScheme.onSurfaceVariant
     }

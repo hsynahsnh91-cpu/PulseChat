@@ -104,6 +104,14 @@ import com.example.ui.components.UserAvatar
 import com.example.ui.security.PinSetupDialog
 import com.example.ui.security.PinVerifyDialog
 import com.example.util.LocaleHelper
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import com.example.ui.theme.Spacing
 
 @Composable
 private fun settingsVm(): SettingsViewModel = viewModel(factory = containerFactory { SettingsViewModel(it) })
@@ -112,8 +120,20 @@ private fun settingsVm(): SettingsViewModel = viewModel(factory = containerFacto
 private fun SettingsScaffold(title: String, onBack: () -> Unit, vm: SettingsViewModel, content: @Composable () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
-    Scaffold(topBar = { BackTopBar(title, onBack) }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) { content() }
+    // The list scrolls behind the transparent navigation bar (one bottom inset, at the end of the
+    // content) and stays a readable width on tablets.
+    Scaffold(
+        topBar = { BackTopBar(title, onBack) },
+        snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) },
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier.widthIn(max = Spacing.contentMaxWidth).fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(bottom = Spacing.lg).navigationBarsPadding(),
+            ) { content() }
+        }
     }
 }
 
@@ -136,7 +156,7 @@ fun SettingsHomeScreen(nav: SettingsNav) {
     var logout by remember { mutableStateOf(false) }
     SettingsScaffold(stringResource(R.string.settings_title), nav.back, vm) {
         Row(Modifier.fillMaxWidth().clickable { nav.open("settings/profile") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 64.dp, colorHex = user?.avatarColorHex ?: "#4F46E5")
+            UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 64.dp, colorHex = user?.avatarColorHex)
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(user?.displayName ?: "", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
@@ -172,7 +192,7 @@ fun ProfileSettingsScreen(nav: SettingsNav) {
     SettingsScaffold(stringResource(R.string.settings_profile), nav.back, vm) {
         Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             Box {
-                UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 128.dp, colorHex = user?.avatarColorHex ?: "#4F46E5")
+                UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 128.dp, colorHex = user?.avatarColorHex)
                 IconButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     modifier = Modifier.align(Alignment.BottomEnd)) {
                     Icon(Icons.Default.CameraAlt, contentDescription = stringResource(R.string.profile_change_photo), tint = MaterialTheme.colorScheme.primary)

@@ -75,6 +75,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.data.repository.SessionState
 import com.example.ui.common.containerFactory
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import com.example.ui.theme.Spacing
+import com.example.ui.theme.Radii
 
 private fun Context.findActivity(): Activity? {
     var c: Context? = this
@@ -100,19 +111,30 @@ fun AuthRoute(session: SessionState) {
 private fun AuthFrame(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(), contentAlignment = Alignment.TopCenter) {
         Column(
-            Modifier.widthIn(max = 520.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
+            Modifier.widthIn(max = Spacing.contentMaxWidth).fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.xxl, vertical = Spacing.xxl),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Image(
-                painter = painterResource(R.drawable.ic_app_logo), contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.size(84.dp).clip(CircleShape),
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            PulseMark(size = 64.dp)
+            Spacer(Modifier.height(Spacing.md))
+            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+            Spacer(Modifier.height(Spacing.xs))
             Text(stringResource(R.string.auth_tagline), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Spacing.xxl))
             content()
         }
+    }
+}
+
+/** The app mark (same artwork as the launcher icon) on its graphite tile. */
+@Composable
+fun PulseMark(size: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(size).clip(RoundedCornerShape(size * 0.28f)).background(colorResource(R.color.pulse_icon_background)),
+        contentAlignment = Alignment.Center,
+    ) {
+        // The launcher artwork is drawn on a 108-unit canvas whose visible part is the middle 72 units.
+        Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null, modifier = Modifier.requiredSize(size * 1.5f))
     }
 }
 
@@ -148,7 +170,7 @@ private fun PasswordField(value: String, onChange: (String) -> Unit, label: Stri
 
 @Composable
 private fun PrimaryButton(text: String, loading: Boolean, enabled: Boolean, tag: String, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled && !loading, modifier = Modifier.fillMaxWidth().height(52.dp).testTag(tag), shape = RoundedCornerShape(14.dp)) {
+    Button(onClick = onClick, enabled = enabled && !loading, modifier = Modifier.fillMaxWidth().heightIn(min = Spacing.controlHeight).testTag(tag), shape = RoundedCornerShape(Radii.md)) {
         if (loading) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp) else Text(text, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -166,20 +188,25 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
     val usernameCheck by vm.usernameCheck.collectAsState()
 
     AuthFrame {
-        TabRow(selectedTabIndex = tab) {
+        TabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
             Tab(selected = tab == 0, onClick = { tab = 0; vm.clearError() }, text = { Text(stringResource(R.string.auth_sign_in)) }, modifier = Modifier.testTag("tab_login"))
             Tab(selected = tab == 1, onClick = { tab = 1; vm.clearError() }, text = { Text(stringResource(R.string.auth_create_account)) }, modifier = Modifier.testTag("tab_register"))
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(Spacing.xl))
         ErrorCard(ui.error, vm::clearError)
         if (tab == 0) {
             if (ui.recentAccounts.isNotEmpty()) {
                 Text(stringResource(R.string.auth_recent_accounts), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ui.recentAccounts.take(3).forEach { account ->
+                // A scrolling row: chips keep their natural width (squeezing them into a Row broke
+                // long names into one character per line on small screens and with large text).
+                LazyRow(
+                    Modifier.fillMaxWidth().padding(top = Spacing.xs, bottom = Spacing.sm),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    items(ui.recentAccounts.take(3), key = { it }) { account ->
                         InputChip(
                             selected = identifier == account, onClick = { identifier = account },
-                            label = { Text("@$account") },
+                            label = { Text("@$account", maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp)) },
                             trailingIcon = {
                                 Icon(Icons.Default.Close, contentDescription = stringResource(R.string.auth_forget_account),
                                     modifier = Modifier.size(18.dp).clip(CircleShape).clickable { vm.forgetRecent(account) })
@@ -198,7 +225,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
             )
             Spacer(Modifier.height(8.dp))
             PasswordField(password, { password = it }, stringResource(R.string.auth_password), ImeAction.Done, { vm.signIn(identifier, password) }, "login_password")
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(Spacing.xl))
             PrimaryButton(stringResource(R.string.auth_sign_in), ui.loading, identifier.isNotBlank() && password.isNotBlank(), "login_button") { vm.signIn(identifier, password) }
             if (ui.legacyAccounts.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
@@ -245,7 +272,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
         Spacer(Modifier.height(16.dp))
         OutlinedButton(
             onClick = { context.findActivity()?.let { vm.google(it) } }, enabled = !ui.loading,
-            modifier = Modifier.fillMaxWidth().height(52.dp).testTag("google_signin_button"), shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = Spacing.controlHeight).testTag("google_signin_button"), shape = RoundedCornerShape(Radii.md),
         ) { Text(stringResource(R.string.sign_in_google), fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(24.dp))
         Text(stringResource(R.string.auth_security_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)

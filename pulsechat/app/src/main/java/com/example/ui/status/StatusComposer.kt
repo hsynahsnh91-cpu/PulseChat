@@ -49,8 +49,9 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.domain.StatusPolicy
+import com.example.ui.common.LightSystemBarIcons
 
-val STATUS_COLORS = listOf("#3730A3", "#0F766E", "#BE185D", "#B45309", "#6D28D9", "#1D4ED8", "#047857", "#334155")
+val STATUS_COLORS = com.example.ui.theme.StatusPalette.Hex
 val STATUS_FONTS = listOf("DEFAULT", "SERIF", "SANS", "MONO", "CURSIVE")
 
 fun statusFont(name: String): FontFamily = when (name) {
@@ -61,7 +62,7 @@ fun statusFont(name: String): FontFamily = when (name) {
     else -> FontFamily.Default
 }
 
-fun parseHexColor(hex: String, fallback: Color = Color(0xFF3730A3)): Color =
+fun parseHexColor(hex: String, fallback: Color = com.example.ui.theme.StatusPalette.Fallback): Color =
     runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(fallback)
 
 /** Full-screen text status editor (PulseChat palette). */
@@ -72,6 +73,7 @@ fun StatusTextComposer(onDismiss: () -> Unit, onPost: (text: String, background:
     var fontIndex by rememberSaveable { mutableIntStateOf(0) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(parseHexColor(STATUS_COLORS[colorIndex])).statusBarsPadding().navigationBarsPadding().imePadding()) {
+            LightSystemBarIcons()
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close), tint = Color.White) }
                 Row {
@@ -111,6 +113,7 @@ fun MediaCaptionDialog(uri: Uri, isVideo: Boolean, title: String, onDismiss: () 
     var caption by rememberSaveable { mutableStateOf("") }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding().imePadding()) {
+            LightSystemBarIcons()
             Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close), tint = Color.White) }
                 Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))

@@ -15,7 +15,18 @@ object Formatters {
     fun isToday(t: Long) = DateUtils.isToday(t)
     fun isYesterday(t: Long) = DateUtils.isToday(t + DateUtils.DAY_IN_MILLIS)
 
-    fun time(context: Context, t: Long): String = DateFormat.getTimeFormat(context).format(Date(t))
+    // Building a time formatter is costly and it is needed for every visible message, so one is kept
+    // per locale + 12/24-hour setting.
+    private var timeFormatKey: Pair<java.util.Locale, Boolean>? = null
+    private var timeFormat: java.text.DateFormat? = null
+
+    fun time(context: Context, t: Long): String {
+        val key = context.resources.configuration.locales[0] to DateFormat.is24HourFormat(context)
+        val format = synchronized(this) {
+            timeFormat?.takeIf { timeFormatKey == key } ?: DateFormat.getTimeFormat(context).also { timeFormat = it; timeFormatKey = key }
+        }
+        return synchronized(format) { format.format(Date(t)) }
+    }
 
     fun chatListTime(context: Context, t: Long): String {
         if (t <= 0) return ""

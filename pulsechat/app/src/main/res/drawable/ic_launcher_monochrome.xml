@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-colour layer for themed launcher icons (Android 13+); the launcher tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M40,34 L68,34 A10,10 0 0,1 78,44 L78,58 A10,10 0 0,1 68,68 L48,68 L38,76 L40,68 A10,10 0 0,1 30,58 L30,44 A10,10 0 0,1 40,34 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M35,51 L43,51 L47,44 L52,59 L57,41 L61,55 L64,51 L73,51"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+</vector>

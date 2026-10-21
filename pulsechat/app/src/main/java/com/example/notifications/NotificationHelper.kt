@@ -134,7 +134,7 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
             broadcast(ACTION_MARK_READ, conv.conversationId, requestBase + 2, mutable = false)).build()
         val builder = NotificationCompat.Builder(context, if (conv.isGroup) CH_GROUPS else CH_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
-            .setColor(0xFF4F46E5.toInt())
+            .setColor(ContextCompat.getColor(context, R.color.pulse_accent))
             .setContentTitle(if (settings.notificationPreviews) title else context.getString(R.string.app_name))
             .setContentText(lines.values.last().text)
             .setStyle(style)
@@ -161,7 +161,7 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         if (active.size < 2) return
         val summary = NotificationCompat.Builder(context, CH_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
-            .setColor(0xFF4F46E5.toInt())
+            .setColor(ContextCompat.getColor(context, R.color.pulse_accent))
             .setContentTitle(context.getString(R.string.app_name))
             .setContentText(context.resources.getQuantityString(R.plurals.notification_chats_summary, active.size, active.size))
             .setGroup(GROUP_KEY)

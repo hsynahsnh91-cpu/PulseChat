@@ -9,6 +9,27 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import com.example.ui.common.LightSystemBarIcons
+import com.example.ui.common.rememberReducedMotion
+import com.example.ui.theme.CallPalette
+import com.example.ui.theme.Motion
+import com.example.ui.theme.Radii
+import com.example.ui.theme.Spacing
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -56,7 +77,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -110,72 +130,116 @@ fun CallScreen(onClose: () -> Unit) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(ui.state) { while (ui.state == CallState.CONNECTED) { now = System.currentTimeMillis(); delay(1000) } }
 
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1E1B4B), Color(0xFF0B1220))))) {
+    LightSystemBarIcons()
+    Box(Modifier.fillMaxSize().background(CallPalette.Background)) {
         val showVideo = ui.isVideo && (ui.state.isActive || ui.state == CallState.RINGING && ui.direction == CallDirection.OUTGOING || ui.state == CallState.INITIATING)
-        if (showVideo && ui.remoteVideo && ui.state.isActive) {
+        val remoteVideoShown = showVideo && ui.remoteVideo && ui.state.isActive
+        if (remoteVideoShown) {
             VideoRenderer(manager, remote = true, modifier = Modifier.fillMaxSize())
         }
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(32.dp))
-            if (!(showVideo && ui.remoteVideo && ui.state.isActive)) {
-                UserAvatar(ui.peerName, avatarUrl = ui.peerAvatar, size = 120.dp)
-                Spacer(Modifier.height(20.dp))
-            }
-            Text(ui.peerName.ifBlank { stringResource(R.string.unknown_user) }, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-            Text(statusText(ui, now), color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
-            if (ui.state == CallState.FAILED) {
-                Text(stringResource(R.string.call_failed_hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 8.dp))
-            }
-            Spacer(Modifier.weight(1f))
-            when {
-                ui.state == CallState.RINGING && ui.direction == CallDirection.INCOMING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    RoundButton(Icons.Default.CallEnd, stringResource(R.string.call_decline), Color(0xFFDC2626)) { manager.decline() }
-                    RoundButton(if (ui.isVideo) Icons.Default.Videocam else Icons.Default.Call, stringResource(R.string.call_accept), Color(0xFF059669)) { acceptWithPermissions() }
+        BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            val compact = maxHeight < 600.dp
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = Spacing.xxl, vertical = if (compact) Spacing.lg else Spacing.xxl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(if (compact) Spacing.sm else Spacing.xxxl))
+                if (!remoteVideoShown) {
+                    val ringing = ui.state == CallState.INITIATING || ui.state == CallState.RINGING
+                    CallerAvatar(ui.peerName, ui.peerAvatar, size = if (compact) 96.dp else 120.dp, ringing = ringing)
+                    Spacer(Modifier.height(if (compact) Spacing.lg else Spacing.xl))
                 }
-                ui.isLive -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        RoundButton(if (ui.micMuted) Icons.Default.MicOff else Icons.Default.Mic, stringResource(if (ui.micMuted) R.string.call_unmute else R.string.call_mute),
-                            if (ui.micMuted) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.15f)) { manager.toggleMute() }
-                        // Speaker toggle; with a headset or Bluetooth device connected it becomes a route picker.
-                        val hasHeadset = AudioRoute.WIRED_HEADSET in routes.available || AudioRoute.BLUETOOTH in routes.available
-                        Box {
-                            RoundButton(
-                                routeIcon(if (hasHeadset) routes.current else AudioRoute.SPEAKER),
-                                if (hasHeadset) routeName(routes.current ?: AudioRoute.EARPIECE)
-                                else stringResource(if (ui.speakerOn) R.string.call_speaker_off else R.string.call_speaker_on),
-                                if (ui.speakerOn) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.15f),
-                            ) { if (hasHeadset) routeMenu = true else manager.toggleSpeaker() }
-                            DropdownMenu(expanded = routeMenu, onDismissRequest = { routeMenu = false }) {
-                                routes.available.sortedBy { it.ordinal }.forEach { r ->
-                                    DropdownMenuItem(
-                                        text = { Text(routeName(r)) },
-                                        leadingIcon = { Icon(routeIcon(r), contentDescription = null) },
-                                        trailingIcon = { if (r == routes.current) Icon(Icons.Default.Check, contentDescription = stringResource(R.string.call_route_selected)) },
-                                        onClick = { routeMenu = false; manager.selectAudioRoute(r) },
-                                    )
+                Text(
+                    ui.peerName.ifBlank { stringResource(R.string.unknown_user) }, color = CallPalette.Text,
+                    style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(Spacing.sm))
+                // The state line cross-fades when the call state changes; the running clock updates in place.
+                AnimatedContent(
+                    targetState = ui.state,
+                    transitionSpec = { fadeIn(Motion.enter(Motion.STANDARD)) togetherWith fadeOut(Motion.exit(Motion.QUICK)) },
+                    label = "call-state",
+                ) { state ->
+                    Text(statusText(ui.copy(state = state), now), color = CallPalette.TextSecondary, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+                }
+                if (ui.state == CallState.FAILED) {
+                    Text(stringResource(R.string.call_failed_hint), color = CallPalette.TextSecondary, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = Spacing.sm))
+                }
+                Spacer(Modifier.weight(1f))
+                when {
+                    ui.state == CallState.RINGING && ui.direction == CallDirection.INCOMING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        RoundButton(Icons.Default.CallEnd, stringResource(R.string.call_decline), CallPalette.Decline, CallPalette.Text, large = true) { manager.decline() }
+                        RoundButton(if (ui.isVideo) Icons.Default.Videocam else Icons.Default.Call, stringResource(R.string.call_accept), CallPalette.Accept, CallPalette.Text, large = true) { acceptWithPermissions() }
+                    }
+                    ui.isLive -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Top) {
+                            ToggleButton(if (ui.micMuted) Icons.Default.MicOff else Icons.Default.Mic, stringResource(if (ui.micMuted) R.string.call_unmute else R.string.call_mute),
+                                active = ui.micMuted) { manager.toggleMute() }
+                            // Speaker toggle; with a headset or Bluetooth device connected it becomes a route picker.
+                            val hasHeadset = AudioRoute.WIRED_HEADSET in routes.available || AudioRoute.BLUETOOTH in routes.available
+                            Box {
+                                ToggleButton(
+                                    routeIcon(if (hasHeadset) routes.current else AudioRoute.SPEAKER),
+                                    if (hasHeadset) routeName(routes.current ?: AudioRoute.EARPIECE)
+                                    else stringResource(if (ui.speakerOn) R.string.call_speaker_off else R.string.call_speaker_on),
+                                    active = ui.speakerOn && !hasHeadset,
+                                ) { if (hasHeadset) routeMenu = true else manager.toggleSpeaker() }
+                                DropdownMenu(expanded = routeMenu, onDismissRequest = { routeMenu = false }) {
+                                    routes.available.sortedBy { it.ordinal }.forEach { r ->
+                                        DropdownMenuItem(
+                                            text = { Text(routeName(r)) },
+                                            leadingIcon = { Icon(routeIcon(r), contentDescription = null) },
+                                            trailingIcon = { if (r == routes.current) Icon(Icons.Default.Check, contentDescription = stringResource(R.string.call_route_selected)) },
+                                            onClick = { routeMenu = false; manager.selectAudioRoute(r) },
+                                        )
+                                    }
                                 }
                             }
+                            if (ui.isVideo) {
+                                ToggleButton(if (ui.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, stringResource(if (ui.cameraOn) R.string.call_camera_off else R.string.call_camera_on),
+                                    active = !ui.cameraOn) { manager.toggleCamera() }
+                                ToggleButton(Icons.Default.FlipCameraAndroid, stringResource(R.string.call_switch_camera), active = false) { manager.switchCamera() }
+                            }
                         }
-                        if (ui.isVideo) {
-                            RoundButton(if (ui.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, stringResource(if (ui.cameraOn) R.string.call_camera_off else R.string.call_camera_on),
-                                Color.White.copy(alpha = 0.15f)) { manager.toggleCamera() }
-                            RoundButton(Icons.Default.FlipCameraAndroid, stringResource(R.string.call_switch_camera), Color.White.copy(alpha = 0.15f)) { manager.switchCamera() }
-                        }
+                        Spacer(Modifier.height(if (compact) Spacing.lg else Spacing.xxl))
+                        RoundButton(Icons.Default.CallEnd, stringResource(R.string.call_end), CallPalette.Decline, CallPalette.Text, large = true, modifier = Modifier.testTag("call_end")) { manager.hangUp() }
                     }
-                    Spacer(Modifier.height(24.dp))
-                    RoundButton(Icons.Default.CallEnd, stringResource(R.string.call_end), Color(0xFFDC2626), Modifier.testTag("call_end")) { manager.hangUp() }
                 }
+                Spacer(Modifier.height(if (compact) Spacing.sm else Spacing.lg))
             }
-            Spacer(Modifier.height(24.dp))
         }
         if (settings.callShowDetails && ui.isLive) {
-            CallDetailsPanel(stats, routes.current, Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp))
+            CallDetailsPanel(stats, routes.current, Modifier.align(Alignment.TopStart).statusBarsPadding().padding(Spacing.md))
         }
         if (ui.isVideo && ui.cameraOn && (ui.state.isActive || ui.state == CallState.RINGING || ui.state == CallState.INITIATING)) {
-            VideoRenderer(manager, remote = false, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).size(width = 110.dp, height = 160.dp).clip(RoundedCornerShape(12.dp)))
+            VideoRenderer(manager, remote = false, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(Spacing.lg).size(width = 110.dp, height = 160.dp).clip(RoundedCornerShape(Radii.md)))
         }
+    }
+}
+
+/**
+ * Caller photo. While the call is ringing a soft ring expands behind it — it is tied to the real call
+ * state, stops as soon as the call is answered or ends, and is skipped when animations are turned off.
+ */
+@Composable
+private fun CallerAvatar(name: String, avatarUrl: String?, size: Dp, ringing: Boolean) {
+    val animate = ringing && !rememberReducedMotion()
+    Box(Modifier.size(size * 1.3f), contentAlignment = Alignment.Center) {
+        if (animate) {
+            val transition = rememberInfiniteTransition(label = "ring")
+            val progress by transition.animateFloat(
+                initialValue = 0f, targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1600, easing = Motion.StandardEasing), RepeatMode.Restart), label = "ring-progress",
+            )
+            Box(
+                Modifier.size(size).graphicsLayer {
+                    val scale = 1f + 0.28f * progress
+                    scaleX = scale; scaleY = scale; alpha = 0.35f * (1f - progress)
+                }.clip(CircleShape).background(CallPalette.TextSecondary),
+            )
+        }
+        UserAvatar(name, avatarUrl = avatarUrl, size = size, ringColor = CallPalette.Background)
     }
 }
 
@@ -219,15 +283,27 @@ private fun statusText(ui: CallUiState, now: Long): String = when (ui.state) {
 }
 
 @Composable
-private fun RoundButton(icon: ImageVector, label: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledIconButton(onClick = onClick, modifier = Modifier.size(64.dp), shape = CircleShape,
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = Color.White)) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
+private fun RoundButton(
+    icon: ImageVector, label: String, container: Color, content: Color, large: Boolean = false,
+    modifier: Modifier = Modifier, onClick: () -> Unit,
+) {
+    Column(modifier.widthIn(max = 88.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        FilledIconButton(onClick = onClick, modifier = Modifier.size(if (large) 68.dp else 60.dp), shape = CircleShape,
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = container, contentColor = content)) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(if (large) 30.dp else 26.dp))
         }
-        Spacer(Modifier.height(6.dp))
-        Text(label, color = Color.White, style = MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.height(Spacing.sm))
+        Text(label, color = CallPalette.TextSecondary, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
+}
+
+/** Mute / speaker / camera: a light circle while the option is on, so its state reads at a glance. */
+@Composable
+private fun ToggleButton(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+    val container by animateColorAsState(if (active) CallPalette.Text else CallPalette.Raised, Motion.standard(Motion.QUICK), label = "toggle-bg")
+    val content by animateColorAsState(if (active) CallPalette.Background else CallPalette.Text, Motion.standard(Motion.QUICK), label = "toggle-fg")
+    RoundButton(icon, label, container, content, onClick = onClick)
 }
 
 @Composable
@@ -249,7 +325,7 @@ private fun routeIcon(route: AudioRoute?): ImageVector = when (route) {
 @Composable
 private fun CallDetailsPanel(stats: CallStatsSnapshot?, route: AudioRoute?, modifier: Modifier) {
     fun fmt(v: Double?, digits: Int = 1) = v?.let { String.format(java.util.Locale.US, "%.${digits}f", it) } ?: "–"
-    Column(modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(10.dp)) {
+    Column(modifier.clip(RoundedCornerShape(Radii.sm)).background(CallPalette.Scrim).padding(10.dp)) {
         val style = MaterialTheme.typography.labelSmall
         Text(stringResource(R.string.call_details_title), color = Color.White, style = style, fontWeight = FontWeight.SemiBold)
         if (stats == null) {
@@ -260,7 +336,7 @@ private fun CallDetailsPanel(stats: CallStatsSnapshot?, route: AudioRoute?, modi
         Text(stringResource(R.string.call_details_levels, fmt(stats.inboundAudioLevel, 3), fmt(stats.outboundAudioLevel, 3)), color = Color.White, style = style)
         if (stats.echoReturnLossEnhancementDb != null) Text(stringResource(R.string.call_details_echo, fmt(stats.echoReturnLossEnhancementDb)), color = Color.White, style = style)
         Text(stringResource(R.string.call_details_streams, stats.inboundAudioStreams, stats.outboundAudioStreams),
-            color = if (stats.duplicateAudio) Color(0xFFFCA5A5) else Color.White, style = style)
+            color = if (stats.duplicateAudio) CallPalette.Warning else Color.White, style = style)
         if (route != null) Text(routeName(route), color = Color.White, style = style)
     }
 }

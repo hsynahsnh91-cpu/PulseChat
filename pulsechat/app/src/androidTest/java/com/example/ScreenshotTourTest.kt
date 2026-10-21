@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -100,15 +101,28 @@ class ScreenshotTourTest : EmulatorE2ETest() {
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
+    private fun exists(tag: String) = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+
+    /** Back to the chat list using the screens' own back buttons (never leaves the app). */
     private fun goHome() {
         repeat(5) {
-            if (compose.onAllNodesWithTag("home_title").fetchSemanticsNodes().isNotEmpty()) return
-            Espresso.pressBack()
-            settle(800)
+            if (exists("home_title")) return
+            shell("cmd statusbar collapse")
+            val back = compose.onAllNodesWithContentDescription(str(R.string.action_back)).fetchSemanticsNodes()
+            if (back.isNotEmpty()) compose.onAllNodesWithContentDescription(str(R.string.action_back))[0].performClick()
+            else Espresso.pressBack()
+            settle(900)
         }
     }
 
+    private fun tap(tag: String) {
+        shell("cmd statusbar collapse")
+        compose.onNodeWithTag(tag).performClick()
+    }
+
     @After fun restoreDevice() {
+        shell("settings put global heads_up_notifications_enabled 1")
+        shell("settings put secure show_ime_with_hard_keyboard 0")
         shell("wm size reset")
         shell("wm density reset")
         shell("settings put system font_scale 1.0")
@@ -126,6 +140,8 @@ class ScreenshotTourTest : EmulatorE2ETest() {
         shell("rm -rf $dir")
         shell("mkdir -p $dir")
         shell("settings put secure show_ime_with_hard_keyboard 1")
+        // Heads-up notifications would cover the top bar (and taps on them cannot be injected).
+        shell("settings put global heads_up_notifications_enabled 0")
         startFresh()
 
         // Sign-in screen on a small phone and on a very small phone with large text.
@@ -169,26 +185,36 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             apply(v)
             goHome()
             shot("${v.id}-1-home")
+            tap("tab_updates")
+            settle()
+            shot("${v.id}-1b-updates")
+            tap("tab_chats")
+            settle()
             compose.onNodeWithText("Alice Johnson").performClick()
             settle(1_500)
             shot("${v.id}-2-chat")
-            compose.onNodeWithTag("composer_input").performClick()
+            tap("composer_input")
             settle(2_000)
             shot("${v.id}-3-keyboard")
             Espresso.pressBack() // hides the keyboard
             settle()
-            compose.onNodeWithTag("composer_attach").performClick()
+            tap("composer_attach")
             settle()
             shot("${v.id}-4-attach-sheet")
             Espresso.pressBack()
             settle()
-            compose.onNodeWithTag("chat_voice_call").performClick()
-            settle(2_500)
+            tap("chat_voice_call")
+            // Starting a call writes to the backend first; wait for the call screen itself.
+            val callShown = runCatching { compose.waitUntil(20_000) { exists("call_end") } }.isSuccess
+            settle(1_200)
             shot("${v.id}-5-call")
-            runCatching { compose.onNodeWithTag("call_end").performClick() }
-            settle(3_500)
+            if (callShown) {
+                runCatching { tap("call_end") }
+                runCatching { compose.waitUntil(15_000) { !exists("call_end") } }
+            }
+            settle(1_500)
             goHome()
-            compose.onNodeWithTag("home_menu").performClick()
+            tap("home_menu")
             compose.onNodeWithTag("menu_settings").performClick()
             settle()
             shot("${v.id}-6-settings")
@@ -197,8 +223,6 @@ class ScreenshotTourTest : EmulatorE2ETest() {
                     compose.onNodeWithText(str(R.string.diag_title)).performScrollTo().performClick()
                     settle()
                     shot("${v.id}-7-diagnostics")
-                    Espresso.pressBack()
-                    settle()
                 }
             }
             goHome()

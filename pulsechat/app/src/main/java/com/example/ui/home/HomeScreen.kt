@@ -96,6 +96,8 @@ import com.example.ui.components.UserAvatar
 import com.example.ui.status.MediaCaptionDialog
 import com.example.ui.status.StatusTextComposer
 import kotlinx.coroutines.launch
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FloatingActionButtonDefaults
 
 /** Navigation callbacks used by the home screen. */
 data class HomeNav(
@@ -228,13 +230,13 @@ fun HomeScreen(nav: HomeNav) {
                     title = {
                         // Chats shows the app name; the other tabs show their own name.
                         when (tab) {
-                            TAB_CHATS -> Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary,
+                            TAB_CHATS -> Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge,
                                 modifier = Modifier.testTag("home_title"))
                             else -> Text(stringResource(when (tab) {
                                 TAB_UPDATES -> R.string.tab_updates
                                 TAB_GROUPS -> R.string.tab_groups
                                 else -> R.string.tab_calls
-                            }), fontWeight = FontWeight.Bold, modifier = Modifier.testTag("home_title"))
+                            }), style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("home_title"))
                         }
                     },
                     actions = {
@@ -242,7 +244,7 @@ fun HomeScreen(nav: HomeNav) {
                             Icon(Icons.Default.Search, stringResource(R.string.action_search))
                         }
                         IconButton(onClick = nav.openProfile) {
-                            UserAvatar(meUser?.displayName ?: "", avatarUrl = meUser?.avatarUrl, size = 30.dp, colorHex = meUser?.avatarColorHex ?: "#4F46E5")
+                            UserAvatar(meUser?.displayName ?: "", avatarUrl = meUser?.avatarUrl, size = 30.dp, colorHex = meUser?.avatarColorHex)
                         }
                         IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("home_menu")) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -282,7 +284,10 @@ fun HomeScreen(nav: HomeNav) {
             }
         },
         bottomBar = {
-            NavigationBar {
+            // Flat bar on the same surface as the list, separated by a hairline instead of a tint.
+            Column {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                 NavigationBarItem(
                     selected = tab == TAB_CHATS, onClick = { tab = TAB_CHATS }, label = { Text(stringResource(R.string.tab_chats)) },
                     icon = { BadgedBox(badge = { if (unread > 0) Badge { Text(if (unread > 99) "99+" else unread.toString()) } }) { Icon(Icons.Outlined.ChatBubbleOutline, null) } },
@@ -298,21 +303,23 @@ fun HomeScreen(nav: HomeNav) {
                 NavigationBarItem(selected = tab == TAB_CALLS, onClick = { tab = TAB_CALLS }, label = { Text(stringResource(R.string.tab_calls)) },
                     icon = { Icon(Icons.Outlined.Call, null) }, modifier = Modifier.testTag("tab_calls"))
             }
+            }
         },
+        containerColor = MaterialTheme.colorScheme.surface,
         floatingActionButton = {
             if (selection.isEmpty() && !searching) {
                 when (tab) {
-                    TAB_CHATS -> FloatingActionButton(onClick = nav.openNewChat, modifier = Modifier.testTag("fab_new_chat")) {
+                    TAB_CHATS -> FloatingActionButton(onClick = nav.openNewChat, elevation = fabElevation(), modifier = Modifier.testTag("fab_new_chat")) {
                         Icon(Icons.Outlined.AddComment, stringResource(R.string.action_new_chat))
                     }
                     TAB_UPDATES -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SmallFloatingActionButton(onClick = { textStatus = true }) { Icon(Icons.Default.Edit, stringResource(R.string.status_new_text)) }
-                        FloatingActionButton(onClick = { mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }) {
+                        SmallFloatingActionButton(onClick = { textStatus = true }, elevation = fabElevation()) { Icon(Icons.Default.Edit, stringResource(R.string.status_new_text)) }
+                        FloatingActionButton(onClick = { mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }, elevation = fabElevation()) {
                             Icon(Icons.Default.PhotoCamera, stringResource(R.string.status_new_media))
                         }
                     }
-                    TAB_GROUPS -> FloatingActionButton(onClick = nav.openNewGroup) { Icon(Icons.Default.GroupAdd, stringResource(R.string.new_group)) }
-                    TAB_CALLS -> FloatingActionButton(onClick = nav.openCallPicker) { Icon(Icons.Default.Call, stringResource(R.string.calls_new)) }
+                    TAB_GROUPS -> FloatingActionButton(onClick = nav.openNewGroup, elevation = fabElevation()) { Icon(Icons.Default.GroupAdd, stringResource(R.string.new_group)) }
+                    TAB_CALLS -> FloatingActionButton(onClick = nav.openCallPicker, elevation = fabElevation()) { Icon(Icons.Default.Call, stringResource(R.string.calls_new)) }
                 }
             }
         },
@@ -385,3 +392,7 @@ fun HomeScreen(nav: HomeNav) {
         }
     }
 }
+
+/** Low, even FAB elevation: enough to lift it off the list without a heavy shadow. */
+@Composable
+private fun fabElevation() = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp, pressedElevation = 3.dp, focusedElevation = 3.dp, hoveredElevation = 4.dp)

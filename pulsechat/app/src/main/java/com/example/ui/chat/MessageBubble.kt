@@ -56,7 +56,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,6 +107,23 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import kotlin.math.roundToInt
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.runtime.State
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.style.ResolvedTextDirection
+import androidx.compose.ui.unit.min
+import com.example.ui.common.rememberLocalFile
+import com.example.ui.theme.Spacing
+import com.example.ui.theme.Radii
+import com.example.ui.theme.MessageTextStyle
+import com.example.ui.theme.EmojiOnlyTextStyle
 
 class BubbleCallbacks(
     val onClick: (Message) -> Unit,
@@ -125,7 +144,7 @@ class BubbleCallbacks(
     val onReactions: (Message) -> Unit,
 )
 
-private val REACTION_SHAPE = RoundedCornerShape(12.dp)
+private val REACTION_SHAPE = RoundedCornerShape(50)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -140,7 +159,8 @@ fun MessageRow(
     selectionMode: Boolean,
     highlighted: Boolean,
     searchQuery: String,
-    voice: VoicePlayer.State,
+    /** Read only by voice messages, so playback progress recomposes just those bubbles. */
+    voice: State<VoicePlayer.State>,
     showReadReceipts: Boolean,
     canSwipeReply: Boolean,
     callbacks: BubbleCallbacks,
@@ -153,8 +173,8 @@ fun MessageRow(
     var drag by remember(m.messageId) { mutableFloatStateOf(0f) }
     val animatedDrag by animateFloatAsState(drag, label = "swipe")
     val rowBackground = when {
-        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-        highlighted -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+        highlighted -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
         else -> Color.Transparent
     }
     Box(
@@ -173,152 +193,235 @@ fun MessageRow(
                     }
                 }
             }
-            .padding(horizontal = 8.dp, vertical = if (item.groupedWithOlder) 1.dp else 4.dp),
+            .padding(horizontal = Spacing.sm, vertical = if (item.groupedWithOlder) 1.dp else 3.dp),
     ) {
         if (animatedDrag != 0f) {
             Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = pulse.metaText,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).size(22.dp))
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = Spacing.sm).size(22.dp)
+                    .graphicsLayer { alpha = (kotlin.math.abs(animatedDrag) / 140f).coerceIn(0f, 1f) })
         }
-        Row(
+        BoxWithConstraints(
             Modifier.fillMaxWidth().offset { IntOffset(animatedDrag.roundToInt(), 0) },
-            horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+            contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
-            BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-                val maxBubble = maxWidth * 0.82f
-                Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, modifier = Modifier.widthIn(max = maxBubble)) {
-                    Bubble(item, mine, names, isGroup, isAi, hideTicks, searchQuery, voice, showReadReceipts, callbacks, me)
-                    val reactions = m.reactionMap()
-                    if (reactions.isNotEmpty()) {
-                        Surface(
-                            shape = REACTION_SHAPE, color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp, shadowElevation = 1.dp,
-                            modifier = Modifier.offset(y = (-6).dp).padding(horizontal = 8.dp).clip(REACTION_SHAPE).clickable { callbacks.onReactions(m) },
-                        ) {
-                            val distinct = reactions.values.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }
-                            Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                distinct.take(3).forEach { Text(it.key, fontSize = 14.sp) }
-                                if (reactions.size > 1) Text(" ${reactions.size}", style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
-                            }
+            // Comfortable reading width: most of a phone screen, capped on tablets and in landscape.
+            val maxBubble = min(maxWidth * 0.84f, Spacing.bubbleMaxWidth)
+            Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, modifier = Modifier.widthIn(max = maxBubble)) {
+                Bubble(item, mine, names, isGroup, isAi, hideTicks, searchQuery, voice, showReadReceipts, callbacks, me)
+                val reactions = m.reactionMap()
+                if (reactions.isNotEmpty()) {
+                    // The chip overlaps the bubble's lower edge; the ring in the chat background colour
+                    // separates them without a shadow.
+                    Surface(
+                        shape = REACTION_SHAPE, color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(2.dp, pulse.chatBackground),
+                        modifier = Modifier.offset(y = (-4).dp).padding(horizontal = Spacing.sm).clip(REACTION_SHAPE).clickable { callbacks.onReactions(m) },
+                    ) {
+                        val distinct = remember(reactions) { reactions.values.groupingBy { it }.eachCount().entries.sortedByDescending { it.value } }
+                        Row(Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            distinct.take(3).forEach { Text(it.key, fontSize = 14.sp) }
+                            if (reactions.size > 1) Text(" ${reactions.size}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    if (mine && m.status == MessageStatus.FAILED) {
-                        TextButton(onClick = { callbacks.onRetry(m) }) {
-                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(stringResource(when (m.failureReason) {
-                                "denied" -> R.string.message_not_allowed_retry
-                                "too_large" -> R.string.message_too_large_retry
-                                else -> R.string.message_failed_retry
-                            }),
-                                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
-                        }
+                }
+                if (mine && m.status == MessageStatus.FAILED) {
+                    TextButton(onClick = { callbacks.onRetry(m) }) {
+                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(Spacing.xs))
+                        Text(stringResource(when (m.failureReason) {
+                            "denied" -> R.string.message_not_allowed_retry
+                            "too_large" -> R.string.message_too_large_retry
+                            else -> R.string.message_failed_retry
+                        }),
+                            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
         }
     }
 }
+
+/** Convenience overload for callers holding a plain playback state (previews, tests). */
+@Composable
+fun MessageRow(
+    item: MessageItem, me: String, names: Map<String, String>, isGroup: Boolean, isAi: Boolean, hideTicks: Boolean,
+    selected: Boolean, selectionMode: Boolean, highlighted: Boolean, searchQuery: String, voice: VoicePlayer.State,
+    showReadReceipts: Boolean, canSwipeReply: Boolean, callbacks: BubbleCallbacks,
+) = MessageRow(
+    item, me, names, isGroup, isAi, hideTicks, selected, selectionMode, highlighted, searchQuery, rememberUpdatedState(voice),
+    showReadReceipts, canSwipeReply, callbacks,
+)
+
+/** Colours of one bubble: background, text, secondary text (time, ticks, labels) and links. */
+@Immutable
+private data class BubbleColors(val container: Color, val content: Color, val meta: Color, val link: Color)
+
+@Composable
+@ReadOnlyComposable
+private fun bubbleColors(type: MessageType, mine: Boolean): BubbleColors {
+    val pulse = PulseTheme.colors
+    return when {
+        type == MessageType.AI_RESPONSE -> BubbleColors(pulse.aiBubble, pulse.onAiBubble, pulse.incomingMeta, pulse.incomingLink)
+        mine -> BubbleColors(pulse.outgoingBubble, pulse.onOutgoingBubble, pulse.outgoingMeta, pulse.outgoingLink)
+        else -> BubbleColors(pulse.incomingBubble, pulse.onIncomingBubble, pulse.incomingMeta, pulse.incomingLink)
+    }
+}
+
+private val LocalBubbleColors = staticCompositionLocalOf { BubbleColors(Color.Unspecified, Color.Unspecified, Color.Unspecified, Color.Unspecified) }
 
 @Composable
 private fun Bubble(
     item: MessageItem, mine: Boolean, names: Map<String, String>, isGroup: Boolean, isAi: Boolean, hideTicks: Boolean,
-    searchQuery: String, voice: VoicePlayer.State, showReadReceipts: Boolean, callbacks: BubbleCallbacks, me: String,
+    searchQuery: String, voice: State<VoicePlayer.State>, showReadReceipts: Boolean, callbacks: BubbleCallbacks, me: String,
 ) {
     val m = item.message
-    val pulse = PulseTheme.colors
-    val container = when {
-        m.type == MessageType.AI_RESPONSE -> pulse.aiBubble
-        mine -> pulse.outgoingBubble
-        else -> pulse.incomingBubble
+    val colors = bubbleColors(m.type, mine)
+    val big = Radii.bubble
+    val tail = Radii.bubbleTail
+    val shape = if (item.groupedWithOlder) RoundedCornerShape(big) else if (mine)
+        RoundedCornerShape(topStart = big, topEnd = tail, bottomStart = big, bottomEnd = big)
+    else RoundedCornerShape(topStart = tail, topEnd = big, bottomStart = big, bottomEnd = big)
+    val light = !PulseTheme.colors.isDark
+    CompositionLocalProvider(LocalBubbleColors provides colors) {
+        // Light theme: a hairline shadow separates white bubbles from the light background. Dark theme: none.
+        Surface(shape = shape, color = colors.container, contentColor = colors.content, shadowElevation = if (light) 0.5.dp else 0.dp) {
+            Column(Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)) {
+                if (item.showSender) {
+                    val name = names[m.senderId] ?: stringResource(R.string.unknown_user)
+                    Text(name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = senderColor(m.senderId),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(2.dp))
+                }
+                if (m.type == MessageType.AI_RESPONSE) { AiBadge(); Spacer(Modifier.height(Spacing.xs)) }
+                if (m.isForwarded && !m.deletedForEveryone) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Shortcut, contentDescription = null, tint = colors.meta, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text(stringResource(R.string.forwarded), style = MaterialTheme.typography.labelSmall, fontStyle = FontStyle.Italic, color = colors.meta)
+                    }
+                }
+                if (m.replyToMessageId != null && !m.deletedForEveryone) {
+                    ReplyQuote(
+                        senderName = if (m.replyToSenderId == me) stringResource(R.string.you) else names[m.replyToSenderId] ?: stringResource(R.string.unknown_user),
+                        senderId = m.replyToSenderId.orEmpty(), type = m.replyToType ?: MessageType.TEXT, preview = m.replyToPreview.orEmpty(),
+                        onClick = { callbacks.onReplyQuote(m.replyToMessageId) },
+                    )
+                    Spacer(Modifier.height(Spacing.xs))
+                }
+                val footer: @Composable () -> Unit = { Footer(m, mine, hideTicks || isAi, showReadReceipts) }
+                if (m.deletedForEveryone) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Block, contentDescription = null, tint = colors.meta, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(if (mine) R.string.message_deleted_by_you else R.string.message_deleted), fontStyle = FontStyle.Italic,
+                            color = colors.meta, style = MessageTextStyle)
+                    }
+                    Box(Modifier.align(Alignment.End).padding(top = 2.dp)) { footer() }
+                } else {
+                    when (m.type) {
+                        MessageType.IMAGE, MessageType.VIDEO -> VisualMedia(m, mine, callbacks)
+                        MessageType.AUDIO -> VoiceMessage(m, mine, voice, callbacks)
+                        MessageType.DOCUMENT -> DocumentContent(m, mine, callbacks)
+                        MessageType.LOCATION -> LocationContent(m, callbacks)
+                        MessageType.CONTACT -> ContactContent(m, callbacks)
+                        MessageType.POLL -> PollContent(m, me, callbacks)
+                        else -> Unit
+                    }
+                    val caption = if (m.type == MessageType.POLL || m.type == MessageType.CONTACT || m.type == MessageType.DOCUMENT && m.content == m.fileName) "" else m.content
+                    if (caption.isNotBlank()) {
+                        if (m.type.isMedia) Spacer(Modifier.height(Spacing.xs))
+                        TextWithFooter(footer) { onLayout -> RichText(caption, m, names, searchQuery, onLayout) }
+                    } else {
+                        Box(Modifier.align(Alignment.End).padding(top = 2.dp)) { footer() }
+                    }
+                }
+            }
+        }
     }
-    val content = if (mine) pulse.onOutgoingBubble else pulse.onIncomingBubble
-    val shape = if (item.groupedWithOlder) RoundedCornerShape(16.dp) else if (mine)
-        RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
-    else RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
-    Surface(shape = shape, color = container, contentColor = content, shadowElevation = 0.5.dp) {
-        Column(Modifier.padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 5.dp)) {
-            if (item.showSender) {
-                val name = names[m.senderId] ?: stringResource(R.string.unknown_user)
-                Text(name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = senderColor(m.senderId), maxLines = 1)
-            }
-            if (m.type == MessageType.AI_RESPONSE) { AiBadge(); Spacer(Modifier.height(4.dp)) }
-            if (m.isForwarded && !m.deletedForEveryone) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Shortcut, contentDescription = null, tint = pulse.metaText, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(stringResource(R.string.forwarded), style = MaterialTheme.typography.labelSmall, fontStyle = FontStyle.Italic, color = pulse.metaText)
-                }
-            }
-            if (m.replyToMessageId != null && !m.deletedForEveryone) {
-                ReplyQuote(
-                    senderName = if (m.replyToSenderId == me) stringResource(R.string.you) else names[m.replyToSenderId] ?: stringResource(R.string.unknown_user),
-                    senderId = m.replyToSenderId.orEmpty(), type = m.replyToType ?: MessageType.TEXT, preview = m.replyToPreview.orEmpty(),
-                    onClick = { callbacks.onReplyQuote(m.replyToMessageId) },
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-            if (m.deletedForEveryone) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Block, contentDescription = null, tint = pulse.metaText, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(if (mine) R.string.message_deleted_by_you else R.string.message_deleted), fontStyle = FontStyle.Italic, color = pulse.metaText)
-                }
-            } else {
-                when (m.type) {
-                    MessageType.IMAGE, MessageType.VIDEO -> VisualMedia(m, mine, callbacks)
-                    MessageType.AUDIO -> VoiceMessage(m, mine, voice, callbacks)
-                    MessageType.DOCUMENT -> DocumentContent(m, mine, callbacks)
-                    MessageType.LOCATION -> LocationContent(m, callbacks)
-                    MessageType.CONTACT -> ContactContent(m, callbacks)
-                    MessageType.POLL -> PollContent(m, me, callbacks)
-                    else -> Unit
-                }
-                val caption = if (m.type == MessageType.POLL || m.type == MessageType.CONTACT || m.type == MessageType.DOCUMENT && m.content == m.fileName) "" else m.content
-                if (caption.isNotBlank()) {
-                    if (m.type.isMedia) Spacer(Modifier.height(4.dp))
-                    RichText(caption, m, names, searchQuery)
-                }
-            }
-            Footer(m, mine, hideTicks || isAi, showReadReceipts)
+}
+
+/**
+ * Message text with its time/ticks footer. The footer sits at the end of the last line when it fits
+ * there (as in most messengers) and moves to its own line otherwise. It also moves to its own line
+ * when the paragraph's direction differs from the layout's (e.g. Arabic text in the English UI), so
+ * it can never overlap the text.
+ */
+@Composable
+private fun TextWithFooter(footer: @Composable () -> Unit, text: @Composable (onLayout: (TextLayoutResult) -> Unit) -> Unit) {
+    // Written by onTextLayout while the text is measured (inside this layout's measure pass) and read
+    // right after; a plain holder rather than State, so measuring never schedules another measure.
+    val layoutHolder = remember { arrayOfNulls<TextLayoutResult>(1) }
+    val direction = LocalLayoutDirection.current
+    Layout(content = {
+        Box { text { layoutHolder[0] = it } }
+        Box { footer() }
+    }) { measurables, constraints ->
+        val textPlaceable = measurables[0].measure(constraints.copy(minWidth = 0))
+        val footerPlaceable = measurables[1].measure(constraints.copy(minWidth = 0))
+        val gap = 6.dp.roundToPx()
+        val result = layoutHolder[0]
+        val lastLine = result?.let { it.lineCount - 1 } ?: -1
+        val sameDirection = result != null && lastLine >= 0 &&
+            (result.getParagraphDirection(result.getLineStart(lastLine)) == ResolvedTextDirection.Rtl) == (direction == LayoutDirection.Rtl)
+        val lastLineWidth = if (result != null && lastLine >= 0) (result.getLineRight(lastLine) - result.getLineLeft(lastLine)).roundToInt() else textPlaceable.width
+        val inlineWidth = lastLineWidth + gap + footerPlaceable.width
+        val inline = sameDirection && inlineWidth <= constraints.maxWidth
+        val width = if (inline) maxOf(textPlaceable.width, inlineWidth) else maxOf(textPlaceable.width, footerPlaceable.width)
+        val footerY = if (inline) {
+            // Align the footer's baseline area with the bottom of the last text line.
+            (textPlaceable.height - footerPlaceable.height).coerceAtLeast(0)
+        } else textPlaceable.height + 2.dp.roundToPx()
+        val height = if (inline) maxOf(textPlaceable.height, footerPlaceable.height) else footerY + footerPlaceable.height
+        layout(width.coerceIn(constraints.minWidth, constraints.maxWidth), height) {
+            textPlaceable.placeRelative(0, 0)
+            footerPlaceable.placeRelative(width - footerPlaceable.width, footerY)
         }
     }
 }
 
 @Composable
-private fun senderColor(id: String): Color {
-    val palette = listOf(Color(0xFF6366F1), Color(0xFF0D9488), Color(0xFFDB2777), Color(0xFFEA580C), Color(0xFF7C3AED), Color(0xFF2563EB), Color(0xFF059669), Color(0xFFB45309))
-    return palette[(id.hashCode() and 0x7fffffff) % palette.size]
-}
+@ReadOnlyComposable
+private fun senderColor(id: String): Color = PulseTheme.colors.senderColor(id)
+
+/** Secondary text colour for the bubble being drawn (falls back to the screen's secondary text). */
+@Composable
+@ReadOnlyComposable
+private fun bubbleMeta(): Color = LocalBubbleColors.current.meta.takeIf { it.isSpecified } ?: PulseTheme.colors.metaText
 
 @Composable
-private fun RichText(text: String, m: Message, names: Map<String, String>, searchQuery: String) {
+private fun RichText(text: String, m: Message, names: Map<String, String>, searchQuery: String, onLayout: (TextLayoutResult) -> Unit) {
     val pulse = PulseTheme.colors
-    val emojiOnly = TextTools.isEmojiOnly(text)
-    val mentionRanges = Mentions.highlightRanges(text, m.mentionList().mapNotNull { id -> names[id]?.let { Mentions.Candidate(id, it) } })
-    val searchRanges = if (searchQuery.isBlank()) emptyList() else TextTools.occurrences(text, searchQuery)
-    val links = TextTools.findLinks(text)
-    val annotated: AnnotatedString = buildAnnotatedString {
-        append(text)
-        mentionRanges.forEach { r -> addStyle(SpanStyle(color = pulse.mention, fontWeight = FontWeight.SemiBold), r.first, r.last + 1) }
-        searchRanges.forEach { r -> addStyle(SpanStyle(background = Color(0x66FACC15)), r.first, r.last + 1) }
-        links.forEach { l ->
-            addLink(LinkAnnotation.Url(l.url, TextLinkStyles(style = SpanStyle(color = pulse.mention, textDecoration = TextDecoration.Underline))), l.range.first, l.range.last + 1)
+    val colors = LocalBubbleColors.current
+    val link = if (colors.link.isSpecified) colors.link else pulse.mention
+    val emojiOnly = remember(text) { TextTools.isEmojiOnly(text) }
+    val annotated: AnnotatedString = remember(text, m.mentions, names, searchQuery, link, pulse.searchMatch) {
+        val mentionRanges = Mentions.highlightRanges(text, m.mentionList().mapNotNull { id -> names[id]?.let { Mentions.Candidate(id, it) } })
+        val searchRanges = if (searchQuery.isBlank()) emptyList() else TextTools.occurrences(text, searchQuery)
+        val links = TextTools.findLinks(text)
+        buildAnnotatedString {
+            append(text)
+            mentionRanges.forEach { r -> addStyle(SpanStyle(color = link, fontWeight = FontWeight.SemiBold), r.first, r.last + 1) }
+            searchRanges.forEach { r -> addStyle(SpanStyle(background = pulse.searchMatch), r.first, r.last + 1) }
+            links.forEach { l ->
+                addLink(LinkAnnotation.Url(l.url, TextLinkStyles(style = SpanStyle(color = link, textDecoration = TextDecoration.Underline))), l.range.first, l.range.last + 1)
+            }
         }
     }
-    Text(annotated, fontSize = if (emojiOnly) 34.sp else 15.5.sp, lineHeight = if (emojiOnly) 40.sp else 21.sp)
+    Text(annotated, style = if (emojiOnly) EmojiOnlyTextStyle else MessageTextStyle, onTextLayout = onLayout)
 }
 
 @Composable
-private fun ColumnScope.Footer(m: Message, mine: Boolean, hideTicks: Boolean, showReadReceipts: Boolean) {
+private fun Footer(m: Message, mine: Boolean, hideTicks: Boolean, showReadReceipts: Boolean) {
     val context = LocalContext.current
-    val pulse = PulseTheme.colors
-    Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-        if (m.expiresAt > 0) Icon(Icons.Default.Timer, contentDescription = stringResource(R.string.disappearing_title), tint = pulse.metaText, modifier = Modifier.size(12.dp).padding(end = 2.dp))
-        if (m.isStarred) Icon(Icons.Default.Star, contentDescription = stringResource(R.string.starred), tint = pulse.metaText, modifier = Modifier.size(12.dp).padding(end = 2.dp))
-        if (m.editedAt > 0 && !m.deletedForEveryone) Text(stringResource(R.string.edited) + " ", style = MaterialTheme.typography.labelSmall, color = pulse.metaText, fontStyle = FontStyle.Italic)
-        Text(Formatters.time(context, m.createdAt), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+    val meta = LocalBubbleColors.current.meta.takeIf { it.isSpecified } ?: PulseTheme.colors.metaText
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (m.expiresAt > 0) Icon(Icons.Default.Timer, contentDescription = stringResource(R.string.disappearing_title), tint = meta, modifier = Modifier.size(12.dp).padding(end = 2.dp))
+        if (m.isStarred) Icon(Icons.Default.Star, contentDescription = stringResource(R.string.starred), tint = meta, modifier = Modifier.size(12.dp).padding(end = 2.dp))
+        if (m.editedAt > 0 && !m.deletedForEveryone) Text(stringResource(R.string.edited) + " ", style = MaterialTheme.typography.labelSmall, color = meta, fontStyle = FontStyle.Italic)
+        Text(Formatters.time(context, m.createdAt), style = MaterialTheme.typography.labelSmall, color = meta, maxLines = 1)
         if (mine && !hideTicks && !m.deletedForEveryone) {
             Spacer(Modifier.width(3.dp))
-            DeliveryTicks(m.status, size = 15.dp, showRead = showReadReceipts)
+            DeliveryTicks(m.status, size = 15.dp, showRead = showReadReceipts, tint = meta)
         }
     }
 }
@@ -327,12 +430,12 @@ private fun ColumnScope.Footer(m: Message, mine: Boolean, hideTicks: Boolean, sh
 fun ReplyQuote(senderName: String, senderId: String, type: MessageType, preview: String, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
     val accent = senderColor(senderId)
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(accent.copy(alpha = 0.12f))
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }.heightIn(min = 40.dp),
+        modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.sm)).background(accent.copy(alpha = 0.12f))
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }.heightIn(min = 44.dp).height(IntrinsicSize.Min),
     ) {
         Box(Modifier.width(4.dp).fillMaxHeight().background(accent))
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-            Text(senderName, color = accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+        Column(Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs)) {
+            Text(senderName, color = accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val label = typeLabel(type)
             Text(
                 listOfNotNull(label, preview.ifBlank { null }).joinToString(" · ").ifBlank { stringResource(R.string.message_unavailable) },
@@ -346,7 +449,7 @@ fun ReplyQuote(senderName: String, senderId: String, type: MessageType, preview:
 
 @Composable
 private fun TransferOverlay(m: Message, mine: Boolean, callbacks: BubbleCallbacks, modifier: Modifier = Modifier) {
-    val local = m.localMediaPath?.let { File(it).exists() } == true
+    val local = rememberLocalFile(m.localMediaPath) != null
     Box(modifier, contentAlignment = Alignment.Center) {
         when {
             m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING -> Box(contentAlignment = Alignment.Center) {
@@ -375,10 +478,10 @@ private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 
 @Composable
 private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
-    val local = m.localMediaPath?.takeIf { File(it).exists() }
+    val local = rememberLocalFile(m.localMediaPath)
     val ratio = if (m.mediaWidth > 0 && m.mediaHeight > 0) (m.mediaWidth.toFloat() / m.mediaHeight).coerceIn(0.6f, 1.7f) else 1f
     Box(
-        Modifier.widthIn(min = 180.dp, max = 280.dp).aspectRatio(ratio).clip(RoundedCornerShape(10.dp)).background(Color(0xFF1E293B))
+        Modifier.widthIn(min = 180.dp, max = 280.dp).aspectRatio(ratio).clip(RoundedCornerShape(10.dp)).background(PulseTheme.colors.mediaPlaceholder)
             .clickable(enabled = local != null || m.type == MessageType.VIDEO && m.mediaUrl != null) { callbacks.onOpenMedia(m) },
         contentAlignment = Alignment.Center,
     ) {
@@ -410,12 +513,13 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
 }
 
 @Composable
-private fun VoiceMessage(m: Message, mine: Boolean, voice: VoicePlayer.State, callbacks: BubbleCallbacks) {
-    val pulse = PulseTheme.colors
+private fun VoiceMessage(m: Message, mine: Boolean, voiceState: State<VoicePlayer.State>, callbacks: BubbleCallbacks) {
+    val bubbleMeta = bubbleMeta()
+    val voice = voiceState.value
     val current = voice.messageId == m.messageId
     val duration = if (current && voice.durationMs > 0) voice.durationMs else m.mediaDurationSeconds * 1000L
     val progress = if (current && duration > 0) (voice.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
-    val available = m.localMediaPath?.let { File(it).exists() } == true || m.mediaUrl != null
+    val available = rememberLocalFile(m.localMediaPath) != null || m.mediaUrl != null
     val bars = remember(m.waveform) { m.waveform?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.isNotEmpty() } ?: List(32) { 20 } }
     Row(Modifier.widthIn(min = 220.dp).padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
@@ -431,7 +535,7 @@ private fun VoiceMessage(m: Message, mine: Boolean, voice: VoicePlayer.State, ca
                     Icon(if (current && voice.playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = stringResource(if (current && voice.playing) R.string.action_pause else R.string.action_play), tint = MaterialTheme.colorScheme.onPrimary)
                 }
-                else -> Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = pulse.metaText)
+                else -> Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = bubbleMeta)
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -445,16 +549,16 @@ private fun VoiceMessage(m: Message, mine: Boolean, voice: VoicePlayer.State, ca
                 bars.forEachIndexed { i, level ->
                     val played = (i.toFloat() / bars.size) < progress
                     Box(Modifier.weight(1f).height((4 + level * 0.26f).dp).clip(RoundedCornerShape(2.dp))
-                        .background(if (played) MaterialTheme.colorScheme.primary else pulse.metaText.copy(alpha = 0.45f)))
+                        .background(if (played) MaterialTheme.colorScheme.primary else bubbleMeta.copy(alpha = 0.45f)))
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(DurationFormat.clock(if (current && voice.positionMs > 0) voice.positionMs else duration), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+                Text(DurationFormat.clock(if (current && voice.positionMs > 0) voice.positionMs else duration), style = MaterialTheme.typography.labelSmall, color = bubbleMeta)
                 if (current) {
                     val speedLabel = stringResource(R.string.voice_speed)
                     Spacer(Modifier.width(8.dp))
                     Text("${if (voice.speed == 1f) "1" else voice.speed.toString().removeSuffix(".0")}×", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(pulse.metaText.copy(alpha = 0.2f)).clickable { callbacks.onVoiceSpeed() }
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(bubbleMeta.copy(alpha = 0.2f)).clickable { callbacks.onVoiceSpeed() }
                             .padding(horizontal = 6.dp, vertical = 1.dp).semantics { contentDescription = speedLabel })
                 }
             }
@@ -464,10 +568,10 @@ private fun VoiceMessage(m: Message, mine: Boolean, voice: VoicePlayer.State, ca
 
 @Composable
 private fun DocumentContent(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
-    val pulse = PulseTheme.colors
-    val local = m.localMediaPath?.let { File(it).exists() } == true
+    val bubbleMeta = bubbleMeta()
+    val local = rememberLocalFile(m.localMediaPath) != null
     Row(
-        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(10.dp)).background(pulse.metaText.copy(alpha = 0.12f))
+        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(10.dp)).background(bubbleMeta.copy(alpha = 0.12f))
             .clickable { if (local) callbacks.onOpenDocument(m) else if (m.mediaUrl != null) callbacks.onDownload(m) }.padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -476,7 +580,7 @@ private fun DocumentContent(m: Message, mine: Boolean, callbacks: BubbleCallback
         Column(Modifier.weight(1f)) {
             Text(m.fileName ?: stringResource(R.string.preview_document), maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
             val ext = m.fileName?.substringAfterLast('.', "")?.uppercase().orEmpty()
-            Text(listOf(MediaLimits.humanSize(m.mediaSizeBytes), ext).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+            Text(listOf(MediaLimits.humanSize(m.mediaSizeBytes), ext).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = bubbleMeta)
             if (m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING) {
                 LinearProgressIndicator(progress = { m.transferProgress / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
             }
@@ -493,16 +597,16 @@ private fun DocumentContent(m: Message, mine: Boolean, callbacks: BubbleCallback
 
 @Composable
 private fun LocationContent(m: Message, callbacks: BubbleCallbacks) {
-    val pulse = PulseTheme.colors
+    val bubbleMeta = bubbleMeta()
     Row(
-        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(10.dp)).background(pulse.metaText.copy(alpha = 0.12f)).clickable { callbacks.onOpenLocation(m) }.padding(10.dp),
+        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(10.dp)).background(bubbleMeta.copy(alpha = 0.12f)).clickable { callbacks.onOpenLocation(m) }.padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp))
         Spacer(Modifier.width(8.dp))
         Column {
             Text(stringResource(R.string.location_shared), fontWeight = FontWeight.Medium)
-            Text(String.format(java.util.Locale.US, "%.5f, %.5f", m.locationLat ?: 0.0, m.locationLng ?: 0.0), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+            Text(String.format(java.util.Locale.US, "%.5f, %.5f", m.locationLat ?: 0.0, m.locationLng ?: 0.0), style = MaterialTheme.typography.labelSmall, color = bubbleMeta)
             Text(stringResource(R.string.location_open_maps), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
     }
@@ -510,7 +614,7 @@ private fun LocationContent(m: Message, callbacks: BubbleCallbacks) {
 
 @Composable
 private fun ContactContent(m: Message, callbacks: BubbleCallbacks) {
-    val pulse = PulseTheme.colors
+    val bubbleMeta = bubbleMeta()
     Column(Modifier.widthIn(min = 220.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
@@ -519,7 +623,7 @@ private fun ContactContent(m: Message, callbacks: BubbleCallbacks) {
             Spacer(Modifier.width(10.dp))
             Column {
                 Text(m.contactName ?: m.content, fontWeight = FontWeight.SemiBold)
-                if (!m.contactPhone.isNullOrBlank()) Text(m.contactPhone, style = MaterialTheme.typography.labelMedium, color = pulse.metaText)
+                if (!m.contactPhone.isNullOrBlank()) Text(m.contactPhone, style = MaterialTheme.typography.labelMedium, color = bubbleMeta)
             }
         }
         if (!m.contactPhone.isNullOrBlank()) {
@@ -530,7 +634,7 @@ private fun ContactContent(m: Message, callbacks: BubbleCallbacks) {
 
 @Composable
 private fun PollContent(m: Message, me: String, callbacks: BubbleCallbacks) {
-    val pulse = PulseTheme.colors
+    val bubbleMeta = bubbleMeta()
     val options = m.pollOptionList()
     val counts = m.pollCounts()
     val total = counts.sum()
@@ -551,16 +655,16 @@ private fun PollContent(m: Message, me: String, callbacks: BubbleCallbacks) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        Modifier.size(18.dp).clip(CircleShape).background(if (myVote == i) MaterialTheme.colorScheme.primary else pulse.metaText.copy(alpha = 0.25f)),
+                        Modifier.size(18.dp).clip(CircleShape).background(if (myVote == i) MaterialTheme.colorScheme.primary else bubbleMeta.copy(alpha = 0.25f)),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(option, modifier = Modifier.weight(1f))
-                    Text(count.toString(), style = MaterialTheme.typography.labelMedium, color = pulse.metaText)
+                    Text(count.toString(), style = MaterialTheme.typography.labelMedium, color = bubbleMeta)
                 }
                 LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 26.dp))
             }
         }
-        Text(pluralStringResource(R.plurals.poll_votes, total, total), style = MaterialTheme.typography.labelSmall, color = pulse.metaText)
+        Text(pluralStringResource(R.plurals.poll_votes, total, total), style = MaterialTheme.typography.labelSmall, color = bubbleMeta)
     }
 }
 

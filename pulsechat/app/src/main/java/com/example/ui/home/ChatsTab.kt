@@ -66,6 +66,7 @@ import com.example.ui.common.LoadingBox
 import com.example.ui.common.previewLine
 import com.example.ui.components.UserAvatar
 import com.example.ui.theme.PulseTheme
+import com.example.ui.theme.Spacing
 
 @Composable
 fun ChatsTab(
@@ -90,8 +91,8 @@ fun ChatsTab(
     LazyColumn(Modifier.fillMaxSize().testTag("chat_list"), contentPadding = contentPadding) {
         item(key = "filters") {
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 listOf(
                     ChatFilter.ALL to R.string.filter_all, ChatFilter.UNREAD to R.string.filter_unread,
@@ -200,7 +201,7 @@ fun ChatRow(
                     Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             } else {
-                UserAvatar(displayName = title, avatarUrl = row.displayAvatar, size = 52.dp, isAiAssistant = c.peerId == Ids.AI_ASSISTANT_ID, colorHex = row.peerColor ?: "#4F46E5")
+                UserAvatar(displayName = title, avatarUrl = row.displayAvatar, size = 52.dp, isAiAssistant = c.peerId == Ids.AI_ASSISTANT_ID, colorHex = row.peerColor)
             }
             if (selected) {
                 Box(
@@ -209,7 +210,7 @@ fun ChatRow(
                 ) { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.selected), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp)) }
             }
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = if (unread) FontWeight.Bold else FontWeight.SemiBold,
@@ -226,7 +227,7 @@ fun ChatRow(
                     typingNow -> Text(stringResource(R.string.typing), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1)
                     !draft.isNullOrBlank() -> Text(
-                        stringResource(R.string.draft_prefix, draft), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                        stringResource(R.string.draft_prefix, draft), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
                     else -> {
@@ -255,12 +256,15 @@ fun ChatRow(
                 if (badge != null) {
                     val badgeDesc = if (badge.isEmpty()) stringResource(R.string.a11y_marked_unread) else stringResource(R.string.a11y_unread_count, badge)
                     Spacer(Modifier.width(6.dp))
+                    // Muted chats get a neutral badge so their unread count does not compete for attention.
+                    val muted = c.isMuted()
                     Box(
-                        Modifier.clip(CircleShape).background(if (c.isMuted()) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary)
+                        Modifier.clip(CircleShape).background(if (muted) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.primary)
                             .widthIn(min = 20.dp).padding(horizontal = 6.dp, vertical = 2.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(badge, color = MaterialTheme.colorScheme.onPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        Text(badge, color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.semantics { contentDescription = badgeDesc })
                     }
                 }

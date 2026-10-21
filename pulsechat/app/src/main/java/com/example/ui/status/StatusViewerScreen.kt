@@ -69,6 +69,7 @@ import com.example.ui.common.rememberPlayableSource
 import com.example.ui.components.UserAvatar
 import kotlinx.coroutines.launch
 import java.io.File
+import com.example.ui.common.LightSystemBarIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +107,7 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
+        LightSystemBarIcons()
         Box(
             Modifier.fillMaxSize().pointerInput(current.statusId) {
                 detectTapGestures(
@@ -171,7 +173,7 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
                         LazyColumn(Modifier.padding(bottom = 24.dp)) {
                             items(viewers, key = { it.viewerId }) { v ->
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    UserAvatar(v.displayName ?: "", avatarUrl = v.avatarUrl, size = 40.dp, colorHex = v.avatarColorHex ?: "#4F46E5")
+                                    UserAvatar(v.displayName ?: "", avatarUrl = v.avatarUrl, size = 40.dp, colorHex = v.avatarColorHex)
                                     Spacer(Modifier.width(12.dp))
                                     Column {
                                         Text(v.displayName ?: stringResource(R.string.unknown_user))

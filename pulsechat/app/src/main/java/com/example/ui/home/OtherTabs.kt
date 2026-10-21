@@ -89,7 +89,7 @@ fun UpdatesTab(
             ) {
                 Box {
                     StatusRing(hasUnviewed = false, active = ui.mine.isNotEmpty()) {
-                        UserAvatar(me?.displayName ?: "", avatarUrl = me?.avatarUrl, size = 50.dp, colorHex = me?.avatarColorHex ?: "#4F46E5")
+                        UserAvatar(me?.displayName ?: "", avatarUrl = me?.avatarUrl, size = 50.dp, colorHex = me?.avatarColorHex)
                     }
                     if (ui.mine.isEmpty()) {
                         Box(Modifier.size(20.dp).align(Alignment.BottomEnd).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
