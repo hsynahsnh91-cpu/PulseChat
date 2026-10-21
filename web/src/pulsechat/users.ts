@@ -127,6 +127,8 @@ export interface PresenceView {
   online: boolean;
   /** Milliseconds; 0 when online or unknown. */
   lastSeen: number;
+  /** Firestore error code when the read failed ("permission-denied" = hidden by privacy settings). */
+  error?: string;
 }
 
 /** Another user's presence, as far as their privacy settings allow (the rules enforce it). */
@@ -139,6 +141,6 @@ export function observePresence(pc: PulseChat, uid: string, callback: (presence:
       const online = d?.online === true && Date.now() - heartbeatAt < STALE_AFTER_MS;
       callback({ visible: true, online, lastSeen: online ? 0 : Math.max(millis(d?.lastSeen), heartbeatAt) });
     },
-    () => callback({ visible: false, online: false, lastSeen: 0 }),
+    (error) => callback({ visible: false, online: false, lastSeen: 0, error: error.code }),
   );
 }

@@ -8,7 +8,8 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import {
-  collection, doc, getDoc, getDocs, serverTimestamp, setDoc, Timestamp, updateDoc, writeBatch, type Unsubscribe,
+  collection, doc, getDoc, getDocFromServer, getDocs, serverTimestamp, setDoc, Timestamp, updateDoc, waitForPendingWrites, writeBatch,
+  type Unsubscribe,
 } from "firebase/firestore";
 import { getBytes, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
@@ -46,13 +47,13 @@ async function newUser(base: string, displayName = base): Promise<{ pc: PulseCha
   return { pc, uid, username: name };
 }
 
-async function until(what: string, condition: () => boolean, timeoutMs = 20_000): Promise<void> {
+async function until(what: string, condition: () => boolean, timeoutMs = 20_000, details?: () => string): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (condition()) return;
     await new Promise((r) => setTimeout(r, 25));
   }
-  assert.fail(`timed out waiting for: ${what}`);
+  assert.fail(`timed out waiting for: ${what}${details ? ` (state: ${details()})` : ""}`);
 }
 
 async function expectDenied(what: string, write: Promise<unknown>): Promise<void> {
@@ -108,7 +109,7 @@ describe("accounts (same scheme as the Android app)", () => {
 });
 
 describe("direct chat between two web clients", () => {
-  test("search, first message creates the chat, real-time delivery, receipts, typing, presence, media, reactions, edit, delete", { timeout: 120_000 }, async () => {
+  test("search, first message creates the chat, real-time delivery, receipts, typing, media, reactions, edit, delete", { timeout: 120_000 }, async () => {
     const alice = await newUser("alice", "Alice");
     const bob = await newUser("bob", "Bob");
     const aliceId10 = (await getDoc(doc(bob.pc.db, "users", alice.uid))).get("uniqueId10") as string;
@@ -160,13 +161,6 @@ describe("direct chat between two web clients", () => {
     await until("typing marker cleared by sending", () => bobConv().typing[alice.uid] === undefined);
     assert.equal(bobMessages.value.find((m) => m.id === replyId)!.replyTo?.id, firstId);
 
-    // Presence heartbeat visible to the peer (privacy: everyone), then "last seen".
-    const presence = live<PresenceView | null>((set) => observePresence(bob.pc, alice.uid, set), null);
-    const stopPresence = startPresence(alice.pc);
-    await until("Alice online", () => presence.value?.online === true);
-    await stopPresence();
-    await until("Alice last seen", () => presence.value?.online === false && presence.value.lastSeen > 0);
-
     // Media: Storage path in the sender's folder; the peer downloads identical bytes.
     const png = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
     const photoId = await sendMedia(bob.pc, bobConv(), { data: png, mime: "image/png", fileName: "pixel.png", caption: "pixel", width: 1, height: 1 });
@@ -200,6 +194,25 @@ describe("direct chat between two web clients", () => {
       updateDoc(doc(alice.pc.db, "conversations", draft.id, "messages", firstId), { text: "hacked", editedAt: serverTimestamp(), updatedAt: serverTimestamp() }),
     );
     await expectDenied("changing someone else's receipt", updateDoc(doc(alice.pc.db, "conversations", draft.id), { [`receipts.${bob.uid}.r`]: Timestamp.now() }));
+  });
+});
+
+describe("presence", () => {
+  test("heartbeat and last seen reach other users (privacy setting: everyone)", { timeout: 90_000 }, async () => {
+    const alice = await newUser("palice");
+    const bob = await newUser("pbob");
+    const stopPresence = startPresence(alice.pc);
+    await waitForPendingWrites(alice.pc.db);
+    const own = await getDocFromServer(doc(alice.pc.db, "presence", alice.uid));
+    assert.equal(own.get("online"), true, "heartbeat stored on the server");
+    assert.ok(own.get("heartbeatAt") instanceof Timestamp, "heartbeatAt is a server timestamp");
+    const peerRead = await getDocFromServer(doc(bob.pc.db, "presence", alice.uid)).then((d) => d.data(), (e: { code?: string }) => `error ${e.code}`);
+    assert.equal(typeof peerRead === "object" && peerRead?.online, true, `Bob reads Alice's presence: ${JSON.stringify(peerRead)}`);
+
+    const presence = live<PresenceView | null>((set) => observePresence(bob.pc, alice.uid, set), null);
+    await until("listener reports Alice online", () => presence.value?.online === true, 20_000, () => JSON.stringify(presence.value));
+    await stopPresence();
+    await until("listener reports last seen", () => presence.value?.online === false && presence.value.lastSeen > 0, 20_000, () => JSON.stringify(presence.value));
   });
 });
 
