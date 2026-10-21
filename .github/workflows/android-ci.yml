@@ -3,8 +3,10 @@ name: Android CI
 # Builds the PulseChat Android project (located in ./pulsechat), runs JVM unit tests and
 # verifies that the release variant still compiles/packages with the existing signing setup.
 #
-# CI-only artifacts (debug keystore, throw-away upload key, empty .env) are generated on the
-# runner and are never committed. Real release signing keeps using KEYSTORE_PATH /
+# CI-only artifacts (throw-away upload key, empty .env, the e2e job's debug keystore) are
+# generated on the runner and are never committed. In the android and windows jobs the debug
+# keystore is deliberately NOT pre-created: the build's createDebugKeystore task must create it,
+# exactly as on a fresh local clone. Real release signing keeps using KEYSTORE_PATH /
 # STORE_PASSWORD / KEY_PASSWORD exactly as configured in app/build.gradle.kts.
 #
 # A compact "CI log digest" check run (compiler errors, failing tests, log tails) is published
@@ -49,15 +51,11 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Prepare CI-only signing material and secrets file
+      - name: Prepare CI-only secrets file
         run: |
           mkdir -p "$LOG_DIR"
-          # signingConfigs.debugConfig expects ${rootDir}/debug.keystore (not committed).
-          if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -keystore debug.keystore -storepass android \
-              -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
-              -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          fi
+          # debug.keystore is not pre-created on purpose: the createDebugKeystore task in
+          # app/build.gradle.kts must create it (same path as a fresh local clone).
           # Secrets Gradle Plugin reads .env (falls back to .env.example). Never commit .env.
           if [ ! -f .env ]; then
             if [ -f .env.example ]; then cp .env.example .env; else printf 'GEMINI_API_KEY=\nAI_API_KEY=\n' > .env; fi
@@ -80,6 +78,7 @@ jobs:
         run: |
           set -o pipefail
           gradle --no-daemon --console=plain assembleDebug 2>&1 | tee "$LOG_DIR/1-assembleDebug.log"
+          test -f debug.keystore || { echo "createDebugKeystore did not create debug.keystore"; exit 1; }
 
       - name: JVM unit tests
         run: |
@@ -191,6 +190,67 @@ jobs:
           path: pulsechat/app/build/outputs/apk/debug/*.apk
           if-no-files-found: ignore
 
+  windows:
+    # Builds the debug APK on Windows exactly like a fresh local clone (no .env, no debug.keystore),
+    # to catch Windows-only build problems before users hit them in Android Studio.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: pulsechat
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Assemble debug on Windows (fresh clone, nothing pre-generated)
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          if [ -f debug.keystore ] || [ -f .env ]; then echo "expected a fresh clone"; exit 1; fi
+          gradle --no-daemon --console=plain assembleDebug 2>&1 | tee ci-logs/windows-assembleDebug.log
+          test -f debug.keystore || { echo "createDebugKeystore did not create debug.keystore"; exit 1; }
+          ls -la app/build/outputs/apk/debug/ | tee -a ci-logs/windows-assembleDebug.log
+
+      - name: Publish Windows build digest
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, re
+          path = "ci-logs/windows-assembleDebug.log"
+          lines = open(path, errors="replace").read().splitlines() if os.path.exists(path) else []
+          ok = any("BUILD SUCCESSFUL" in l for l in lines)
+          parts = [f"## windows-assembleDebug.log: {'OK' if ok else 'FAILED/INCOMPLETE'}"]
+          parts += [l for l in lines if re.match(r"^(e: |ERROR|FAILURE|> Task .*FAILED|.*error:)", l)][:200]
+          for i, l in enumerate(lines):
+              if "What went wrong" in l:
+                  parts += ["### What went wrong"] + lines[i:i + 30]
+          parts += ["### tail"] + lines[-40:]
+          text = "\n".join(parts)[:64000]
+          payload = {
+              "name": "CI log digest (Windows)",
+              "head_sha": os.environ["GITHUB_SHA"],
+              "status": "completed",
+              "conclusion": "neutral",
+              "output": {"title": "Windows build digest", "summary": "Windows assembleDebug: " + ("OK" if ok else "FAILED"), "text": text},
+          }
+          json.dump(payload, open("ci-logs/digest.json", "w"))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input ci-logs/digest.json > /dev/null || echo "digest publish failed"
+
   backend:
     # Firestore security rules tests (official emulator) + Cloud Functions build and unit tests.
     runs-on: ubuntu-latest
@@ -249,6 +309,65 @@ jobs:
           PY
           gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/backend-digest.json > /dev/null || echo "digest publish failed"
 
+  web:
+    # PulseChat web data layer (web/): type-check, unit + contract tests (Android sources, rules,
+    # google-services.json), demo build, and integration tests with real web clients against the
+    # Firebase emulators running firestore.rules / storage.rules on the app's named database.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LOG_DIR: ${{ github.workspace }}/ci-logs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node 24 (firebase@13 requires Node >= 24.12)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up JDK 21 (Firestore emulator)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Type-check, unit and contract tests, demo build
+        working-directory: web
+        run: |
+          set -o pipefail
+          mkdir -p "$LOG_DIR"
+          { npm ci --no-audit --no-fund && npm test && npm run build; } 2>&1 | tee "$LOG_DIR/web-unit.log"
+
+      - name: Integration tests against the Firebase emulators (Auth, Firestore + rules, Storage + rules)
+        working-directory: pulsechat
+        run: |
+          set -o pipefail
+          npm install -g firebase-tools@14 --no-audit --no-fund
+          firebase emulators:exec --only auth,firestore,storage --project demo-pulsechat "npm --prefix ../web run test:emulators" 2>&1 | tee "$LOG_DIR/web-emulators.log"
+
+      - name: Publish web digest
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          parts = []
+          for path in sorted(glob.glob(os.path.join(os.environ["LOG_DIR"], "*.log"))):
+              lines = open(path, errors="replace").read().splitlines()
+              keep = [l for l in lines if any(k in l for k in ("# tests", "# pass", "# fail", "not ok", "Error", "error", "✖", "failed", "FAIL", "timed out"))]
+              parts.append(f"## {os.path.basename(path)}")
+              parts.extend(keep[:200])
+              parts.append("### tail")
+              parts.extend(lines[-80:])
+          text = "\n".join(parts)[:64000] or "no logs"
+          json.dump({"name": "CI log digest (Web)", "head_sha": os.environ["GITHUB_SHA"], "status": "completed",
+                     "conclusion": "neutral", "output": {"title": "Web digest", "summary": "web data layer: unit + emulator tests", "text": text}},
+                    open("/tmp/web-digest.json", "w"))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/web-digest.json > /dev/null || echo "digest publish failed"
+
   e2e:
     # Instrumented tests on an Android emulator: app launch smoke test + end-to-end messaging
     # against the Firebase emulators (Auth, Firestore with firestore.rules, Storage). Non-blocking.
@@ -267,10 +386,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Node 22
+      - name: Set up Node 24 (firebase-tools and the web peer; firebase@13 requires Node >= 24.12)
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
@@ -295,6 +414,18 @@ jobs:
           done
           tail -20 "$LOG_DIR/emulators.log"
 
+      - name: Start the web peer (PulseChat web client on the Firebase JS SDK, used by WebInteropE2ETest)
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          nohup npx tsx test/android-peer.ts > "$LOG_DIR/web-peer.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if grep -q WEB_PEER_READY "$LOG_DIR/web-peer.log"; then break; fi
+            sleep 2
+          done
+          cat "$LOG_DIR/web-peer.log"
+          grep -q WEB_PEER_READY "$LOG_DIR/web-peer.log"
+
       - name: Prepare CI-only signing material and secrets file
         working-directory: pulsechat
         run: |
@@ -312,7 +443,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           working-directory: pulsechat
           script: |
-            bash -c 'set -o pipefail; gradle --no-daemon --console=plain connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2 2>&1 | tee "$LOG_DIR/4-connected.log"; rc=$?; adb logcat -d "*:E" | tail -400 > "$LOG_DIR/logcat.txt"; exit $rc'
+            bash -c 'set -o pipefail; gradle --no-daemon --console=plain connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2 -Pandroid.testInstrumentationRunnerArguments.webPeer=webpeer 2>&1 | tee "$LOG_DIR/4-connected.log"; rc=$?; adb logcat -d "*:E" | tail -400 > "$LOG_DIR/logcat.txt"; exit $rc'
 
       - name: Publish instrumented-test digest
         if: always()
@@ -342,7 +473,7 @@ jobs:
                           break
                   if status == "PASS":
                       parts.append(f"PASS {tc.get('classname')}.{tc.get('name')}")
-          for name, limit in (("4-connected.log", 120), ("emulators.log", 60), ("logcat.txt", 200)):
+          for name, limit in (("4-connected.log", 120), ("web-peer.log", 80), ("emulators.log", 60), ("logcat.txt", 200)):
               p = os.path.join(log_dir, name)
               if os.path.exists(p):
                   lines = open(p, errors="replace").read().splitlines()

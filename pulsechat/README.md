@@ -75,14 +75,25 @@ step 3 notifications only arrive while the app is open.
 
 ## Build and run
 
-Prerequisites: Android Studio (or JDK 17+ and Gradle 9.3.1), Android SDK 36.
+PulseChat is a native Android (Gradle) project. It is not a web app, so npm / Capacitor
+commands (`npm run build`, `npx cap sync`) do not apply.
 
-1. Open the `pulsechat/` directory in Android Studio.
-2. Copy `.env.example` to `.env` if you need local overrides (no Gemini key is required or used).
-3. The debug signing config expects `debug.keystore` in this directory (AI Studio provides it).
-   For local builds either copy your `~/.android/debug.keystore` here or temporarily remove the
-   `signingConfig = signingConfigs.getByName("debugConfig")` line.
-4. Run the `app` configuration on a device or emulator (API 24+).
+Prerequisites: the latest stable Android Studio (or JDK 17+, Gradle 9.3.1 and Android SDK 36).
+
+1. Open **this `pulsechat/` directory** in Android Studio (not the repository root) and wait for the
+   Gradle sync.
+2. Run the `app` configuration on a device or emulator (API 24+), or use
+   **Build → Build App Bundle(s) / APK(s) → Build APK(s)**. The APK is written to
+   `app/build/outputs/apk/debug/app-debug.apk`. From a terminal: `gradle assembleDebug`.
+3. Optional: copy `.env.example` to `.env` for local overrides (no Gemini key is required or used).
+
+The debug signing config expects `debug.keystore` in this directory. AI Studio provides it; for
+other builds the `createDebugKeystore` task creates it on the first debug build, with the standard
+Android debug credentials. The file is git-ignored. Each machine gets its own key, so uninstall a
+build signed elsewhere before installing yours.
+
+Ready-made debug APKs: every CI run uploads the artifact **pulsechat-debug-apk** (Actions → Android
+CI → a run → Artifacts).
 
 Release builds read `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` from the environment.
 
@@ -97,9 +108,11 @@ Release builds read `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` from th
 | Cloud Functions payload logic | `firebase/functions` | `npm ci && npm run build && npm test` |
 | Instrumented smoke test: real Application start, sign-in screen, local form validation | `app/src/androidTest/java/com/example/AppLaunchTest.kt` | `gradle connectedDebugAndroidTest` (device/emulator) |
 | End-to-end flows on a device against the Firebase emulators (Auth, Firestore with `firestore.rules`, Storage) | `app/src/androidTest/java/com/example/*E2ETest.kt` | see below |
+| Web client on the same backend: unit + contract tests, integration tests against the emulators and rules | `../web/test` | see [web/README.md](../web/README.md#step-6-run-locally-against-the-emulators-and-the-tests) |
+| Android ↔ Web in real time (web client on the CI host, Android app on the emulator) | `app/src/androidTest/java/com/example/WebInteropE2ETest.kt`, `../web/test/android-peer.ts` | CI `e2e` job (runner argument `webPeer`) |
 
 GitHub Actions (`.github/workflows/android-ci.yml`) runs all of them on every push: `assembleDebug`,
-JVM tests, `assembleRelease`, the backend tests, and an `e2e` job that boots an API 34 Android
+JVM tests, `assembleRelease`, the backend tests, the web client tests, and an `e2e` job that boots an API 34 Android
 emulator and runs the instrumented tests against the Firebase emulators. The `e2e` job is marked
 `continue-on-error` because hosted Android emulators are occasionally flaky; check its own result.
 

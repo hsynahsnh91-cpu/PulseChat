@@ -30,3 +30,8 @@ node_modules/
 .firebase/
 *-debug.log
 firebase-debug.*.log
+
+# --- Web client (web/) ---
+web/dist/
+.env.local
+.env.*.local

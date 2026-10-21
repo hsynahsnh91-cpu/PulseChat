@@ -87,6 +87,26 @@ ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
+// Builds outside AI Studio (Android Studio, command line): signingConfigs.debugConfig above expects
+// ${rootDir}/debug.keystore, which AI Studio provides but Git does not contain (keystores are
+// git-ignored). When it is missing, create one with the standard Android debug credentials right
+// before the debug signing check, so a fresh clone builds and runs without manual steps.
+// No effect when the file already exists (AI Studio, CI); release signing is not involved.
+val createDebugKeystore = tasks.register<Exec>("createDebugKeystore") {
+  group = "build setup"
+  description = "Creates the debug keystore expected by signingConfigs.debugConfig if it is missing."
+  val keystore = rootProject.file("debug.keystore")
+  val javaHome = File(System.getProperty("java.home"))
+  val keytool = listOf("bin/keytool.exe", "bin/keytool").map { File(javaHome, it) }.firstOrNull { it.isFile }?.absolutePath ?: "keytool"
+  onlyIf("the debug keystore is missing") { !keystore.exists() }
+  commandLine(
+    keytool, "-genkeypair", "-keystore", keystore.absolutePath, "-storepass", "android",
+    "-alias", "androiddebugkey", "-keypass", "android", "-keyalg", "RSA", "-keysize", "2048",
+    "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US",
+  )
+}
+tasks.named { it.startsWith("validateSigningDebug") }.configureEach { dependsOn(createDebugKeystore) }
+
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {

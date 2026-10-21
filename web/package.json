@@ -1,0 +1,25 @@
+{
+  "name": "pulsechat-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "PulseChat web client: the same Firebase project, Firestore database, Auth accounts and security rules as the Android app",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/unit.test.ts",
+    "test:emulators": "tsx --test --test-force-exit --test-concurrency=1 test/interop.test.ts",
+    "android-peer": "tsx test/android-peer.ts"
+  },
+  "dependencies": {
+    "firebase": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  }
+}
