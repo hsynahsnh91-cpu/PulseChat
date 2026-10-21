@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -164,7 +165,7 @@ fun CallScreen(onClose: () -> Unit) {
                         }
                     }
                     Spacer(Modifier.height(24.dp))
-                    RoundButton(Icons.Default.CallEnd, stringResource(R.string.call_end), Color(0xFFDC2626)) { manager.hangUp() }
+                    RoundButton(Icons.Default.CallEnd, stringResource(R.string.call_end), Color(0xFFDC2626), Modifier.testTag("call_end")) { manager.hangUp() }
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -218,8 +219,8 @@ private fun statusText(ui: CallUiState, now: Long): String = when (ui.state) {
 }
 
 @Composable
-private fun RoundButton(icon: ImageVector, label: String, color: Color, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun RoundButton(icon: ImageVector, label: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconButton(onClick = onClick, modifier = Modifier.size(64.dp), shape = CircleShape,
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = Color.White)) {
             Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))

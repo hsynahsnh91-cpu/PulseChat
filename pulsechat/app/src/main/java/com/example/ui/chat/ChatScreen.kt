@@ -402,7 +402,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                     actions = {
                         if (!isGroup && !isAi && !readOnlyLegacy && peerId != null && !peerBlocked) {
                             IconButton(onClick = { startCall(peerId, true) }) { Icon(Icons.Default.Videocam, stringResource(R.string.action_video_call)) }
-                            IconButton(onClick = { startCall(peerId, false) }) { Icon(Icons.Default.Call, stringResource(R.string.action_voice_call)) }
+                            IconButton(onClick = { startCall(peerId, false) }, modifier = Modifier.testTag("chat_voice_call")) { Icon(Icons.Default.Call, stringResource(R.string.action_voice_call)) }
                         }
                         IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("chat_menu")) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

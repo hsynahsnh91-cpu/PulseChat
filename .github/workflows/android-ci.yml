@@ -470,7 +470,39 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           working-directory: pulsechat
           script: |
-            bash -c 'set -o pipefail; gradle --no-daemon --console=plain connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2 -Pandroid.testInstrumentationRunnerArguments.webPeer=webpeer 2>&1 | tee "$LOG_DIR/4-connected.log"; rc=$?; adb logcat -d "*:E" | tail -400 > "$LOG_DIR/logcat.txt"; exit $rc'
+            bash -c 'set -o pipefail; gradle --no-daemon --console=plain connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2 -Pandroid.testInstrumentationRunnerArguments.webPeer=webpeer 2>&1 | tee "$LOG_DIR/4-connected.log"; rc=$?; adb logcat -d "*:E" | tail -400 > "$LOG_DIR/logcat.txt"; adb pull /data/local/tmp/pulsechat-screens "$LOG_DIR/screens" > /dev/null 2>&1; exit $rc'
+
+      - name: Publish screenshots for layout review (ScreenshotTourTest)
+        if: always() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pip install --quiet pillow > /dev/null 2>&1 || true
+          python3 - <<'PY'
+          import base64, glob, io, json, os, subprocess
+          try:
+              from PIL import Image
+          except Exception as e:
+              print("Pillow unavailable:", e); raise SystemExit(0)
+          files = sorted(glob.glob(os.path.join(os.environ["LOG_DIR"], "screens", "**", "*.png"), recursive=True))
+          for f in files:
+              name = os.path.splitext(os.path.basename(f))[0]
+              im = Image.open(f).convert("RGB")
+              w = 480
+              if im.width > w:
+                  im = im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+              buf = io.BytesIO()
+              im.save(buf, "JPEG", quality=60, optimize=True)
+              b64 = base64.b64encode(buf.getvalue()).decode()
+              chunks = [b64[i:i + 60000] for i in range(0, len(b64), 60000)]
+              for i, chunk in enumerate(chunks, 1):
+                  payload = {"name": f"Screenshot {name} [{i}/{len(chunks)}]", "head_sha": os.environ["GITHUB_SHA"], "status": "completed",
+                             "conclusion": "neutral", "output": {"title": name, "summary": f"JPEG, base64 part {i}/{len(chunks)}", "text": chunk}}
+                  with open("/tmp/shot.json", "w") as fh:
+                      json.dump(payload, fh)
+                  subprocess.run(["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/check-runs", "--method", "POST", "--input", "/tmp/shot.json"], stdout=subprocess.DEVNULL)
+          print(f"published {len(files)} screenshots")
+          PY
 
       - name: Publish instrumented-test digest
         if: always()
