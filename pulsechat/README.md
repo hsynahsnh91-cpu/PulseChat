@@ -108,9 +108,11 @@ Release builds read `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` from th
 | Cloud Functions payload logic | `firebase/functions` | `npm ci && npm run build && npm test` |
 | Instrumented smoke test: real Application start, sign-in screen, local form validation | `app/src/androidTest/java/com/example/AppLaunchTest.kt` | `gradle connectedDebugAndroidTest` (device/emulator) |
 | End-to-end flows on a device against the Firebase emulators (Auth, Firestore with `firestore.rules`, Storage) | `app/src/androidTest/java/com/example/*E2ETest.kt` | see below |
+| Web client on the same backend: unit + contract tests, integration tests against the emulators and rules | `../web/test` | see [web/README.md](../web/README.md#step-6-run-locally-against-the-emulators-and-the-tests) |
+| Android ↔ Web in real time (web client on the CI host, Android app on the emulator) | `app/src/androidTest/java/com/example/WebInteropE2ETest.kt`, `../web/test/android-peer.ts` | CI `e2e` job (runner argument `webPeer`) |
 
 GitHub Actions (`.github/workflows/android-ci.yml`) runs all of them on every push: `assembleDebug`,
-JVM tests, `assembleRelease`, the backend tests, and an `e2e` job that boots an API 34 Android
+JVM tests, `assembleRelease`, the backend tests, the web client tests, and an `e2e` job that boots an API 34 Android
 emulator and runs the instrumented tests against the Firebase emulators. The `e2e` job is marked
 `continue-on-error` because hosted Android emulators are occasionally flaky; check its own result.
 

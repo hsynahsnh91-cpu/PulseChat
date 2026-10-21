@@ -1,0 +1,73 @@
+/* PulseChat web demo. Logical properties (inline-start/end) keep the layout correct in RTL. */
+:root {
+  --primary: #4f46e5;
+  --primary-dark: #3730a3;
+  --bg: #f4f5fb;
+  --panel: #ffffff;
+  --mine: #e0e7ff;
+  --theirs: #ffffff;
+  --text: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --read: #0ea5e9;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Arabic", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0b1020; --panel: #111827; --mine: #312e81; --theirs: #1f2937; --text: #f3f4f6; --muted: #9ca3af; --border: #1f2937; }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+button { font: inherit; cursor: pointer; border: 0; border-radius: 8px; padding: 0.55rem 0.9rem; background: var(--primary); color: #fff; }
+button.secondary { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+button.link { background: none; color: var(--primary); padding: 0.2rem 0; }
+button.icon { background: none; color: inherit; font-size: 1.2rem; padding: 0.4rem; }
+input { font: inherit; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: inherit; width: 100%; }
+.muted { color: var(--muted); }
+.error { color: #dc2626; }
+
+.auth { max-width: 380px; margin: 3rem auto; display: grid; gap: 1rem; padding: 0 1rem; }
+.auth form { display: grid; gap: 0.6rem; padding: 1rem; background: var(--panel); border-radius: 12px; border: 1px solid var(--border); }
+.auth h1 { color: var(--primary); margin-block-end: 0; }
+.auth h2 { margin: 0; font-size: 1.05rem; }
+
+.layout { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; height: 100vh; }
+aside { border-inline-end: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+.me { display: grid; padding: 1rem; gap: 0.2rem; border-block-end: 1px solid var(--border); }
+.search { padding: 0.75rem 1rem; }
+.results, .chats { list-style: none; margin: 0; padding: 0; }
+.results li > button, .chats li > button { width: 100%; text-align: start; background: none; color: inherit; border-radius: 0; padding: 0.7rem 1rem; }
+.results li > button:hover, .chats li > button:hover, .chats li.active > button { background: var(--bg); }
+.chats { overflow-y: auto; flex: 1; border-block-start: 1px solid var(--border); }
+.chats button { display: grid; grid-template-columns: 1fr auto; gap: 0.15rem 0.5rem; }
+.chats .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chats .time { color: var(--muted); font-size: 0.8rem; }
+.chats .preview { color: var(--muted); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chats .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--primary); align-self: center; justify-self: end; }
+
+.chat { display: flex; flex-direction: column; min-height: 0; }
+.chat-header { display: grid; padding: 0.8rem 1rem; background: var(--panel); border-block-end: 1px solid var(--border); min-height: 3.6rem; }
+.thread { list-style: none; margin: 0; padding: 1rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 0.35rem; }
+.thread li { display: flex; }
+.thread li.mine { justify-content: flex-end; }
+.thread li.system { justify-content: center; color: var(--muted); font-size: 0.85rem; }
+.bubble { max-width: min(75%, 560px); background: var(--theirs); border: 1px solid var(--border); border-radius: 12px; padding: 0.45rem 0.65rem; display: grid; gap: 0.25rem; }
+.mine .bubble { background: var(--mine); }
+.bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble img, .bubble video { max-width: 100%; max-height: 320px; border-radius: 8px; }
+.bubble blockquote { margin: 0; padding-inline-start: 0.5rem; border-inline-start: 3px solid var(--primary); color: var(--muted); font-size: 0.85rem; }
+.bubble .sender { color: var(--primary); font-weight: 600; font-size: 0.85rem; }
+.bubble .poll { margin: 0; padding-inline-start: 1.1rem; }
+.meta { justify-self: end; color: var(--muted); font-size: 0.75rem; }
+.ticks.read { color: var(--read); }
+.reactions { font-size: 0.9rem; }
+.status { margin: 0; padding: 0 1rem; color: var(--muted); font-size: 0.85rem; min-height: 1.2rem; }
+.composer { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--panel); border-block-start: 1px solid var(--border); }
+
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; grid-template-rows: 45vh 55vh; }
+  aside { border-inline-end: 0; border-block-end: 1px solid var(--border); }
+}

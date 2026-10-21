@@ -4,9 +4,13 @@ Native Android messaging app (Kotlin, Jetpack Compose, Material 3, Firebase).
 The Android project is in [`pulsechat/`](pulsechat/); full documentation is in
 [`pulsechat/README.md`](pulsechat/README.md).
 
-> **This is not a web app.** There is no `package.json`, no web build and no `dist/` folder, so
-> npm / Capacitor commands (`npm run build`, `npx cap add android`, `npx cap sync`) do not apply.
-> Capacitor wraps web pages; it would produce an empty shell, not PulseChat.
+> **The Android app is native, not a web app.** Capacitor commands (`npx cap add android`,
+> `npx cap sync`) do not apply: Capacitor wraps web pages and would produce an empty shell, not
+> PulseChat. The repository root has no `package.json`; build the Android app with Gradle/Android Studio.
+
+**Web client:** [`web/`](web/) is a separate PulseChat web app (TypeScript, Firebase JS SDK). It
+uses the **same** Firebase project, Firestore database, accounts and security rules as the Android
+app, with real-time sync between the two. Setup guide: [`web/README.md`](web/README.md).
 
 ## Get the APK (no setup)
 
@@ -40,8 +44,10 @@ works after the one-time console setup (enable **Email/Password** sign-in, deplo
 
 ## بالعربية: التشغيل السريع
 
-- هذا تطبيق Android أصلي (Kotlin + Jetpack Compose) موجود في مجلد `pulsechat`، وليس تطبيق ويب.
-  لذلك لا تنطبق عليه أوامر npm وCapacitor مثل `npm run build` و`npx cap sync`.
+- تطبيق Android أصلي (Kotlin + Jetpack Compose) موجود في مجلد `pulsechat`، وليس تطبيق ويب.
+  لذلك لا تنطبق عليه أوامر Capacitor مثل `npx cap add android` و`npx cap sync`.
+- **تطبيق الويب:** مجلد [`web/`](web/) يحتوي عميل ويب منفصلاً يستخدم نفس مشروع Firebase ونفس قاعدة
+  البيانات والحسابات وقواعد الأمان، مع مزامنة فورية مع Android. الدليل في [`web/README.md`](web/README.md).
 - **أسهل طريقة:** تبويب **Actions**، ثم **Android CI**، ثم آخر تشغيل ناجح على `main`. حمّل
   **pulsechat-debug-apk** من قسم Artifacts، وفك الضغط، ثم ثبّت `app-debug.apk` على الهاتف.
 - **البناء بنفسك:** افتح مجلد **`pulsechat`** (وليس المجلد الرئيسي) في Android Studio، وانتظر انتهاء
