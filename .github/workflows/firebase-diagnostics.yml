@@ -1,0 +1,276 @@
+name: Firebase production diagnostics
+
+# Temporary, read-only diagnostics (run 3) of the deployed Firebase project behind PulseChat, run once to
+# answer "does sign-in work in production?". It only sends the same unauthenticated requests any
+# copy of the app can send, with the public API key from google-services.json: no account,
+# document or file is created, changed or deleted, and the Gemini probe is deliberately invalid
+# so nothing is generated. It also prints the signing-certificate fingerprints of the debug APKs
+# published by CI, because Google sign-in on Android only works for registered fingerprints.
+
+on:
+  push:
+    branches: ['arena/74a7989d-pulsechat']
+    paths: ['.github/workflows/firebase-diagnostics.yml']
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Diagnose and publish the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, re, subprocess, urllib.error, urllib.parse, urllib.request, uuid
+          import xml.etree.ElementTree as ET
+
+          gs = json.load(open("pulsechat/app/google-services.json"))
+          project = gs["project_info"]["project_id"]
+          bucket = gs["project_info"]["storage_bucket"]
+          app_id = re.search(r'applicationId\s*=\s*"([^"]+)"', open("pulsechat/app/build.gradle.kts").read()).group(1)
+          client = next(c for c in gs["client"] if c["client_info"]["android_client_info"]["package_name"] == app_id)
+          other_packages = [c["client_info"]["android_client_info"]["package_name"] for c in gs["client"] if c is not client]
+          package = client["client_info"]["android_client_info"]["package_name"]
+          api_key = client["api_key"][0]["current_key"]
+          registered = sorted({o["android_info"]["certificate_hash"].upper()
+                               for o in client.get("oauth_client", []) if o.get("client_type") == 1})
+          web_client = next((o["client_id"] for o in client.get("oauth_client", []) if o.get("client_type") == 3), "")
+          xml_root = ET.parse("pulsechat/app/src/main/res/values/firebase_applet_config.xml").getroot()
+          db_id = next(e.text.strip() for e in xml_root.iter("string") if e.get("name") == "firestore_database_id")
+
+          report = []
+          def out(s=""):
+              print(s)
+              report.append(s)
+          def colon(h):
+              return ":".join(h[i:i + 2] for i in range(0, len(h), 2)) if h else "?"
+
+          # ------------------------------------------------------------ APK signing certificates
+          sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or "/usr/local/lib/android/sdk"
+          def vkey(p):
+              return [int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", os.path.basename(os.path.dirname(p)))]
+          tools = sorted(glob.glob(os.path.join(sdk, "build-tools", "*", "apksigner")), key=vkey)
+          apks = {}
+          for apk in sorted(glob.glob("apks/**/*.apk", recursive=True)):
+              label = apk.split("/")[1]
+              if tools:
+                  res = subprocess.run([tools[-1], "verify", "--print-certs", apk], capture_output=True, text=True)
+                  text = res.stdout + res.stderr
+              else:
+                  text = "apksigner not found"
+              sha1 = re.search(r"certificate SHA-1 digest: ([0-9a-fA-F]+)", text)
+              sha256 = re.search(r"certificate SHA-256 digest: ([0-9a-fA-F]+)", text)
+              dn = re.search(r"certificate DN: (.+)", text)
+              apks[label] = {
+                  "file": os.path.basename(apk),
+                  "sha1": sha1.group(1).upper() if sha1 else None,
+                  "sha256": sha256.group(1).upper() if sha256 else None,
+                  "dn": dn.group(1).strip() if dn else None,
+                  "raw": None if sha1 else text[-600:],
+              }
+
+          # ------------------------------------------------------------ HTTP helpers
+          def call(method, url, body=None, headers=None):
+              h = {"Content-Type": "application/json"} if body is not None else {}
+              h.update(headers or {})
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(url, data=data, method=method, headers=h)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      status, text = r.status, r.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as e:
+                  status, text = e.code, e.read().decode("utf-8", "replace")
+              except Exception as e:
+                  status, text = 0, repr(e)
+              return status, text.replace(api_key, "<API_KEY>")
+
+          def err(text):
+              try:
+                  j = json.loads(text)
+              except Exception:
+                  return text[:400]
+              e = j.get("error", j) if isinstance(j, dict) else j
+              if isinstance(e, dict):
+                  reasons = [d.get("reason") for d in e.get("details", []) if isinstance(d, dict) and d.get("reason")]
+                  msg = f'{e.get("status", "")} {e.get("message", "")}'.strip()
+                  return msg + (f' [reason: {", ".join(reasons)}]' if reasons else "")
+              return str(e)[:400]
+
+          k = urllib.parse.quote(api_key, safe="")
+          latest_label = "main-e5f35f7_run-39556253729"
+          latest_sha1 = (apks.get(latest_label) or {}).get("sha1")
+          def android(sha1):
+              return {"X-Android-Package": package, "X-Android-Cert": sha1} if sha1 else {}
+          H = android(latest_sha1)  # the headers the latest published APK sends
+
+          out("# PulseChat - production Firebase diagnostics (read-only)")
+          out(f"project `{project}`, Android package `{package}`, Firestore database `{db_id}`, bucket `{bucket}`")
+          out(f"Web OAuth client in google-services.json: `{web_client}`")
+          out(f"Other Android apps in google-services.json (not used by this build): {other_packages}")
+          out("")
+
+          out("## 1. Signing certificates")
+          out("Fingerprints registered for the Android app in the committed google-services.json "
+              "(a snapshot; fingerprints added in the console later are not visible here):")
+          for r in registered:
+              out(f"- SHA-1 `{colon(r)}`")
+          if not registered:
+              out("- (none)")
+          out("")
+          out("| APK artifact | SHA-1 | SHA-256 | registered? | DN |")
+          out("|---|---|---|---|---|")
+          for label, a in apks.items():
+              reg = "yes" if a["sha1"] in registered else "NO"
+              out(f'| {label} ({a["file"]}) | `{colon(a["sha1"])}` | `{colon(a["sha256"])}` | {reg} | {a["dn"]} |')
+              if a["raw"]:
+                  out(f'  apksigner output: {a["raw"]}')
+          if not apks:
+              out("| (no APK downloaded) | | | | |")
+          out("")
+
+          out("## 2. API key restrictions (GET identitytoolkit v1/projects)")
+          variants = [("no Android headers", {}), ("as the latest CI APK", H)]
+          variants += [(f"as registered cert {colon(r)}", android(r)) for r in registered]
+          project_config = None
+          for label, hdr in variants:
+              s, t = call("GET", f"https://identitytoolkit.googleapis.com/v1/projects?key={k}", headers=hdr)
+              out(f"- {label}: HTTP {s} " + ("OK" if s == 200 else err(t)))
+              if s == 200 and project_config is None:
+                  project_config = json.loads(t)
+          if project_config:
+              out(f'- authorizedDomains: {project_config.get("authorizedDomains")}')
+          out("")
+
+          out("## 3. Authentication providers")
+          s, t = call("GET", f"https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key={k}", headers=H)
+          if s == 200:
+              j = json.loads(t)
+              keep = {kk: j.get(kk) for kk in ("projectId", "allowPasswordUser", "enableAnonymousUser", "useEmailSending") if kk in j}
+              idps = [{"provider": i.get("provider"), "enabled": i.get("enabled"), "clientId": i.get("clientId")}
+                      for i in j.get("idpConfig", [])]
+              out(f"- v3 getProjectConfig: {json.dumps(keep)}; idpConfig: {json.dumps(idps)}")
+              out(f"- v3 getProjectConfig keys returned: {sorted(j.keys())}")
+          else:
+              out(f"- v3 getProjectConfig: HTTP {s} {err(t)}")
+
+          s, t = call("POST", f"https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key={k}",
+                      {"providerId": "google.com", "continueUri": f"https://{project}.firebaseapp.com/__/auth/handler"}, H)
+          google_enabled = None
+          if s == 200 and "authUri" in t:
+              auth_uri = json.loads(t)["authUri"]
+              cid = urllib.parse.parse_qs(urllib.parse.urlparse(auth_uri).query).get("client_id", ["?"])[0]
+              google_enabled = True
+              same = "same as" if cid == web_client else "DIFFERENT from"
+              out(f"- Google provider: ENABLED (createAuthUri OK). Provider web client `{cid}` is {same} "
+                  f"default_web_client_id from google-services.json")
+          else:
+              google_enabled = False if s in (400, 403) else None
+              out(f"- Google provider: createAuthUri HTTP {s} {err(t)}")
+
+          s, t = call("POST", f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={k}",
+                      {"email": f"diag-{uuid.uuid4().hex[:12]}@{project}.firebaseapp.com",
+                       "password": uuid.uuid4().hex, "returnSecureToken": True}, H)
+          e = err(t)
+          if any(x in e for x in ("EMAIL_NOT_FOUND", "INVALID_LOGIN_CREDENTIALS", "INVALID_PASSWORD")):
+              out(f"- Email/Password provider: ENABLED (a random unknown account was rejected with: {e})")
+          elif any(x in e for x in ("PASSWORD_LOGIN_DISABLED", "OPERATION_NOT_ALLOWED")):
+              out(f"- Email/Password provider: DISABLED ({e})")
+          else:
+              out(f"- Email/Password provider: HTTP {s} {e}")
+          out("")
+
+          out("## 4. Firestore (named database) - which rules are deployed?")
+          probe = "diag" + uuid.uuid4().hex[:10]
+          base = f"https://firestore.googleapis.com/v1/projects/{project}/databases/{urllib.parse.quote(db_id, safe='')}/documents"
+          fs = {}
+          for coll in ("usernames", "uniqueIds", "users", "conversations"):
+              # Random IDs that no real user or document can have; document contents are never printed.
+              doc = probe
+              s, t = call("GET", f"{base}/{coll}/{doc}?key={k}", headers=H)
+              msg = "(document body not printed)" if s == 200 else err(t)
+              if s == 200:
+                  verdict = "read allowed (document exists)"
+              elif s == 404 and "does not exist" in msg and "database" in msg.lower():
+                  verdict = "DATABASE MISSING"
+              elif s == 404:
+                  verdict = "read allowed (document absent)"
+              elif s == 403 and ("insufficient permissions" in msg or "PERMISSION_DENIED" in msg):
+                  verdict = "read denied by rules"
+              else:
+                  verdict = "other"
+              fs[coll] = verdict
+              out(f"- unauthenticated GET {coll}/{doc}: HTTP {s} -> {verdict}  ({msg[:300]})")
+          if fs.get("usernames", "").startswith("read allowed") and fs.get("users") == "read denied by rules":
+              out("- Verdict: the repository's NEW firestore.rules are deployed (usernames readable before sign-in, users not).")
+          elif fs.get("usernames") == "read denied by rules" and fs.get("users", "").startswith("read allowed"):
+              out("- Verdict: the ORIGINAL AI Studio rules are still deployed (users world-readable, no usernames rule). "
+                  "Registration, Google profile creation and messaging of the new app will be refused.")
+          elif all(v.startswith("read allowed") for v in fs.values()):
+              out("- Verdict: rules allow everything (test mode).")
+          elif all(v == "read denied by rules" for v in fs.values()):
+              out("- Verdict: rules deny everything (locked mode) or a different rule set.")
+          else:
+              out(f"- Verdict: unclear: {fs}")
+          # Rules pasted into the wrong database are a common mistake: PulseChat only uses the named one.
+          dbase = f"https://firestore.googleapis.com/v1/projects/{project}/databases/(default)/documents"
+          for coll in ("usernames", "users"):
+              s, t = call("GET", f"{dbase}/{coll}/{probe}?key={k}", headers=H)
+              msg = "(document body not printed)" if s == 200 else err(t)
+              out(f"- (default) database, unauthenticated GET {coll}/{probe}: HTTP {s} ({msg[:300]})")
+          out("")
+
+          out("## 5. Cloud Storage bucket")
+          s, t = call("GET", f"https://storage.googleapis.com/storage/v1/b/{bucket}")
+          out(f"- GCS JSON API bucket metadata (anonymous): HTTP {s} {err(t)[:300]}")
+          out("  (401/403 = bucket exists; 404 = bucket does not exist)")
+          obj = urllib.parse.quote(f"chat-media/{probe}/x/y.jpg", safe="")
+          s, t = call("GET", f"https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{obj}", headers=H)
+          out(f"- unauthenticated GET object: HTTP {s} {err(t)}")
+          s, t = call("GET", f"https://firebasestorage.googleapis.com/v0/b/{bucket}/o?prefix=chat-media%2F&maxResults=1", headers=H)
+          if s == 200:
+              # Never print object names (they contain conversation and user IDs).
+              try:
+                  n = len(json.loads(t).get("items", [])) + len(json.loads(t).get("prefixes", []))
+              except Exception:
+                  n = "?"
+              out(f"- unauthenticated LIST chat-media/: HTTP 200 -> listing ALLOWED without sign-in ({n} entries, names not printed)")
+          else:
+              out(f"- unauthenticated LIST chat-media/: HTTP {s} {err(t)}")
+          out("")
+
+          out("## 6. Firebase AI Logic (Gemini) - deliberately invalid empty request, nothing is generated")
+          s, t = call("POST", f"https://firebasevertexai.googleapis.com/v1beta/projects/{project}/models/gemini-2.5-flash:generateContent",
+                      {"contents": []}, {**H, "x-goog-api-key": api_key})
+          out(f"- generateContent with empty contents: HTTP {s} {err(t)[:500]}")
+          out("  (400 INVALID_ARGUMENT = API enabled and reachable; 403 SERVICE_DISABLED = AI Logic not enabled; "
+              "API_KEY_SERVICE_BLOCKED = key not allowed for this API; 401 = App Check enforced)")
+
+          text = "\n".join(report)
+          summary = []
+          for label, a in apks.items():
+              summary.append(f"APK {label} SHA-1 {colon(a['sha1'])} registered: {'yes' if a['sha1'] in registered else 'NO'}")
+          summary.append(f"Google provider enabled: {google_enabled}")
+          summary.append(f"Firestore probes: {fs}")
+          payload = {
+              "name": "Firebase production diagnostics",
+              "head_sha": os.environ["GITHUB_SHA"],
+              "status": "completed",
+              "conclusion": "neutral",
+              "output": {"title": "Read-only checks of the deployed Firebase project",
+                         "summary": "\n".join(f"- {x}" for x in summary)[:60000],
+                         "text": text[:64000]},
+          }
+          json.dump(payload, open("/tmp/diag.json", "w"))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(text + "\n")
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs" --method POST --input /tmp/diag.json > /dev/null || echo "report publish failed"
