@@ -8,7 +8,7 @@
  */
 import {
   createUserWithEmailAndPassword, deleteUser, GoogleAuthProvider, onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup,
-  signOut as firebaseSignOut,
+  signOut as firebaseSignOut, type User,
 } from "firebase/auth";
 import { doc, getDoc, onSnapshot, runTransaction, type Unsubscribe } from "firebase/firestore";
 import type { PulseChat } from "./firebase";
@@ -95,6 +95,7 @@ export async function signUp(
     return credential.user.uid;
   } finally {
     pc.registering--;
+    if (pc.registering === 0) pc.cache.sessionRefreshers.forEach((refresh) => refresh());
   }
 }
 
@@ -140,6 +141,7 @@ export async function completeProfile(pc: PulseChat, username: string, displayNa
   } catch (e) {
     throw mapAuthError(e);
   }
+  pc.cache.sessionRefreshers.forEach((refresh) => refresh());
 }
 
 class UsernameTakenError extends Error {}
@@ -177,14 +179,9 @@ async function createProfile(pc: PulseChat, uid: string, username: string, displ
  */
 export function observeSession(pc: PulseChat, callback: (session: Session) => void): Unsubscribe {
   let profileUnsubscribe: Unsubscribe | null = null;
-  callback({ state: "loading" });
-  const authUnsubscribe = onAuthStateChanged(pc.auth, (user) => {
+  let current: User | null = null;
+  const watchProfile = (user: User) => {
     profileUnsubscribe?.();
-    profileUnsubscribe = null;
-    if (!user) {
-      callback({ state: "signedOut" });
-      return;
-    }
     profileUnsubscribe = onSnapshot(
       doc(pc.db, Fs.USERS, user.uid),
       (snap) => {
@@ -197,8 +194,26 @@ export function observeSession(pc: PulseChat, callback: (session: Session) => vo
         if (pc.auth.currentUser?.uid === user.uid) callback({ state: "profileUnavailable", uid: user.uid, error: error.message });
       },
     );
+  };
+  // Called by signUp()/completeProfile() once the profile exists: re-read it instead of relying
+  // only on the listener that was attached before the document was created.
+  const refresh = () => {
+    if (current && pc.auth.currentUser?.uid === current.uid) watchProfile(current);
+  };
+  pc.cache.sessionRefreshers.add(refresh);
+  callback({ state: "loading" });
+  const authUnsubscribe = onAuthStateChanged(pc.auth, (user) => {
+    profileUnsubscribe?.();
+    profileUnsubscribe = null;
+    current = user;
+    if (!user) {
+      callback({ state: "signedOut" });
+      return;
+    }
+    watchProfile(user);
   });
   return () => {
+    pc.cache.sessionRefreshers.delete(refresh);
     profileUnsubscribe?.();
     authUnsubscribe();
   };

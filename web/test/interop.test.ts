@@ -216,6 +216,26 @@ describe("presence", () => {
   });
 });
 
+describe("listeners attached before the document exists", () => {
+  test("session observer during sign-up; presence listener before the first heartbeat", { timeout: 90_000 }, async () => {
+    const pc = client();
+    const states: string[] = [];
+    listeners.push(observeSession(pc, (s) => states.push(s.state)));
+    await until("signed out", () => states.at(-1) === "signedOut", 20_000, () => states.join(","));
+    const uid = await signUp(pc, { displayName: "Fresh", username: username("fresh"), password: PASSWORD });
+    await until("signed in right after sign-up", () => states.at(-1) === "signedIn", 20_000, () => states.join(","));
+    assert.ok(!states.includes("needsProfile"), `no "needsProfile" flash during sign-up: ${states.join(",")}`);
+
+    const bob = await newUser("ebob");
+    const early = live<PresenceView | null>((set) => observePresence(bob.pc, uid, set), null);
+    await until("first presence snapshot", () => early.value !== null, 20_000, () => JSON.stringify(early.value));
+    assert.equal(early.value?.error, undefined, `listening to a missing presence document: ${JSON.stringify(early.value)}`);
+    const stop = startPresence(pc);
+    await until("the early listener sees the first heartbeat", () => early.value?.online === true, 20_000, () => JSON.stringify(early.value));
+    await stop();
+  });
+});
+
 describe("groups", () => {
   test("create a group like Android; members chat in real time; outsiders are denied", { timeout: 90_000 }, async () => {
     const alice = await newUser("galice", "Alice");

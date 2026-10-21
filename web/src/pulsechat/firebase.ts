@@ -15,8 +15,13 @@ export interface PulseChat {
   projectId: string;
   /** Internal: >0 while signUp() creates the profile, so observeSession() does not report "needsProfile". */
   registering: number;
-  /** Internal per-instance caches. */
-  cache: { readReceipts?: Promise<boolean>; typing: Map<string, { typing: boolean; at: number }> };
+  /** Internal per-instance state. */
+  cache: {
+    readReceipts?: Promise<boolean>;
+    typing: Map<string, { typing: boolean; at: number }>;
+    /** Session observers re-read the profile after it was created (see observeSession). */
+    sessionRefreshers: Set<() => void>;
+  };
 }
 
 export function initPulseChat(config: PulseChatWebConfig): PulseChat {
@@ -44,7 +49,7 @@ export function initPulseChat(config: PulseChatWebConfig): PulseChat {
     connectFirestoreEmulator(db, host, firestorePort);
     connectStorageEmulator(storage, host, storagePort);
   }
-  return { app, auth, db, storage, projectId, registering: 0, cache: { typing: new Map() } };
+  return { app, auth, db, storage, projectId, registering: 0, cache: { typing: new Map(), sessionRefreshers: new Set() } };
 }
 
 /** Releases the Firebase app (listeners, connections). */
