@@ -510,8 +510,8 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          # No emulated audio: on some runner hosts an audio-enabled emulator stalls the microphone and the
-          # run hangs. VoiceIsolationLoopbackTest therefore skips here (it ran on audio-enabled emulators).
+          # -noaudio (no host sound device): the emulated phone still records silence through its audio
+          # stack, which is all VoiceIsolationLoopbackTest needs (it counts frames through voice isolation).
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           working-directory: pulsechat
           script: |

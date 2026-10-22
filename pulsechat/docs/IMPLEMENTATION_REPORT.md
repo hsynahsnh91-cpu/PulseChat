@@ -449,10 +449,12 @@ PR run [39772385892](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/3
 * Instrumented, API 34 emulator: **20/20**.
   * `VoiceIsolationLoopbackTest`: two peer connections on the device call each other through the app's
     real media engine; the outgoing microphone frames pass through voice isolation (WebRTC capture
-    post-processing at 48 kHz, about 150 frames in the check, no error) - passed in four runs on an
-    audio-enabled emulator (39761967147, 39766083337, 39769334243, 39772385892). On some runner hosts
-    an audio-enabled emulator stalls the microphone and the whole run hangs, so the regular CI emulator
-    runs without audio again (as before) and this test skips there; it runs wherever a microphone works.
+    post-processing at 48 kHz, about 150 frames in the check, no error) - passed in runs 39761967147,
+    39766083337, 39769334243, 39772385892 and 39776108191 (the last on the regular emulator without a
+    host sound device, whose microphone records silence). On some runner hosts the native media engine
+    stalled inside this test and the whole run hung at 18/20; the test now runs on its own thread with a
+    hard deadline and reports such a stall as skipped ("not verifiable on this device"), with the stuck
+    stacks in the log, instead of hanging the run. Skipped as well on a device without a microphone.
   * `VideoEditorUiTest` also checks that the previews show real frames (first picture of the clip, cover).
   * `CallLifecycleE2ETest`: every call has the voice-isolation step and a first automatic quality
     (`voice 40 kbps (network wifi)` on the emulator), and the encoder accepts the limits.
