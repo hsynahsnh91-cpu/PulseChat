@@ -328,15 +328,13 @@ service cloud.firestore {
           let before = resource.data.get('edits', []);
           let after = request.resource.data.get('edits', null);
           let n = before.size();
-          return !mchanged().hasAny(['edits']) || (
-            after is list && after.size() == n + 1 && n < 20
+          return after is list && after.size() == n + 1 && n < 20
             && (n == 0 || after[0:n] == before)
             && after[n].keys().hasOnly(['text', 'at'])
             && after[n].text == resource.data.text
             && after[n].at is timestamp
             && after[n].at > resource.data.createdAt - duration.value(10, 'm')
-            && after[n].at < request.time + duration.value(10, 'm')
-          );
+            && after[n].at < request.time + duration.value(10, 'm');
         }
 
         function editByAuthor() {

@@ -307,7 +307,7 @@ object DevicePairingPolicy {
     ): Boolean {
         if (status != LinkedDeviceStatus.ACTIVE || !onlineFlag || lastActiveAtMs <= 0L) return false
         val age = nowMs - lastActiveAtMs
-        return age in -CLOCK_SKEW_TOLERANCE_MS..PresencePolicy.ONLINE_TTL_MS
+        return age in -CLOCK_SKEW_TOLERANCE_MS..PresencePolicy.STALE_AFTER_MS
     }
 
     // ------------------------------------------------------------------ P-256 Cryptography

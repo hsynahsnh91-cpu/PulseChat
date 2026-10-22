@@ -81,6 +81,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -935,6 +936,7 @@ private fun LinkedDeviceItemCard(
     isRevoking: Boolean,
     onRevokeClick: (() -> Unit)?,
 ) {
+    val context = LocalContext.current
     Card(
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth(),
@@ -995,14 +997,14 @@ private fun LinkedDeviceItemCard(
 
             if (device.linkedAt > 0L) {
                 Text(
-                    text = stringResource(R.string.device_linked_at_label, Formatters.dateTime(device.linkedAt)),
+                    text = stringResource(R.string.device_linked_at_label, Formatters.dateTime(context, device.linkedAt)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (!device.online && device.lastActiveAt > 0L) {
                 Text(
-                    text = stringResource(R.string.device_last_active_label, Formatters.dateTime(device.lastActiveAt)),
+                    text = stringResource(R.string.device_last_active_label, Formatters.dateTime(context, device.lastActiveAt)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

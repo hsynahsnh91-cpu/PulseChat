@@ -1087,7 +1087,7 @@ class DeviceLinkRepository(
 
         var delegation = keyManager.readAccountDelegation(uid)
         if (delegation == null && !verificationPassword.isNullOrBlank()) {
-            val username = prefs.current.rememberedUsername
+            val username = prefs.recentAccounts().firstOrNull()
                 ?: runCatching {
                     firestore.collection(Fs.USERS).document(uid).get().await().getString("username").orEmpty()
                 }.getOrDefault("")
