@@ -431,8 +431,8 @@ OEM background limits), and OpenStreetMap availability limits under heavy use.
 
 ## Verification
 
-PR run [39766083337](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39766083337) (commit
-`baaa405`): every job green.
+PR run [39772385892](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39772385892) (commit
+`e8cfcd3`, emulator with audio): every job green.
 
 * Builds: debug, release (lint-vital), optimized; Windows fresh-clone build.
 * Unit tests (JVM/Robolectric): **194/194** (38 new). `VoiceGateTest` (10) on synthetic noise and
@@ -449,8 +449,11 @@ PR run [39766083337](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/3
 * Instrumented, API 34 emulator: **20/20**.
   * `VoiceIsolationLoopbackTest`: two peer connections on the device call each other through the app's
     real media engine; the outgoing microphone frames pass through voice isolation (WebRTC capture
-    post-processing at 48 kHz, 152 frames in the check, no error). Skipped on a device without a usable
-    microphone input (some emulator hosts deliver no audio).
+    post-processing at 48 kHz, about 150 frames in the check, no error) - passed in four runs on an
+    audio-enabled emulator (39761967147, 39766083337, 39769334243, 39772385892). On some runner hosts
+    an audio-enabled emulator stalls the microphone and the whole run hangs, so the regular CI emulator
+    runs without audio again (as before) and this test skips there; it runs wherever a microphone works.
+  * `VideoEditorUiTest` also checks that the previews show real frames (first picture of the clip, cover).
   * `CallLifecycleE2ETest`: every call has the voice-isolation step and a first automatic quality
     (`voice 40 kbps (network wifi)` on the emulator), and the encoder accepts the limits.
   * `VideoEditorUiTest`: trimming 1.7–4.2 s of a 6 s video gives a 3.2 s cut that starts on the keyframe
