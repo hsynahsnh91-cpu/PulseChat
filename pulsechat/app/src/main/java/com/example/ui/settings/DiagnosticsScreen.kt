@@ -381,9 +381,10 @@ private fun channelName(context: Context, id: String): String = context.getStrin
 })
 
 private fun lastCallText(context: Context, s: CallSummary): String = buildString {
-    append(Formatters.dateTime(context, s.endedAt)).append(" · ")
+    val sep = context.getString(R.string.list_separator)
+    append(Formatters.dateTime(context, s.endedAt)).append(sep)
     append(context.getString(if (s.video) R.string.diag_call_video else R.string.diag_call_voice))
-    append(" · ").append(context.getString(R.string.diag_call_duration, s.durationSec))
+    append(sep).append(context.getString(R.string.diag_call_duration, s.durationSec))
     append("\n").append(context.getString(R.string.diag_call_quality, s.avgRttMs?.toString() ?: "–", s.maxLossPercent?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "–", s.reconnects))
     append("\n").append(context.getString(R.string.diag_call_echo, context.getString(if (s.echoCanceller == "phone") R.string.call_echo_phone else R.string.call_echo_app)))
     when (s.voiceIsolation) {

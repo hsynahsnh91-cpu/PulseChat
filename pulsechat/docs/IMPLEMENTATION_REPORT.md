@@ -418,6 +418,9 @@ OEM background limits), and OpenStreetMap availability limits under heavy use.
   can be shortened until they fit. The cover (≤ 48 KB JPEG) travels in the message (`media.thumb`,
   `media.coverMs`), so the other side sees it before downloading; the rules cap it at 64 KB.
   Room v6 adds `messages.mediaThumb` and `messages.mediaCoverMs` (`MIGRATION_5_6`, columns only).
+* **Arabic separators** (found in the screenshot review): next to Arabic-Indic digits the middle dot
+  "·" looks like the Arabic zero "٠", so "الصور · ١" read as "الصور ١٠". Arabic strings now use the
+  Arabic comma (counts in brackets: "الصور (١)"), and lines joined in code use a localized separator.
 * **Storage management**: Settings › Storage and data now shows what PulseChat keeps by kind (bar and
   list), temporary and unused files, the app's own data and the free space; *Clear temporary files*
   only deletes what can be rebuilt (image cache via the image loader, cached media copies, captures and
@@ -431,8 +434,9 @@ OEM background limits), and OpenStreetMap availability limits under heavy use.
 
 ## Verification
 
-PR run [39772385892](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39772385892) (commit
-`e8cfcd3`, emulator with audio): every job green.
+PR run [39779760127](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39779760127) (commit
+`7ef569b`): every job green; push run [39779753683](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39779753683)
+of the same commit: builds, unit and instrumented tests green, screenshots published.
 
 * Builds: debug, release (lint-vital), optimized; Windows fresh-clone build.
 * Unit tests (JVM/Robolectric): **194/194** (38 new). `VoiceGateTest` (10) on synthetic noise and
@@ -450,8 +454,8 @@ PR run [39772385892](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/3
   * `VoiceIsolationLoopbackTest`: two peer connections on the device call each other through the app's
     real media engine; the outgoing microphone frames pass through voice isolation (WebRTC capture
     post-processing at 48 kHz, about 150 frames in the check, no error) - passed in runs 39761967147,
-    39766083337, 39769334243, 39772385892 and 39776108191 (the last on the regular emulator without a
-    host sound device, whose microphone records silence). On some runner hosts the native media engine
+    39766083337, 39769334243, 39772385892, 39776108191, 39779753683 and 39779760127 (the last three on
+    the regular emulator without a host sound device, whose microphone records silence). On some runner hosts the native media engine
     stalled inside this test and the whole run hung at 18/20; the test now runs on its own thread with a
     hard deadline and reports such a stall as skipped ("not verifiable on this device"), with the stuck
     stacks in the log, instead of hanging the run. Skipped as well on a device without a microphone.

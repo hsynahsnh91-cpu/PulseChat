@@ -117,13 +117,14 @@ private fun untilText(until: Long): String {
 fun liveStatusLine(view: LiveLocationView?, until: Long, now: Long): String {
     val context = LocalContext.current
     val end = view?.expiresAt?.takeIf { it > 0 } ?: until
+    val sep = stringResource(R.string.list_separator)
     return when (phaseOf(view, until, now)) {
-        Phase.LIVE -> stringResource(R.string.live_until, untilText(end)) + " · " +
+        Phase.LIVE -> stringResource(R.string.live_until, untilText(end)) + sep +
             stringResource(R.string.live_updated, Formatters.statusTime(context, view!!.fixAt, now))
         Phase.STALE -> stringResource(R.string.live_stale, Formatters.statusTime(context, view!!.fixAt, now)) +
-            if (view.fromCache) " · " + stringResource(R.string.live_offline) else ""
+            if (view.fromCache) sep + stringResource(R.string.live_offline) else ""
         Phase.ENDED -> stringResource(R.string.live_ended) +
-            (view?.takeIf { it.fixAt > 0 }?.let { " · " + stringResource(R.string.live_last_update, Formatters.dayAndTime(context, it.fixAt)) } ?: "")
+            (view?.takeIf { it.fixAt > 0 }?.let { sep + stringResource(R.string.live_last_update, Formatters.dayAndTime(context, it.fixAt)) } ?: "")
         null -> stringResource(R.string.live_until, untilText(end))
     }
 }

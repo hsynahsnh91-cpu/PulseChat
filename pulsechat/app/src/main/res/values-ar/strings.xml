@@ -90,7 +90,7 @@
     <string name="ai_polish">تحسين المسودة</string>
     <string name="ai_settings_intro">تعمل ميزات الذكاء الاصطناعي في PulseChat (دردشة المساعد واقتراح الردود وتحسين المسودات وتلخيص الدردشات والردود التلقائية الاختيارية) بتقنية Google Gemini. لا يُخزَّن أي مفتاح للذكاء الاصطناعي في التطبيق.</string>
     <string name="ai_settings_privacy">لا يُرسل المحتوى إلا عند استخدامك لميزة ذكاء اصطناعي. يؤدي إيقاف الموافقة إلى تعطيل جميع ميزات الذكاء الاصطناعي بما فيها الردود التلقائية.</string>
-    <string name="ai_subtitle">مساعد ذكاء اصطناعي · قد تكون الردود غير دقيقة</string>
+    <string name="ai_subtitle">مساعد ذكاء اصطناعي، قد تكون الردود غير دقيقة</string>
     <string name="ai_suggest_replies">اقتراح ردود</string>
     <string name="ai_summarize">تلخيص الدردشة</string>
     <string name="ai_system_prompt">أنت Gemini، مساعد مفيد داخل تطبيق المراسلة PulseChat. أجب بوضوح وإيجاز بلغة المستخدم. لا تدّعِ أنك إنسان.</string>
@@ -520,7 +520,7 @@
     <string name="storage_clear_media">مسح الوسائط</string>
     <string name="storage_empty">لا توجد وسائط منزّلة بعد.</string>
     <string name="storage_usage">الاستخدام</string>
-    <string name="storage_used_free">الوسائط على هذا الجهاز: %1$s · المساحة الحرة: %2$s</string>
+    <string name="storage_used_free">الوسائط على هذا الجهاز: %1$s، المساحة الحرة: %2$s</string>
     <string name="system_added">أضاف %1$s %2$s</string>
     <string name="system_created">أنشأ %1$s المجموعة «%2$s»</string>
     <string name="system_demoted">أزال %1$s %2$s من الإشراف</string>
@@ -528,7 +528,7 @@
     <string name="system_disappearing_off">أوقف %1$s الرسائل المؤقتة</string>
     <string name="system_disappearing_on">فعّل %1$s الرسائل المؤقتة (%2$s)</string>
     <string name="system_left">غادر %1$s</string>
-    <string name="system_left_promoted">غادر %1$s · أصبح %2$s مشرفاً</string>
+    <string name="system_left_promoted">غادر %1$s، وأصبح %2$s مشرفاً</string>
     <string name="system_photo">غيّر %1$s صورة المجموعة</string>
     <string name="system_promoted">جعل %1$s %2$s مشرفاً</string>
     <string name="system_removed">أزال %1$s %2$s</string>
@@ -656,9 +656,9 @@
     <string name="ai_tasks_pick_time">اختر وقت التذكير</string>
     <string name="ai_tasks_title">المهام والمواعيد</string>
     <string name="call_details_echo">تقليل الصدى: %1$s ديسيبل</string>
-    <string name="call_details_levels">مستوى الصوت: الوارد %1$s · الصادر %2$s</string>
-    <string name="call_details_network">الشبكة: ذهاب وإياب %1$s مللي ثانية · تذبذب %2$s مللي ثانية · فقد %3$s%%</string>
-    <string name="call_details_streams">مسارات الصوت: %1$d وارد · %2$d صادر</string>
+    <string name="call_details_levels">مستوى الصوت: الوارد %1$s، الصادر %2$s</string>
+    <string name="call_details_network">الشبكة: ذهاب وإياب %1$s مللي ثانية، تذبذب %2$s مللي ثانية، فقد %3$s%%</string>
+    <string name="call_details_streams">مسارات الصوت: %1$d وارد، %2$d صادر</string>
     <string name="call_details_title">تفاصيل المكالمة</string>
     <string name="call_details_waiting">بانتظار إحصاءات المكالمة…</string>
     <string name="call_echo_app">الخاص بـ PulseChat</string>
@@ -681,7 +681,7 @@
     <string name="diag_call_duration">%1$d ث</string>
     <string name="diag_call_echo">مزيل الصدى: %1$s</string>
     <string name="diag_call_permissions">الميكروفون والكاميرا</string>
-    <string name="diag_call_quality">ذهاب وإياب %1$s مللي ثانية · فقد حتى %2$s%% · إعادة اتصال %3$d</string>
+    <string name="diag_call_quality">ذهاب وإياب %1$s مللي ثانية، فقد حتى %2$s%%، إعادة اتصال %3$d</string>
     <string name="diag_call_video">مكالمة فيديو</string>
     <string name="diag_call_voice">مكالمة صوتية</string>
     <string name="diag_call_warnings">سُجّل %1$d تحذير.</string>
@@ -716,7 +716,7 @@
     <string name="diag_notifications">الإشعارات</string>
     <string name="diag_open_settings">فتح الإعدادات</string>
     <string name="diag_outbox">الرسائل الصادرة</string>
-    <string name="diag_outbox_detail">بانتظار الإرسال: %1$d · فشل: %2$d · فشل رفع ملفات: %3$d</string>
+    <string name="diag_outbox_detail">بانتظار الإرسال: %1$d، فشل: %2$d، فشل رفع ملفات: %3$d</string>
     <string name="diag_push">الإشعارات الفورية</string>
     <string name="diag_push_missing">هذا الجهاز غير مسجَّل للإشعارات الفورية بعد، لذا تصل الرسائل الجديدة فقط عندما يكون التطبيق مفتوحًا.</string>
     <string name="diag_push_ok">هذا الجهاز مسجَّل للإشعارات الفورية.</string>
@@ -724,7 +724,7 @@
     <string name="diag_report_privacy">يحتوي التقرير على الإعدادات ورموز الأخطاء فقط — دون رسائل أو أسماء أو أرقام هواتف أو كلمات مرور.</string>
     <string name="diag_retry_now">إعادة المحاولة الآن</string>
     <string name="diag_run_check">افحص الآن</string>
-    <string name="diag_scheduled_detail">بانتظار الإرسال: %1$d · فشل: %2$d</string>
+    <string name="diag_scheduled_detail">بانتظار الإرسال: %1$d، فشل: %2$d</string>
     <string name="diag_section_calls">المكالمات</string>
     <string name="diag_section_connection">الاتصال</string>
     <string name="diag_section_notifications">الإشعارات والتوقيت</string>
@@ -848,7 +848,7 @@
     <string name="scheduled_messages">الرسائل المجدولة</string>
     <string name="scheduled_send_now">إرسال الآن</string>
     <string name="scheduled_sending">جارٍ الإرسال…</string>
-    <string name="scheduled_waiting_retry">بانتظار إعادة المحاولة · الموعد %1$s</string>
+    <string name="scheduled_waiting_retry">بانتظار إعادة المحاولة، الموعد %1$s</string>
     <string name="settings_translation_language">ترجمة الرسائل إلى</string>
     <string name="settings_translation_note">تتم الترجمة على هذا الهاتف. تُنزَّل حزم اللغات مرة واحدة وبعد موافقتك فقط؛ ولا تُرسل رسائلك أبدًا للترجمة.</string>
     <string name="time_in_1_hour">بعد ساعة</string>
@@ -946,7 +946,7 @@
     <string name="contact_not_on_pulsechat">تعذّر العثور على هذا الشخص في PulseChat.</string>
     <string name="day_at_time">%1$s، %2$s</string>
     <string name="time_just_now">الآن</string>
-    <string name="status_quote">الحالة · %1$s</string>
+    <string name="status_quote">الحالة: %1$s</string>
     <string name="status_reply_hint">اكتب ردًّا…</string>
     <string name="status_reply_sent">تم إرسال الرد</string>
     <string name="status_viewed_by_count">شاهدها %1$d</string>
@@ -954,7 +954,7 @@
     <string name="channel_live_location">الموقع المباشر</string>
     <string name="preview_live_location">📍 موقع مباشر</string>
     <string name="live_notification_title">تتم مشاركة موقعك المباشر</string>
-    <string name="live_notification_text">حتى %1$s · اضغط «إيقاف المشاركة» لإنهائها الآن</string>
+    <string name="live_notification_text">حتى %1$s، اضغط «إيقاف المشاركة» لإنهائها الآن</string>
     <string name="live_stop">إيقاف المشاركة</string>
     <string name="chat_lock_done">تم قفل المحادثة</string>
     <string name="chat_lock_removed">تمت إزالة قفل المحادثة</string>
@@ -984,7 +984,7 @@
     <string name="chat_lock_confirm_prompt">تأكيد هويتك</string>
     <string name="live_until">مباشر حتى %1$s</string>
     <string name="live_updated">آخر تحديث: %1$s</string>
-    <string name="live_stale">غير مباشر · آخر تحديث: %1$s</string>
+    <string name="live_stale">غير مباشر، آخر تحديث: %1$s</string>
     <string name="live_offline">أنت غير متصل</string>
     <string name="live_ended">انتهت مشاركة الموقع المباشر</string>
     <string name="live_last_update">آخر تحديث %1$s</string>
@@ -1026,13 +1026,13 @@
     <!-- Calls: voice isolation and automatic quality (Settings › Diagnostics, call details) -->
     <string name="diag_voice_isolation">عزل الصوت</string>
     <string name="diag_voice_isolation_sub">يخفض ضوضاء الخلفية بين الكلمات أثناء المكالمات، بعد إلغاء الصدى وكبح الضوضاء. لا يقطع الكلام أبداً. مفعّل افتراضياً.</string>
-    <string name="diag_call_isolation_on">عزل الصوت: مفعّل · خُفّضت الخلفية خلال %1$d%% من المكالمة</string>
+    <string name="diag_call_isolation_on">عزل الصوت: مفعّل، خُفّضت الخلفية خلال %1$d%% من المكالمة</string>
     <string name="diag_call_isolation_on_short">عزل الصوت: مفعّل</string>
     <string name="diag_call_isolation_off">عزل الصوت: متوقف</string>
     <string name="diag_call_isolation_unavailable">عزل الصوت: غير متاح على هذا الهاتف</string>
-    <string name="diag_call_quality_auto">الجودة التلقائية: %1$d تغييرات · أدنى جودة فيديو %2$s</string>
-    <string name="call_details_quality_video">الإرسال: فيديو %1$s · صوت %2$d كيلوبت/ث · المتاح %3$s كيلوبت/ث</string>
-    <string name="call_details_quality_voice">الإرسال: صوت %1$d كيلوبت/ث · المتاح %2$s كيلوبت/ث</string>
+    <string name="diag_call_quality_auto">الجودة التلقائية: %1$d تغييرات، أدنى جودة فيديو %2$s</string>
+    <string name="call_details_quality_video">الإرسال: فيديو %1$s، صوت %2$d كيلوبت/ث، المتاح %3$s كيلوبت/ث</string>
+    <string name="call_details_quality_voice">الإرسال: صوت %1$d كيلوبت/ث، المتاح %2$s كيلوبت/ث</string>
 
     <!-- Video editor (trim and cover before sending) -->
     <string name="video_edit_open">تعديل الفيديو</string>
@@ -1043,14 +1043,14 @@
     <string name="video_edit_cover_slider">لقطة الغلاف</string>
     <string name="video_edit_cover_hint">يظهر الغلاف في الدردشة قبل تشغيل الفيديو.</string>
     <string name="video_edit_range">من %1$s إلى %2$s</string>
-    <string name="video_edit_length">المدة %1$s · نحو %2$s</string>
+    <string name="video_edit_length">المدة %1$s، نحو %2$s</string>
     <string name="video_edit_too_large">أكبر من أن يُرسل (الحد %1$s). قصِّر المقطع.</string>
     <string name="video_edit_keyframe_note">يبدأ المقطع من أقرب إطار رئيسي قبله، لذا قد يبدأ قبل النقطة المختارة بقليل.</string>
     <string name="video_edit_preparing">جارٍ تجهيز الفيديو… %1$d%%</string>
     <string name="video_edit_failed">تعذّر فتح هذا الفيديو للتعديل.</string>
     <string name="video_edit_trim_failed">تعذّر قص هذا الفيديو على هذا الهاتف. ما زال بإمكانك إرساله كاملاً مع الغلاف الذي اخترته.</string>
-    <string name="video_edited_trimmed">قُصّ إلى %1$s · تم اختيار الغلاف</string>
-    <string name="video_edited_cover">تم اختيار الغلاف · %1$s</string>
+    <string name="video_edited_trimmed">قُصّ إلى %1$s، تم اختيار الغلاف</string>
+    <string name="video_edited_cover">تم اختيار الغلاف، %1$s</string>
     <string name="video_too_large_hint">أكبر من أن يُرسل كما هو (الحد %1$s). اضغط على المقص لتقصيره.</string>
 
     <!-- Storage management -->
@@ -1058,7 +1058,8 @@
     <string name="storage_app_total">يستخدم PulseChat مساحة %1$s على هذا الهاتف</string>
     <string name="storage_device_free">%1$s متاحة من %2$s</string>
     <string name="storage_nothing">لا شيء محفوظ بعد.</string>
-    <string name="storage_category_count">%1$s · %2$d</string>
+    <string name="list_separator">"، "</string>
+    <string name="storage_category_count">%1$s (%2$d)</string>
     <string name="storage_cat_voice">الرسائل الصوتية</string>
     <string name="storage_cat_statuses">تحديثات الحالة</string>
     <string name="storage_cat_unused">ملفات غير مستخدمة</string>

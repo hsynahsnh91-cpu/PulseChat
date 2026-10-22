@@ -1003,6 +1003,8 @@
     <string name="storage_app_total">PulseChat uses %1$s on this phone</string>
     <string name="storage_device_free">%1$s free of %2$s</string>
     <string name="storage_nothing">Nothing stored yet.</string>
+    <!-- Joins parts of one line built in code (Arabic uses its comma: a middle dot looks like the Arabic zero). -->
+    <string name="list_separator">" · "</string>
     <string name="storage_category_count">%1$s · %2$d</string>
     <string name="storage_cat_voice">Voice messages</string>
     <string name="storage_cat_statuses">Status updates</string>

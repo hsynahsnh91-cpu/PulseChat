@@ -122,8 +122,10 @@ describe("direct chat between two web clients", () => {
     assert.deepEqual(await searchUsers(bob.pc, "Alice"), []);
     assert.deepEqual(await searchUsers(bob.pc, alice.username.slice(0, -2)), []);
 
-    const aliceChats = live<Conversation[]>((set) => observeConversations(alice.pc, set), []);
-    const bobChats = live<Conversation[]>((set) => observeConversations(bob.pc, set), []);
+    // Listener errors are recorded so a failed wait says why (a denied or broken listener vs. a late update).
+    const listenErrors: string[] = [];
+    const aliceChats = live<Conversation[]>((set) => observeConversations(alice.pc, set, (e) => { listenErrors.push(`alice: ${e.code}`); }), []);
+    const bobChats = live<Conversation[]>((set) => observeConversations(bob.pc, set, (e) => { listenErrors.push(`bob: ${e.code}`); }), []);
 
     // Bob's first message creates dm_<low>_<high> in the same batch.
     const draft = directChat(bob.pc, alice.uid);
@@ -131,7 +133,8 @@ describe("direct chat between two web clients", () => {
     const firstId = await sendText(bob.pc, draft, "  Hello from the web 👋  ");
     const aliceConv = () => aliceChats.value.find((c) => c.id === draft.id)!;
     const bobConv = () => bobChats.value.find((c) => c.id === draft.id)!;
-    await until("chat appears for Alice", () => aliceConv()?.lastMessage?.id === firstId);
+    await until("chat appears for Alice", () => aliceConv()?.lastMessage?.id === firstId, 20_000, () =>
+      `Alice sees [${aliceChats.value.map((c) => `${c.id}:${c.lastMessage?.id ?? "-"}`).join(", ")}], listener errors [${listenErrors.join(", ")}]`);
     assert.equal(aliceConv().peerId, bob.uid);
     assert.equal(aliceConv().lastMessage?.preview, "Hello from the web 👋");
 
