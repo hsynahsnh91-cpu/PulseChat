@@ -79,6 +79,9 @@ class LiveLocationRepository(
         val liveId = UUID.randomUUID().toString()
         val expiresAt = serverClock.now() + durationMs
         val session = Session(cid, liveId, expiresAt)
+        // The message first: in a brand-new direct chat its write also creates the conversation, which
+        // the rules need before the session itself can be written (writes reach the server in order).
+        chat.sendLiveLocation(cid, lat, lng, liveId, expiresAt)
         save(session)
         liveRef(cid, liveId).set(
             mapOf(
@@ -87,7 +90,6 @@ class LiveLocationRepository(
                 "updatedAt" to FieldValue.serverTimestamp(), "expiresAt" to expiresAt.toTimestamp(), "endedAt" to null,
             )
         ).addOnFailureListener { e -> onWriteFailed(session, e) }
-        chat.sendLiveLocation(cid, lat, lng, liveId, expiresAt)
         return session
     }
 

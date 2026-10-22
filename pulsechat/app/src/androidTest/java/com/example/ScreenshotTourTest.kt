@@ -204,7 +204,7 @@ class ScreenshotTourTest : EmulatorE2ETest() {
                 mine != null && c.db.statusDao().observeViews(mine.statusId).first().isNotEmpty()
             }
         }.onFailure { Log.e("PulseTour", "status view did not arrive", it) }
-        c.chatRepository.ensureAiConversation(str(R.string.ai_assistant_name))
+        val aiChat = c.chatRepository.ensureAiConversation(str(R.string.ai_assistant_name))
         c.folders.create("Work", setOf(cid))
         compose.waitUntil(30_000) { compose.onAllNodesWithText("Alice Johnson").fetchSemanticsNodes().isNotEmpty() }
 
@@ -276,6 +276,84 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             }
             goHome()
         }
+
+        // Per-chat notifications, edit history, live location and chat lock (light phone, dark Arabic).
+        // Bob writes and edits a message, then shares a live location (its points are written here
+        // directly; the location service itself is covered by Phase2FeaturesE2ETest).
+        val live = runCatching {
+            val late = c.chatRepository.sendText(cid, "Running 5 minutes late", null, emptyList())
+            await("late message sent") { c.db.messageDao().get(late.messageId)?.isOnServer() == true }
+            c.chatRepository.editMessage(late.messageId, "Running 10 minutes late, sorry!")
+            c.liveLocation.start(cid, 60 * 60_000L, 52.0116, 4.3571, 8f, System.currentTimeMillis())
+        }.onFailure { Log.e("PulseTour", "phase 2 setup failed", it) }.getOrNull()
+        for (v in listOf(variants[0], variants[2])) {
+            apply(v)
+            goHome()
+            // A fresh point, so the bubble shows a live session.
+            live?.let { c.liveLocation.publish(it, 52.0121, 4.3580, 6f, System.currentTimeMillis()) }
+            runCatching {
+                compose.onNodeWithText("Alice Johnson").performClick()
+                settle(2_000)
+                shot("${v.id}-9-edited-and-live")
+                compose.onNodeWithTag("edited_label", useUnmergedTree = true).performClick()
+                compose.waitUntil(10_000) { exists("edit_history") }
+                settle()
+                shot("${v.id}-9b-edit-history")
+                Espresso.pressBack()
+                settle()
+                tap("live_location_bubble")
+                compose.waitUntil(10_000) { exists("live_location_screen") }
+                settle(4_000) // map tiles
+                shot("${v.id}-10-live-map")
+                goHome()
+                compose.onNodeWithText("Alice Johnson").performClick()
+                settle(1_500)
+                tap("composer_attach")
+                settle()
+                compose.onNodeWithText(str(R.string.attach_location)).performClick()
+                compose.waitUntil(10_000) { exists("location_share_sheet") }
+                settle()
+                shot("${v.id}-10b-location-sheet")
+                Espresso.pressBack()
+                settle()
+            }.onFailure { Log.e("PulseTour", "edit history / live location shots failed", it) }
+            goHome()
+            runCatching {
+                // This chat's notification settings, then the mute choices.
+                compose.onNodeWithText("Alice Johnson").performClick()
+                settle(1_500)
+                tap("chat_menu")
+                compose.onNodeWithText(str(R.string.contact_info)).performClick()
+                compose.waitUntil(10_000) { exists("info_mute") }
+                compose.onNodeWithTag("info_mute").performScrollTo()
+                settle()
+                shot("${v.id}-8-chat-notifications")
+                tap("info_mute")
+                settle()
+                shot("${v.id}-8b-mute-options")
+                compose.onNodeWithTag("mute_option_ONE_HOUR").performClick()
+                settle()
+            }.onFailure { Log.e("PulseTour", "notification settings shots failed", it) }
+            goHome()
+            runCatching {
+                // The muted mark in the list, and a locked chat behind its own entry and check.
+                c.chatSettings.lock(aiChat)
+                c.chatSettings.closeLockedChats()
+                settle(1_500)
+                shot("${v.id}-11-home-muted-locked")
+                tap("locked_chats_entry")
+                compose.waitUntil(10_000) { exists("chat_lock_gate") }
+                settle()
+                shot("${v.id}-11b-locked-gate")
+                c.chatSettings.markLockedChatsOpen()
+                compose.waitUntil(10_000) { exists("locked_chats_list") }
+                settle()
+                shot("${v.id}-11c-locked-list")
+            }.onFailure { Log.e("PulseTour", "chat lock shots failed", it) }
+            runCatching { c.chatSettings.unlock(aiChat); c.chatSettings.closeLockedChats(); c.chatSettings.setMutedUntil(cid, 0L) }
+            goHome()
+        }
+        live?.let { runCatching { c.liveLocation.stop(com.example.data.repository.LiveLocationRepository.StopReason.USER) } }
 
         // Call screen last (on the tablet layout, then the small phone), so a call problem cannot cost the
         // other screenshots.

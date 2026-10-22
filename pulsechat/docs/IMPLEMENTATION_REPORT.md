@@ -306,3 +306,77 @@ Android 7–12 devices (the emulator is API 34), and the call screen during a co
 **Not verified:** speed on real Android 9–11 phones (emulators do not represent frame timing), a stable
 APK signature (needs the `DEBUG_KEYSTORE_BASE64` secret), video statuses on real devices, and TalkBack
 on the new status viewer.
+
+# Per-chat notifications, chat lock, edit history and live location (October 2026)
+
+## Design decisions
+
+* **Notification settings are separate from the conversation.** New table
+  `chat_notification_settings` (Room v5, keyed by account + chat): mute end time (1 hour, 8 hours,
+  1 day or until turned back on) and a message-preview choice (app setting / show / hide). The
+  notification code reads it *before* posting (`NotificationHelper.showMessages` via
+  `NotificationPolicy`): a muted chat posts nothing, a hidden preview shows who wrote but not what.
+  Mute and preview are synced to the account's other phones through `users/{uid}/chatPrefs/{cid}`
+  (owner-only, existing rule). The existing channels are reused (one per kind, never per chat or
+  message); an expired mute needs no alarm, its time simply passes. Mutes stored on conversations
+  before v5 move to the new table at the next sign-in. In a muted group, a message that mentions you
+  still notifies (the mute dialog says so).
+* **Chat lock** (`locked_chats`, per account, never synced) uses the phone's own check:
+  `BiometricPrompt` with strong biometrics or the device PIN/pattern/password on Android 10+, the
+  system confirm-credential screen on Android 7–9. Locking and unlocking both require the check; a
+  phone without a screen lock cannot lock chats (the app explains how to set one). One guard
+  (`ChatLockGuard`) sits in front of every route that shows a chat's content — the chat itself, its
+  info, media gallery, single media viewer and live-location map — so notifications, search results,
+  reminders and links all pass through it; nothing of the chat is composed (no messages loaded, no read
+  receipts) before the check. Locked chats leave the chat list, archive, folders, unread badge,
+  message search and starred messages; their notifications show only "PulseChat · New message", with
+  no reply action; reminders about them hide the text. Opened locked chats close again when the app
+  goes to the background (not when returning from PulseChat's own pickers). The lock protects access
+  inside the app; it does not encrypt the chat's data on the phone, and the app says so.
+* **Edit history** is stored in the message document (`edits: [{text, at}]`, appended with
+  `arrayUnion` on every edit), so exactly the people who can read the message — the chat's current
+  members — can read its history. `firestore.rules` requires every edit to append exactly the replaced
+  text with an edit time inside the edit window, keeps earlier entries unchanged and caps the history
+  at 20 versions; "delete for everyone" must remove it with the content. Retention: as long as the
+  message exists; deleted for everyone or expired (disappearing messages) → history gone; deleted
+  for me → hidden on this phone. History text is never logged. PulseChat messages are not end-to-end
+  encrypted (the server can read them under the same rules), so the history follows the same model as
+  the message text. Replies keep pointing at the same message ID after edits.
+* **Live location** is a real stream of points: after the user's explicit choice (what is shared,
+  with whom, for how long, battery use) and the location permission, `LiveLocationService` (a
+  foreground service of type `location`, visible notification with Stop) requests updates from the
+  platform location manager (fused provider on Android 12+, GPS + network otherwise; about every
+  15 s), sends a point after 15 m of movement or at least once a minute, never sends a fix older than
+  2 minutes, and stops at the chosen end (15 minutes, 1 hour or 8 hours), when the user stops, signs
+  out, or deletes the message. It is not restarted after the app is killed; the session is then ended
+  at the next start. The session lives in `conversations/{cid}/live/{liveId}`: readable by chat
+  members only, written by the sender only, and the rules refuse new points after the end time or
+  after Stop. Viewers see the point on a map with its time; a point older than 3 minutes (or an
+  offline copy) is shown as "Not live · last update …", never as live; an ended session says so.
+* **Map**: OpenStreetMap raster tiles drawn with Coil (no new library, no API key), following the
+  tile usage policy: standard HTTPS URL, a User-Agent naming the app, cache headers honoured, only
+  visible tiles, attribution always shown. For a large public release a commercial or self-hosted
+  tile provider can be set in one place (`MapTiles.URL_TEMPLATE`).
+
+## Verification
+
+* Unit tests (JVM/Robolectric): mute choices and expiry, the preview/lock decision, edit-history
+  storage and version ordering, live-location throttling, staleness and map-tile maths
+  (`Phase2PoliciesTest`); per-account settings, locked chats out of search, starred and the unread
+  badge (`ChatSettingsDaoTest`); the v4 → v5 migration with real v4 rows (`Migration4To5Test`); the
+  lock gate, edit-history sheet, "edited" label, live-location bubble states and mute dialog
+  (`Phase2UiTest`).
+* Rules tests: edit history cannot be skipped, invented or rewritten and goes with "delete for
+  everyone"; live-location sessions are member-only, sender-only, at most 8 hours and frozen once
+  stopped or expired. The web client appends history the same way (interop test).
+* Instrumented (`Phase2FeaturesE2ETest`, emulator + Firebase emulators): a muted chat posts no
+  notification while another chat does, hidden previews and locked chats hide the text, the mute is
+  restored on a fresh install of the account; edit history reaches the other person and is removed
+  with "delete for everyone"; live location publishes moving mock-GPS points, stops on request with
+  no point afterwards, and ends by itself at the chosen time; locked chats stay out of the list,
+  search and starred messages and open only after the check. The screenshot tour adds the
+  notification settings, mute options, edit history, live map, location sheet and locked chats.
+
+**Not verified:** fingerprint/PIN prompts on real phones (the CI emulator has no screen lock, so the
+check itself is simulated there), live location on real phones in the background for hours (battery,
+OEM background limits), and OpenStreetMap availability limits under heavy use.
