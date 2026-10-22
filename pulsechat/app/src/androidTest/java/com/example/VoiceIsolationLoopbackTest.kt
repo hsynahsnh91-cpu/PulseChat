@@ -73,7 +73,7 @@ class VoiceIsolationLoopbackTest {
     fun outgoingAudioRunsThroughVoiceIsolationAfterEchoCancellation() = runBlocking {
         InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.RECORD_AUDIO)
         val calls = c.callManager
-        val factory = calls.mediaEngineForTests()
+        val factory = withTimeout(30_000) { calls.mediaEngineForTests() }
         assertTrue("the media engine was built with the voice-isolation step", calls.voiceIsolationAvailable)
         assumeTrue("this device has no working microphone input", microphoneWorks())
 
@@ -110,14 +110,16 @@ class VoiceIsolationLoopbackTest {
         val track = factory.createAudioTrack("loopback-audio", source)
         try {
             pc1.addTrack(track, listOf("loopback"))
-            val offer = pc1.createOfferAwait()
-            pc1.setLocalAwait(offer)
-            pc2.setRemoteAwait(offer)
-            markReady(1)
-            val answer = pc2.createAnswerAwait()
-            pc2.setLocalAwait(answer)
-            pc1.setRemoteAwait(answer)
-            markReady(0)
+            withTimeout(20_000) {
+                val offer = pc1.createOfferAwait()
+                pc1.setLocalAwait(offer)
+                pc2.setRemoteAwait(offer)
+                markReady(1)
+                val answer = pc2.createAnswerAwait()
+                pc2.setLocalAwait(answer)
+                pc1.setRemoteAwait(answer)
+                markReady(0)
+            }
             withTimeout(20_000) { connected.await() }
             withTimeout(20_000) { while (processor.framesProcessed - before < 150) delay(100) }
             val stats = processor.stats()

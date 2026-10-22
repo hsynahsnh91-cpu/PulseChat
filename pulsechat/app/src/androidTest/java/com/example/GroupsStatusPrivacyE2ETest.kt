@@ -69,6 +69,10 @@ class GroupsStatusPrivacyE2ETest : EmulatorE2ETest() {
 
         val group = c.chatRepository.createGroup("Pulse team", "E2E group", null, listOf(carol))
         c.chatRepository.setDisappearing(group, 86_400L)
+        // Like a person who sets the timer and then writes: the setting is confirmed and shown first
+        // (a snapshot of the brand-new group taken just before the change can still be on its way).
+        c.firestore.waitForPendingWrites().await()
+        await("timer applied on this phone") { c.db.conversationDao().get(group)?.disappearingSeconds == 86_400L }
         val welcome = c.chatRepository.sendText(group, "Welcome to the team", null, emptyList())
         assertTrue("disappearing timer applies to new messages", welcome.expiresAt > welcome.createdAt)
         await("group message acknowledged") { c.db.messageDao().get(welcome.messageId)?.status == MessageStatus.SENT }

@@ -107,8 +107,10 @@ class MessagingE2ETest : EmulatorE2ETest() {
         assertEquals(true, remotePhoto.getBoolean("deletedForEveryone"))
         assertFalse("media removed for everyone", remotePhoto.contains("media"))
 
-        // 7. The real UI shows the conversation in the chat list.
-        compose.waitUntil(30_000) { compose.onAllNodesWithText("Alice").fetchSemanticsNodes().isNotEmpty() }
+        // 7. The real UI shows the conversation in the chat list (once the chat partner's profile is on
+        //    this freshly wiped phone).
+        await("chat partner's profile synced") { c.db.userDao().get(alice)?.displayName == "Alice" }
+        compose.waitUntil(60_000) { compose.onAllNodesWithText("Alice").fetchSemanticsNodes().isNotEmpty() }
 
         c.authRepository.signOut()
     }

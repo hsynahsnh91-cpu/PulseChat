@@ -87,20 +87,27 @@ class StorageManager(private val context: Context, private val db: AppDatabase, 
 
     /** Deletes the files (never the folders: other parts of the app write into them) that may go now. */
     private fun deleteFiles(f: File, inCapture: Boolean, now: Long): Long {
-        if (f.isDirectory) return f.listFiles()?.sumOf { deleteFiles(it, inCapture, now) } ?: 0L
+        if (f.isDirectory) return if (isLink(f)) 0L else f.listFiles()?.sumOf { deleteFiles(it, inCapture, now) } ?: 0L
         if (!StoragePolicy.deletableTemp(entry(f), inCapture, now)) return 0L
         val length = f.length()
         return if (f.delete()) length else 0L
     }
 
-    /** Bytes and number of files under [dir]. */
+    /** Bytes and number of files under [dir] (links to other folders are not followed). */
     private fun treeSize(dir: File): Pair<Long, Int> {
         if (!dir.exists()) return 0L to 0
         var bytes = 0L
         var files = 0
-        dir.walkTopDown().forEach { if (it.isFile) { bytes += it.length(); files++ } }
+        dir.walkTopDown().onEnter { it == dir || !isLink(it) }.forEach { if (it.isFile) { bytes += it.length(); files++ } }
         return bytes to files
     }
+
+    /** A symbolic link (e.g. to the installed app's native libraries) - counted elsewhere or not at all. */
+    private fun isLink(f: File): Boolean = runCatching {
+        val parent = f.parentFile?.canonicalFile ?: return@runCatching false
+        val resolved = File(parent, f.name)
+        resolved.canonicalPath != resolved.absolutePath
+    }.getOrDefault(false)
 
     /** The app's own data: database, settings, language packs (everything but media and the cache). */
     private fun appDataBytes(): Long {
@@ -108,7 +115,7 @@ class StorageManager(private val context: Context, private val db: AppDatabase, 
         var bytes = 0L
         dataDir.listFiles()?.forEach { child ->
             when {
-                child.name in SKIPPED_DATA_DIRS -> Unit
+                child.name in SKIPPED_DATA_DIRS || isLink(child) -> Unit
                 child.absolutePath == context.filesDir.absolutePath ->
                     child.listFiles()?.forEach { f -> if (f.absolutePath != media.mediaDir.absolutePath) bytes += treeSize(f).first }
                 child.isFile -> bytes += child.length()
