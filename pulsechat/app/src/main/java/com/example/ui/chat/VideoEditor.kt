@@ -251,7 +251,7 @@ fun VideoEditorDialog(source: Uri, maxBytes: Long, onDone: (EditedVideo) -> Unit
                         }
                     }
                     Text(
-                        stringResource(R.string.video_edit_range, DurationFormat.clock(edit.startMs), DurationFormat.clock(edit.endMs)) + " · " +
+                        stringResource(R.string.video_edit_range, DurationFormat.clock(edit.startMs), DurationFormat.clock(edit.endMs)) + stringResource(R.string.list_separator) +
                             stringResource(R.string.video_edit_length, DurationFormat.clock(edit.durationMs), MediaLimits.humanSize(estimate)),
                         color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("video_edit_summary"),
                     )
