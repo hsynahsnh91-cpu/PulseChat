@@ -101,15 +101,14 @@ object QrCodec {
     ): String? = decodeFromLuminance(yPlane, width, height, rowStride)
 
     internal fun decodeFromBinaryGrid(binary: Array<BooleanArray>, width: Int, height: Int): String? {
-        // 1. Fast bounding-box grid extraction for clean / axis-aligned QR images
-        extractAxisAlignedGrid(binary, width, height)?.let { matrix ->
+        // 1. Bounding-box grid extraction across candidate QR versions (fast & exact for axis-aligned frames)
+        for (matrix in extractAxisAlignedCandidates(binary, width, height)) {
             decodeMatrix(matrix)?.let { return it }
         }
-        // 2. Finder-pattern center detection for camera frames
+        // 2. Finder-pattern center detection for off-center / camera frames
         val centers = findFinderCenters(binary, width, height)
         if (centers.size >= 3) {
-            val sampled = sampleFromFinderCenters(binary, width, height, centers)
-            if (sampled != null) {
+            for (sampled in sampleFromFinderCenters(binary, width, height, centers)) {
                 decodeMatrix(sampled)?.let { return it }
             }
         }
@@ -506,7 +505,7 @@ object QrCodec {
         }
     }
 
-    private fun extractAxisAlignedGrid(binary: Array<BooleanArray>, width: Int, height: Int): Array<BooleanArray>? {
+    private fun extractAxisAlignedCandidates(binary: Array<BooleanArray>, width: Int, height: Int): List<Array<BooleanArray>> {
         var minX = width
         var minY = height
         var maxX = -1
@@ -521,30 +520,41 @@ object QrCodec {
                 }
             }
         }
-        if (maxX <= minX || maxY <= minY) return null
+        if (maxX <= minX || maxY <= minY) return emptyList()
         val boxW = maxX - minX + 1
         val boxH = maxY - minY + 1
-        // Estimate module size from top-left finder pattern horizontal scan
-        var run = 0
-        val startY = minY + max(1, boxH / 40)
-        for (dy in 0..min(12, boxH - 1)) {
+
+        // Measure the top-left finder pattern's 7-module top bar right at minY
+        var topBarRun = 0
+        for (dy in 0..min(3, boxH - 1)) {
             var r = 0
+            var started = false
             for (x in minX..maxX) {
-                if (binary[min(height - 1, startY + dy)][x]) r++ else break
+                if (binary[minY + dy][x]) {
+                    started = true
+                    r++
+                } else if (started) {
+                    break
+                }
             }
-            if (r > run) run = r
+            if (r > topBarRun) topBarRun = r
         }
-        val approxModule = if (run >= 7) run / 7.0 else boxW / 37.0
-        if (approxModule < 0.8) return null
-        val approxDim = ((boxW + boxH) / (2.0 * approxModule)).roundToInt()
-        val bestDim = SPECS.map { 17 + it.version * 4 }.minByOrNull { abs(it - approxDim) } ?: return null
-        val stepX = boxW.toDouble() / bestDim
-        val stepY = boxH.toDouble() / bestDim
-        return Array(bestDim) { my ->
-            val py = (minY + (my + 0.5) * stepY).toInt().coerceIn(0, height - 1)
-            BooleanArray(bestDim) { mx ->
-                val px = (minX + (mx + 0.5) * stepX).toInt().coerceIn(0, width - 1)
-                binary[py][px]
+        val approxDim = if (topBarRun >= 7) {
+            ((boxW + boxH) / (2.0 * (topBarRun / 7.0))).roundToInt()
+        } else {
+            37
+        }
+
+        val orderedDims = SPECS.map { 17 + it.version * 4 }.sortedBy { abs(it - approxDim) }
+        return orderedDims.map { dim ->
+            val stepX = boxW.toDouble() / dim
+            val stepY = boxH.toDouble() / dim
+            Array(dim) { my ->
+                val py = (minY + (my + 0.5) * stepY).toInt().coerceIn(0, height - 1)
+                BooleanArray(dim) { mx ->
+                    val px = (minX + (mx + 0.5) * stepX).toInt().coerceIn(0, width - 1)
+                    binary[py][px]
+                }
             }
         }
     }
@@ -562,13 +572,17 @@ object QrCodec {
                     if (state and 1 == 1) state++
                     counts[state]++
                 } else {
+                    if (state == 0 && counts[0] == 0) {
+                        // Still in leading white quiet zone before first black pixel
+                        continue
+                    }
                     if (state and 1 == 1) {
                         counts[state]++
                     } else if (state == 4) {
                         if (isFinderRatio(counts)) {
                             val total = counts.sum()
                             val cx = x - counts[4] - counts[3] - counts[2] / 2.0
-                            val cy = crossCheckVertical(binary, width, height, cx.toInt(), y, counts[2])
+                            val cy = crossCheckVertical(binary, width, height, cx.toInt(), y, counts[2] * 2)
                             if (!cy.isNaN()) {
                                 val mod = total / 7.0
                                 val existing = centers.indexOfFirst { hypot(it.x - cx, it.y - cy) < mod * 3 }
@@ -624,9 +638,9 @@ object QrCodec {
         width: Int,
         height: Int,
         centers: List<FinderCenter>,
-    ): Array<BooleanArray>? {
+    ): List<Array<BooleanArray>> {
         val top3 = centers.sortedByDescending { it.moduleSize }.take(3)
-        if (top3.size < 3) return null
+        if (top3.size < 3) return emptyList()
         // Identify top-left (vertex of the right angle) and the other two corners
         val d01 = hypot(top3[0].x - top3[1].x, top3[0].y - top3[1].y)
         val d12 = hypot(top3[1].x - top3[2].x, top3[1].y - top3[2].y)
@@ -641,17 +655,19 @@ object QrCodec {
         val avgMod = (tl.moduleSize + tr.moduleSize + bl.moduleSize) / 3.0
         val dist = (hypot(tr.x - tl.x, tr.y - tl.y) + hypot(bl.x - tl.x, bl.y - tl.y)) / 2.0
         val approxDim = (dist / avgMod + 7.0).roundToInt()
-        val dim = SPECS.map { 17 + it.version * 4 }.minByOrNull { abs(it - approxDim) } ?: return null
-        val span = (dim - 7).toDouble()
-        val ux = (tr.x - tl.x) / span
-        val uy = (tr.y - tl.y) / span
-        val vx = (bl.x - tl.x) / span
-        val vy = (bl.y - tl.y) / span
-        return Array(dim) { my ->
-            BooleanArray(dim) { mx ->
-                val px = (tl.x + (mx - 3) * ux + (my - 3) * vx).roundToInt().coerceIn(0, width - 1)
-                val py = (tl.y + (mx - 3) * uy + (my - 3) * vy).roundToInt().coerceIn(0, height - 1)
-                binary[py][px]
+        val orderedDims = SPECS.map { 17 + it.version * 4 }.sortedBy { abs(it - approxDim) }
+        return orderedDims.map { dim ->
+            val span = (dim - 7).toDouble()
+            val ux = (tr.x - tl.x) / span
+            val uy = (tr.y - tl.y) / span
+            val vx = (bl.x - tl.x) / span
+            val vy = (bl.y - tl.y) / span
+            Array(dim) { my ->
+                BooleanArray(dim) { mx ->
+                    val px = (tl.x + (mx - 3) * ux + (my - 3) * vx).roundToInt().coerceIn(0, width - 1)
+                    val py = (tl.y + (mx - 3) * uy + (my - 3) * vy).roundToInt().coerceIn(0, height - 1)
+                    binary[py][px]
+                }
             }
         }
     }
