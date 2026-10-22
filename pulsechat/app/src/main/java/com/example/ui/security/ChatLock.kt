@@ -116,9 +116,13 @@ fun rememberDeviceAuth(): DeviceAuthLauncher {
         DeviceAuthLauncher { title, subtitle, onResult ->
             val activity = context.findActivity()
             if (activity == null) { onResult(DeviceAuth.Result.UNAVAILABLE); return@DeviceAuthLauncher }
-            // Coming back from the system's check must not trigger the app lock.
-            container.appLock.onExternalActivityLaunched()
-            DeviceAuth.authenticate(activity, title, subtitle, legacyLauncher = { intent -> pending = onResult; legacy.launch(intent) }, onResult = onResult)
+            // While the check is on screen, leaving the app for it must not close locked chats again.
+            container.chatSettings.onAuthStarted()
+            val finish: (DeviceAuth.Result) -> Unit = { result ->
+                container.chatSettings.onAuthFinished(result == DeviceAuth.Result.SUCCESS)
+                onResult(result)
+            }
+            DeviceAuth.authenticate(activity, title, subtitle, legacyLauncher = { intent -> pending = finish; legacy.launch(intent) }, onResult = finish)
         }
     }
 }

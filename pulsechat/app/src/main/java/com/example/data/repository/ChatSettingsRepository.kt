@@ -96,8 +96,9 @@ class ChatSettingsRepository(
     /** Call only after the phone's screen-lock check succeeded. */
     suspend fun lock(cid: String) {
         val me = currentUid() ?: throw ChatException(ChatError.NOT_SIGNED_IN)
-        dao.lock(LockedChat(me, cid, System.currentTimeMillis()))
+        // Open first: the user just passed the check, so the chat on screen must not flip to the lock screen.
         _lockedChatsOpen.value = true
+        dao.lock(LockedChat(me, cid, System.currentTimeMillis()))
     }
 
     /** Call only after the phone's screen-lock check succeeded. */
@@ -109,7 +110,21 @@ class ChatSettingsRepository(
     fun markLockedChatsOpen() { _lockedChatsOpen.value = true }
     fun closeLockedChats() { _lockedChatsOpen.value = false }
 
-    fun onAppBackground() { backgroundedAt = System.currentTimeMillis() }
+    @Volatile private var authInProgress = false
+
+    /** The phone's check is on screen (on older phones it is a separate screen that backgrounds the app). */
+    fun onAuthStarted() { authInProgress = true }
+
+    fun onAuthFinished(success: Boolean) {
+        authInProgress = false
+        backgroundedAt = 0L
+        if (success) markLockedChatsOpen()
+    }
+
+    fun onAppBackground() {
+        if (authInProgress) return
+        backgroundedAt = System.currentTimeMillis()
+    }
 
     /** Locked chats close again when the user comes back from elsewhere (not from PulseChat's own pickers). */
     fun onAppForeground(returningFromOwnScreen: Boolean) {
