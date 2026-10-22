@@ -80,31 +80,38 @@ database `ai-studio-android-pulsecha-2c0cef4c-b560-4944-a812-3a390d3cee6a`
 1. **Authentication** → Sign-in method: enable **Email/Password** and **Google**. Add the SHA-1/SHA-256
    of your signing keys to the Android app in Project settings (see *Stable signing key* below; every
    CI run prints the fingerprints of its APK in the "CI log digest (Android)" check and job summary).
-2. **Deploy rules, indexes/TTL and Storage rules** (from this `pulsechat/` directory):
+2. **Publish the Firestore rules** (free plan): Firebase console → Firestore → database
+   `ai-studio-android-pulsecha-…` → **Rules** → paste `firestore.rules` → **Publish**. With the CLI,
+   from this `pulsechat/` directory:
    ```bash
    npm install -g firebase-tools
    firebase login
-   firebase deploy --only firestore          # rules + TTL settings (works on the free plan)
-   firebase deploy --only storage            # only once Cloud Storage is set up (Blaze plan)
+   firebase deploy --only firestore:rules    # security rules only (works on the free plan)
    ```
-   Without the CLI, paste `firestore.rules` into Firebase console → Firestore → Rules (database
-   `ai-studio-android-pulsecha-…`) and press **Publish**. Re-publish whenever this file changes
-   (for example the `media` rules of the built-in media store).
-   `firestore.indexes.json` also defines TTL policies on `messages.expiresAt` and
-   `statuses.expiresAt` (disappearing messages and 24-hour statuses).
-3. **Cloud Functions** (push notifications; requires the Blaze plan):
+   Re-publish whenever this file changes, **after** every phone runs the matching app version: the
+   rules and the app change together (the current rules require edit history on every edit, so older
+   versions can no longer edit, and older rules reject this version's edit history and live location).
+   New rules apply within about a minute (up to 10 minutes for open listeners).
+3. **Optional, needs the Blaze plan** (a billing account; set a budget alert):
    ```bash
-   firebase deploy --only functions
+   firebase deploy --only functions            # push while the app is closed, call invitations, clean-up
+   firebase deploy --only firestore:indexes    # TTL on messages/statuses expiresAt (firestore.indexes.json)
+   firebase deploy --only storage              # only once Cloud Storage is set up
    ```
-4. **Firebase AI Logic** → enable it and choose the Gemini Developer API (the Gemini key stays on
-   Google's servers). Recommended: enable **App Check** (Play Integrity for release builds; the debug
-   provider is installed in debug builds – register its debug token printed in logcat).
+   Firestore TTL deletes have no free tier. Without TTL (or the clean-up function), expired
+   disappearing messages and statuses disappear from the phones, but their server copies remain.
+   Without the functions, notifications only arrive while the app is open or still running.
+4. **Firebase AI Logic** → **Get started** → **Gemini Developer API** (free tier; the Gemini key stays on
+   Google's servers). The setup enforces **App Check** for AI Logic, and enforcement is required from
+   2 November 2026. Debug and fast test builds attest with the App Check debug provider: each
+   installation prints its token in logcat (`Enter this debug secret into the allow list …`); add it
+   under App Check → Apps → the Android app → ⋮ → **Manage debug tokens**. Reinstalling the app
+   creates a new token. Release builds use Play Integrity.
 5. **Calls behind strict NATs** need a TURN relay. Create the Firestore document `config/webrtc` with
    `iceServers: [{ urls: ["turn:your.server:3478"], username: "...", credential: "..." }]`
    (readable by signed-in users, writable only from the console/Admin SDK).
 
-Without steps 2–3 the app shows a "backend not configured" banner and messages cannot sync; without
-step 3 notifications only arrive while the app is open.
+Without step 2 messages cannot sync and the app shows a sync banner.
 
 ## Build and run
 
@@ -130,20 +137,36 @@ CI → a run → Artifacts).
 
 ### Stable signing key (Google sign-in on CI-built APKs)
 
-Google sign-in only works for APKs whose signing-certificate fingerprint is registered in Firebase.
-By default every CI run creates a new debug key, so each new APK needs its fingerprint added. To sign
-every CI build with one key instead, create it once and store it as a repository secret:
+Google sign-in only works for APKs whose signing-certificate fingerprint is registered in Firebase,
+and Android installs a new APK over the old one only when both are signed with the same key. By
+default every CI run creates a new debug key: each new APK needs its fingerprint added, and the old
+build must be uninstalled first, which deletes what is stored only on that phone (chat locks,
+folders, reminders, scheduled messages). To sign every CI build with one key instead, create it once
+and store it as a repository secret:
 
 ```bash
 keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android \
   -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 keytool -list -v -keystore debug.keystore -storepass android     # SHA-1 and SHA-256 to add in Firebase
-base64 -w0 debug.keystore                                          # PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("debug.keystore"))
+base64 -w0 debug.keystore                                          # macOS: base64 -i debug.keystore
+```
+
+On Windows, `keytool` ships with Android Studio, and PowerShell can copy the base64 text straight to
+the clipboard:
+
+```powershell
+& "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe" -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+& "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe" -list -v -keystore debug.keystore -storepass android
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$PWD\debug.keystore")) | Set-Clipboard
 ```
 
 Add the base64 text as the secret **DEBUG_KEYSTORE_BASE64** (GitHub → Settings → Secrets and
 variables → Actions), register both fingerprints in Firebase, and keep the file in this directory
-for local builds so they use the same key. Do not commit it.
+for local builds so they use the same key. Do not commit it. The first APK signed with this key
+replaces the old build once (uninstall); later builds install over it and keep the phone's data.
+
+The secrets `SHA1_FINGERPRINT` / `SHA256_FINGERPRINT` are optional: they only make CI compare the
+APK with the registered fingerprints. A fingerprint cannot sign an APK, so they can be deleted.
 
 Release builds read `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` from the environment.
 

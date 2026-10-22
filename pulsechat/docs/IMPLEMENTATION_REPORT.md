@@ -85,8 +85,9 @@ password hashes); they have been replaced.
 ## Required external configuration
 
 See `README.md` › Firebase setup: enable Email/Password + Google auth providers and SHA
-fingerprints, deploy rules/indexes/storage/functions (Blaze plan for functions), enable Firebase
-AI Logic (Gemini Developer API) and App Check, optionally configure TURN in `config/webrtc`.
+fingerprints, publish the Firestore rules (free plan); functions, TTL policies and Storage need the
+Blaze plan (each needs billing). Enable Firebase AI Logic (Gemini Developer API) with App Check (the
+setup enforces it, and it is required from 2 November 2026), optionally configure TURN in `config/webrtc`.
 Revoke the Gemini/AI Studio token that was previously hard-coded in `GeminiApiService.kt`.
 
 ---
@@ -289,7 +290,8 @@ Android 7–12 devices (the emulator is API 34), and the call screen during a co
   it runs like a release build) — a debuggable APK is slow by nature and does not show real speed.
 * Signing check: CI compares the APK certificate with the `SHA1_FINGERPRINT` / `SHA256_FINGERPRINT`
   secrets and says so when they differ. Fingerprints can only be compared — a stable signature needs
-  the matching keystore as the `DEBUG_KEYSTORE_BASE64` secret.
+  the matching keystore as the `DEBUG_KEYSTORE_BASE64` secret. The fingerprint secrets are optional;
+  without them CI only prints the APK's fingerprints.
 
 ## Verification
 
@@ -357,6 +359,14 @@ on the new status viewer.
   tile usage policy: standard HTTPS URL, a User-Agent naming the app, cache headers honoured, only
   visible tiles, attribution always shown. For a large public release a commercial or self-hosted
   tile provider can be set in one place (`MapTiles.URL_TEMPLATE`).
+
+## Deployment order
+
+The new `firestore.rules` and this app version belong together: the rules require edit history on
+every edit (older app versions can no longer edit messages), and the previous rules reject this
+version's edit history and live-location writes. Install the new version on every phone (and update
+the web client if it is used), then publish the rules. Nothing else needs deploying: no new
+indexes, functions or Storage rules.
 
 ## Verification
 
