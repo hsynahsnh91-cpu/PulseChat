@@ -247,3 +247,62 @@ animations are turned off (`rememberReducedMotion`). Nothing delays an action.
 representative), physical devices with display cutouts or foldables, TalkBack walk-through, landscape,
 Android 7–12 devices (the emulator is API 34), and the call screen during a connected two-party call
 (the tour only shows the ringing state).
+
+# Rounder design, status views, contact sharing and message order (October 2026)
+
+## Root causes found
+
+* **"Connecting…" that never went away** — the chat-list listener asked only for document changes,
+  so a listener that started from the local cache and then found nothing new on the server never got
+  a "server confirmed" snapshot and the sync state stayed `CONNECTING`. The listener now also
+  receives metadata changes (`MetadataChanges.INCLUDE`), so the state becomes live as soon as the
+  server answers. The banner itself was removed (offline and error banners stay).
+* **A voice note jumping above newer messages** — messages were stamped with the device clock
+  corrected by a server-clock estimate that came from the time an upload was acknowledged. A slow
+  upload (voice notes, photos) made the estimate jump, so later messages could get earlier times. Every
+  send now gets `max(now, newest message in the chat + 1 ms)` (`domain/MessageOrder`), the estimate
+  comes only from fast round trips (midpoint of request and reply, < 3 s) and a pending local write
+  keeps its local time instead of being reordered by a half-written server timestamp.
+* **"Unknown" author on status updates** — when a status arrived while that person's profile was
+  still being fetched, the status was stored without a name and kept it. The profile refresh now
+  updates the name and photo of that person's status updates (`StatusDao.updateAuthor`).
+
+## What changed
+
+* Shapes: radii 8/12/16/24/28 dp, bubbles 20 dp, pill buttons, chips and search fields; settings,
+  conversation info and the about page use rounded grouped cards; Material Symbols Rounded icons in the
+  bottom bar (filled when selected) and rounded variants everywhere else.
+* Diagnostics: no longer listed in Settings; a long press on the version number in About opens it. The
+  screen and all its checks are unchanged.
+* Status: "My status" shows an eye and the number of people who viewed (no names there). The viewer was
+  rebuilt — rounded progress segments that move every frame, header with photo, name and time, tap
+  left/right, hold to pause (hides the chrome), swipe down to close, swipe up for the viewer list (own
+  updates: names and time of viewing) or for the reply field (others: reply and quick reactions sent to
+  the chat with a quote of the status), pause in background, the next photo preloaded, videos timed by
+  their real length.
+* Contact sharing: the attach sheet's "Contact" opens a searchable list of the user's PulseChat
+  contacts and chat partners (no blocked people) and sends their @username; the received card has a
+  "Message" button that opens the chat with that person. The phone's contact picker is no longer used.
+* Speed on Android 7–11 and low-RAM phones: fade-only 150 ms screen changes and no bubble shadows
+  (`DevicePerformance` + `LocalLiteMode`). CI also builds `pulsechat-fast-apk` (`optimized` build type:
+  the same app with the debug signing key, so it installs over the debug build, but not debuggable, so
+  it runs like a release build) — a debuggable APK is slow by nature and does not show real speed.
+* Signing check: CI compares the APK certificate with the `SHA1_FINGERPRINT` / `SHA256_FINGERPRINT`
+  secrets and says so when they differ. Fingerprints can only be compared — a stable signature needs
+  the matching keystore as the `DEBUG_KEYSTORE_BASE64` secret.
+
+## Verification
+
+* Unit tests (JVM/Robolectric): message order and server-clock estimate, status play order and
+  duration, contact search and the "Message" action on shared contacts, the views count on "My status"
+  (only the number, no action), and the queries behind the views count, author names, newest message
+  and shareable contacts (`Request14DaoTest`).
+* Instrumented (API 34 emulator + Firebase emulators): the existing suites; the diagnostics test now
+  opens the screen through the long press in About; the screenshot tour posts real status updates
+  (Bob posts, Alice views and posts) and captures the updates tab, my status with its viewer list, a
+  status from someone else, the contact-sharing sheet, about and diagnostics in light, dark Arabic and
+  large-text layouts. Results for the head commit are listed on pull request #4.
+
+**Not verified:** speed on real Android 9–11 phones (emulators do not represent frame timing), a stable
+APK signature (needs the `DEBUG_KEYSTORE_BASE64` secret), video statuses on real devices, and TalkBack
+on the new status viewer.

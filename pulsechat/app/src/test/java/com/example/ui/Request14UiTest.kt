@@ -103,8 +103,9 @@ class Request14UiTest {
                 )
             }
         }
-        compose.onNodeWithTag("my_status_views").assertContentDescriptionEquals("3 views").assertHasNoClickAction()
-        compose.onNodeWithText("3").assertDoesNotExist() // merged into the description, read as "3 views"
+        // The row is one TalkBack item ("My status, <time>, 3 views"); the count itself has no action.
+        compose.onNodeWithTag("my_status_views", useUnmergedTree = true).assertContentDescriptionEquals("3 views").assertHasNoClickAction()
+        compose.onNodeWithText("3").assertDoesNotExist() // read as "3 views", never as a bare number
     }
 
     @Test
@@ -114,6 +115,6 @@ class Request14UiTest {
                 UpdatesTab(ui = UpdatesUi(), me = null, onMyStatus = {}, onAddText = {}, onOpen = {}, onRetry = {}, myViews = 0, contentPadding = PaddingValues())
             }
         }
-        compose.onNodeWithTag("my_status_views").assertDoesNotExist()
+        compose.onNodeWithTag("my_status_views", useUnmergedTree = true).assertDoesNotExist()
     }
 }

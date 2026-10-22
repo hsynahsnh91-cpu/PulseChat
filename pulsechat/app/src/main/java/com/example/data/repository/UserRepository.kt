@@ -79,6 +79,8 @@ class UserRepository(
                 statusMessage = if (about.second) about.first?.getString("text").orEmpty() else "",
             )
             db.userDao().upsert(user)
+            // Status updates that arrived before this profile showed "Unknown" until they changed.
+            if (user.displayName.isNotBlank()) db.statusDao().updateAuthor(uid, user.displayName, user.avatarUrl)
         } catch (e: Exception) {
             Log.w(TAG, "refreshProfile($uid) failed: ${e.message}")
         } finally {

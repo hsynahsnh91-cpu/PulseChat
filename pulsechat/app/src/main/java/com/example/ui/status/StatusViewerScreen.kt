@@ -6,6 +6,7 @@ import android.widget.VideoView
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -69,7 +70,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -267,10 +267,11 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
                 LaunchedEffect(current.statusId, restartKey, paused, ready, timed) {
                     if (paused || !ready || !timed) return@LaunchedEffect
                     // Frame time rather than an animation, so "Remove animations" does not skip updates.
+                    // (The "infinite animation" frame variant behaves the same on phones; UI tests pause it.)
                     val total = StatusPolicy.displayMillis(current.mediaType == TYPE_TEXT, current.text?.length ?: 0).toFloat()
-                    var last = withFrameMillis { it }
+                    var last = withInfiniteAnimationFrameMillis { it }
                     while (progress.floatValue < 1f) {
-                        val now = withFrameMillis { it }
+                        val now = withInfiniteAnimationFrameMillis { it }
                         progress.floatValue = (progress.floatValue + (now - last) / total).coerceAtMost(1f)
                         last = now
                     }
@@ -566,10 +567,10 @@ private fun StatusVideo(uri: String, paused: Boolean, progress: MutableFloatStat
         if (duration <= 0) return@LaunchedEffect
         // Smooth segment: advance with the frame clock and re-read the real position twice a second
         // (each player query is a call into the media service, too costly for every frame).
-        var lastFrame = withFrameMillis { it }
+        var lastFrame = withInfiniteAnimationFrameMillis { it }
         var lastSync = 0L
         while (true) {
-            val now = withFrameMillis { it }
+            val now = withInfiniteAnimationFrameMillis { it }
             if (now - lastSync >= 500) {
                 progress.floatValue = (v.currentPosition.toFloat() / duration).coerceIn(0f, 1f)
                 lastSync = now

@@ -90,7 +90,7 @@ fun ShareContactSheet(contacts: List<ContactRow>?, onDismiss: () -> Unit, onPick
             )
             OutlinedTextField(
                 value = query, onValueChange = { query = it.take(64) }, singleLine = true,
-                placeholder = { Text(stringResource(R.string.contact_share_search)) },
+                placeholder = { Text(stringResource(R.string.contact_share_search), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_clear)) }

@@ -94,7 +94,7 @@ class StatusRepository(
             users.refreshProfile(owner)
             val author = db.userDao().get(owner)
             val existing = db.statusDao().get(doc.id)
-            db.statusDao().upsert(RemoteMappers.status(doc, existing, author?.displayName.orEmpty(), author?.avatarUrl))
+            db.statusDao().upsert(RemoteMappers.status(doc, existing, author?.displayName ?: existing?.authorName.orEmpty(), author?.avatarUrl ?: existing?.authorPhotoUrl))
             if (owner == me && !viewRegs.containsKey(doc.id)) listenViews(doc.id)
         }
     }

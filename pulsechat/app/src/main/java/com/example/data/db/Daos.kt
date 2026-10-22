@@ -455,6 +455,10 @@ interface StatusDao {
     )
     fun observeViews(statusId: String): Flow<List<StatusViewRow>>
 
+    /** Keeps the author name and photo of status updates in step with the author's profile. */
+    @Query("UPDATE statuses SET authorName = :name, authorPhotoUrl = :photo WHERE userId = :userId")
+    suspend fun updateAuthor(userId: String, name: String, photo: String?)
+
     /** People who have seen at least one of these status updates (each person counted once). */
     @Query("SELECT COUNT(DISTINCT viewerId) FROM status_views WHERE statusId IN (:statusIds)")
     fun observeViewerCount(statusIds: List<String>): Flow<Int>
