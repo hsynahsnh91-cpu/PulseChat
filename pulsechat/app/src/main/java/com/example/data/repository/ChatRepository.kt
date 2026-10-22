@@ -624,6 +624,12 @@ class ChatRepository(
         }
     }
 
+    private fun touchConversation(batch: WriteBatch, cid: String, lastPreview: String? = null) {
+        val values = mutableMapOf<String, Any?>("updatedAt" to FieldValue.serverTimestamp())
+        if (lastPreview != null) values["lastMessage.preview"] = lastPreview
+        batch.update(convRef(cid), values)
+    }
+
     private fun touchConversationBestEffort(cid: String, lastPreview: String? = null) {
         val values = mutableMapOf<String, Any?>("updatedAt" to FieldValue.serverTimestamp())
         if (lastPreview != null) values["lastMessage.preview"] = lastPreview

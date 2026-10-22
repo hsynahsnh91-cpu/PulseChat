@@ -93,6 +93,13 @@ object QrCodec {
         return decodeFromBinaryGrid(binary, width, height)
     }
 
+    fun decodeLuminance(
+        yPlane: ByteArray,
+        width: Int,
+        height: Int,
+        rowStride: Int = width,
+    ): String? = decodeFromLuminance(yPlane, width, height, rowStride)
+
     internal fun decodeFromBinaryGrid(binary: Array<BooleanArray>, width: Int, height: Int): String? {
         // 1. Fast bounding-box grid extraction for clean / axis-aligned QR images
         extractAxisAlignedGrid(binary, width, height)?.let { matrix ->

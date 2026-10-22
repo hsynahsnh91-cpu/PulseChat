@@ -38,6 +38,7 @@ object DevicePairingPolicy {
     const val QR_SCHEME = "pulsechat"
     const val QR_HOST = "pair"
     const val QR_VERSION = 1
+    const val PROTOCOL_VERSION = QR_VERSION
     const val MAX_QR_LENGTH = 256
     const val MANUAL_CODE_LENGTH = 8
 
@@ -55,11 +56,12 @@ object DevicePairingPolicy {
         APPROVED("approved"),
         COMPLETED("completed"),
         REJECTED("rejected"),
+        CANCELLED("cancelled"),
         EXPIRED("expired"),
         REVOKED("revoked");
 
         val isTerminal: Boolean
-            get() = this == COMPLETED || this == REJECTED || this == EXPIRED || this == REVOKED
+            get() = this == COMPLETED || this == REJECTED || this == CANCELLED || this == EXPIRED || this == REVOKED
 
         companion object {
             fun fromWire(value: String?): PairingStatus =
@@ -81,6 +83,7 @@ object DevicePairingPolicy {
         ANDROID_PHONE("android_phone"),
         ANDROID_TABLET("android_tablet"),
         WEB("web"),
+        OTHER("other"),
         UNKNOWN("unknown");
 
         companion object {
@@ -92,8 +95,10 @@ object DevicePairingPolicy {
     enum class PairingError {
         INVALID_QR,
         UNSUPPORTED_VERSION,
+        INVALID_MANUAL_CODE,
         EXPIRED,
         REJECTED,
+        CANCELLED,
         ALREADY_CONSUMED,
         UNAUTHORIZED,
         DEVICE_REVOKED,
@@ -102,10 +107,18 @@ object DevicePairingPolicy {
         RATE_LIMITED,
         ALREADY_SIGNED_IN_DIFFERENT_ACCOUNT,
         NETWORK,
+        SESSION_NOT_FOUND,
+        INVALID_STATE,
+        CRYPTO_FAILURE,
         BACKEND_UNAVAILABLE,
+        UNKNOWN,
     }
 
-    class PairingException(val error: PairingError, message: String = error.name) : Exception(message)
+    class PairingException(
+        val error: PairingError,
+        message: String? = error.name,
+        cause: Throwable? = null,
+    ) : Exception(message ?: error.name, cause)
 
     /**
      * Minimal, non-sensitive QR payload displayed on the requesting device.
@@ -123,7 +136,9 @@ object DevicePairingPolicy {
         val approverEphemeralPublicKey: String,
         val ivBase64Url: String,
         val ciphertextBase64Url: String,
-    )
+    ) {
+        val approverEphemeralPublicKeySpki: String get() = approverEphemeralPublicKey
+    }
 
     /** Enforce valid state transitions; terminal or consumed sessions can never be approved or completed. */
     fun canTransition(
@@ -165,6 +180,11 @@ object DevicePairingPolicy {
         require(FINGERPRINT_REGEX.matches(payload.keyFingerprint)) { "Invalid keyFingerprint" }
         return "$QR_SCHEME://$QR_HOST?v=${payload.version}&s=${payload.sessionId}&k=${payload.codeVerifier}&f=${payload.keyFingerprint.lowercase()}"
     }
+
+    fun buildQrUri(payload: QrPairingPayload): String = encodeQrUri(payload)
+
+    fun verifySecretProof(secretOrVerifier: String, expectedSha256Hex: String): Boolean =
+        constantTimeEquals(sha256Hex(secretOrVerifier), expectedSha256Hex.lowercase())
 
     /**
      * Strictly validates untrusted QR scanner input. Rejects malformed URIs, unknown versions,
@@ -388,6 +408,29 @@ object DevicePairingPolicy {
         )
     }
 
+    fun sealAuthEnvelope(
+        requesterEphemeralPublicKeySpki: String,
+        sessionId: String,
+        ownerUid: String,
+        requesterDeviceId: String,
+        secretHash: String,
+        codeChallenge: String,
+        plaintextJson: String,
+    ): SealedAuthEnvelope = try {
+        sealAuthEnvelope(
+            approverEphKeyPair = generateEphemeralP256KeyPair(),
+            requesterEphPubSpkiBase64 = requesterEphemeralPublicKeySpki,
+            sessionId = sessionId,
+            ownerUid = ownerUid,
+            requesterDeviceId = requesterDeviceId,
+            secretHash = secretHash,
+            codeChallenge = codeChallenge,
+            plaintext = plaintextJson,
+        )
+    } catch (e: Exception) {
+        throw PairingException(PairingError.CRYPTO_FAILURE, e.message, e)
+    }
+
     /**
      * Decrypts and authenticates a [SealedAuthEnvelope] using the requesting device's in-memory
      * ephemeral P-256 private key and session parameters. Throws on any tampering or mismatch.
@@ -424,6 +467,34 @@ object DevicePairingPolicy {
             sharedSecret.fill(0)
             aesKey.fill(0)
         }
+    }
+
+    fun openAuthEnvelope(
+        requesterEphemeralPrivateKey: PrivateKey,
+        approverEphemeralPublicKeySpki: String,
+        sessionId: String,
+        ownerUid: String,
+        requesterDeviceId: String,
+        secretHash: String,
+        codeChallenge: String,
+        ivBase64Url: String,
+        ciphertextBase64Url: String,
+    ): String = try {
+        openAuthEnvelope(
+            requesterEphPrivateKey = requesterEphemeralPrivateKey,
+            envelope = SealedAuthEnvelope(
+                approverEphemeralPublicKey = approverEphemeralPublicKeySpki,
+                ivBase64Url = ivBase64Url,
+                ciphertextBase64Url = ciphertextBase64Url,
+            ),
+            sessionId = sessionId,
+            ownerUid = ownerUid,
+            requesterDeviceId = requesterDeviceId,
+            secretHash = secretHash,
+            codeChallenge = codeChallenge,
+        )
+    } catch (e: Exception) {
+        throw PairingException(PairingError.CRYPTO_FAILURE, e.message, e)
     }
 
     /** RFC 5869 HKDF-SHA256 producing a 32-byte (256-bit) key. */
@@ -541,3 +612,10 @@ object DevicePairingPolicy {
         }
     }
 }
+
+typealias PairingSessionStatus = DevicePairingPolicy.PairingStatus
+typealias LinkedDeviceStatus = DevicePairingPolicy.LinkedDeviceStatus
+typealias DeviceKind = DevicePairingPolicy.DeviceKind
+typealias PairingError = DevicePairingPolicy.PairingError
+typealias PairingException = DevicePairingPolicy.PairingException
+typealias PairingQrPayload = DevicePairingPolicy.QrPairingPayload

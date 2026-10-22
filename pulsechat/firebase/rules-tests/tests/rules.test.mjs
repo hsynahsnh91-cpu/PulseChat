@@ -484,9 +484,10 @@ describe("device linking and linked-device revocation", () => {
 
   test("unauthenticated new device creates a short-lived pairing session; listing is forbidden", async () => {
     const data = await makeSession();
-    const batch = writeBatch(anon());
-    batch.set(doc(anon(), `devicePairings/${SESS}`), data);
-    batch.set(doc(anon(), `devicePairingCodes/${data.manualCodeHash}`), {
+    const anonFs = anon();
+    const batch = writeBatch(anonFs);
+    batch.set(doc(anonFs, `devicePairings/${SESS}`), data);
+    batch.set(doc(anonFs, `devicePairingCodes/${data.manualCodeHash}`), {
       sessionId: SESS,
       codeVerifier: VERIFIER,
       keyFingerprint: data.requesterKeyFingerprint,
@@ -494,15 +495,15 @@ describe("device linking and linked-device revocation", () => {
       expiresAt: data.expiresAt,
     });
     await assertSucceeds(batch.commit());
-    await assertSucceeds(getDoc(doc(anon(), `devicePairings/${SESS}`)));
-    await assertFails(getDocs(collection(anon(), "devicePairings")));
+    await assertSucceeds(getDoc(doc(anonFs, `devicePairings/${SESS}`)));
+    await assertFails(getDocs(collection(anonFs, "devicePairings")));
     await assertFails(getDocs(collection(db("alice"), "devicePairings")));
     await assertFails(getDocs(collection(db("alice"), "devicePairingCodes")));
 
     // Reject pre-approved, pre-owned, or long-TTL sessions
-    await assertFails(setDoc(doc(anon(), "devicePairings/sess_bad_status_012345678"), await makeSession({ sessionId: "sess_bad_status_012345678", status: "approved" })));
-    await assertFails(setDoc(doc(anon(), "devicePairings/sess_bad_owner_0123456789"), await makeSession({ sessionId: "sess_bad_owner_0123456789", ownerUid: "alice" })));
-    await assertFails(setDoc(doc(anon(), "devicePairings/sess_bad_ttl_012345678901"), await makeSession({
+    await assertFails(setDoc(doc(anonFs, "devicePairings/sess_bad_status_012345678"), await makeSession({ sessionId: "sess_bad_status_012345678", status: "approved" })));
+    await assertFails(setDoc(doc(anonFs, "devicePairings/sess_bad_owner_0123456789"), await makeSession({ sessionId: "sess_bad_owner_0123456789", ownerUid: "alice" })));
+    await assertFails(setDoc(doc(anonFs, "devicePairings/sess_bad_ttl_012345678901"), await makeSession({
       sessionId: "sess_bad_ttl_012345678901",
       expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60_000),
     })));
@@ -511,10 +512,13 @@ describe("device linking and linked-device revocation", () => {
   test("approval requires authenticated owner and valid QR codeVerifier proof; consumo is strictly one-time", async () => {
     await seedPeople();
     const data = await makeSession();
-    await setDoc(doc(anon(), `devicePairings/${SESS}`), data);
+    const anonFs = anon();
+    const aliceFs = db("alice");
+    const bobFs = db("bob");
+    await setDoc(doc(anonFs, `devicePairings/${SESS}`), data);
 
     // Unauthenticated or wrong codeVerifier Proof fails
-    await assertFails(updateDoc(doc(anon(), `devicePairings/${SESS}`), {
+    await assertFails(updateDoc(doc(anonFs, `devicePairings/${SESS}`), {
       status: "approved",
       ownerUid: "alice",
       approvedByDeviceId: "dev_primary_01",
@@ -522,7 +526,7 @@ describe("device linking and linked-device revocation", () => {
       updatedAt: serverTimestamp(),
       codeVerifierProof: VERIFIER,
     }));
-    await assertFails(updateDoc(doc(db("alice"), `devicePairings/${SESS}`), {
+    await assertFails(updateDoc(doc(aliceFs, `devicePairings/${SESS}`), {
       status: "approved",
       ownerUid: "alice",
       approvedByDeviceId: "dev_primary_01",
@@ -532,7 +536,7 @@ describe("device linking and linked-device revocation", () => {
     }));
 
     // Cannot substitute requesterDeviceId or requesterPublicKey during approval
-    await assertFails(updateDoc(doc(db("alice"), `devicePairings/${SESS}`), {
+    await assertFails(updateDoc(doc(aliceFs, `devicePairings/${SESS}`), {
       status: "approved",
       ownerUid: "alice",
       approvedByDeviceId: "dev_primary_01",
@@ -543,8 +547,8 @@ describe("device linking and linked-device revocation", () => {
     }));
 
     // Valid approval + ECDH envelope creation in one batch succeeds
-    const appBatch = writeBatch(db("alice"));
-    appBatch.update(doc(db("alice"), `devicePairings/${SESS}`), {
+    const appBatch = writeBatch(aliceFs);
+    appBatch.update(doc(aliceFs, `devicePairings/${SESS}`), {
       status: "approved",
       ownerUid: "alice",
       approvedByDeviceId: "dev_primary_01",
@@ -552,7 +556,7 @@ describe("device linking and linked-device revocation", () => {
       updatedAt: serverTimestamp(),
       codeVerifierProof: VERIFIER,
     });
-    appBatch.set(doc(db("alice"), `devicePairings/${SESS}/exchange/envelope`), {
+    appBatch.set(doc(aliceFs, `devicePairings/${SESS}/exchange/envelope`), {
       approverEphemeralPublicKey: data.ephemeralPublicKey,
       ivBase64Url: "0123456789abcdef",
       ciphertextBase64Url: "0123456789abcdef0123456789abcdef",
@@ -561,7 +565,7 @@ describe("device linking and linked-device revocation", () => {
     await assertSucceeds(appBatch.commit());
 
     // Concurrent second approval by bob fails
-    await assertFails(updateDoc(doc(db("bob"), `devicePairings/${SESS}`), {
+    await assertFails(updateDoc(doc(bobFs, `devicePairings/${SESS}`), {
       status: "approved",
       ownerUid: "bob",
       approvedByDeviceId: "dev_bob_01",
@@ -571,10 +575,10 @@ describe("device linking and linked-device revocation", () => {
     }));
 
     // Requesting device reads envelope while approved & unconsumed
-    await assertSucceeds(getDoc(doc(anon(), `devicePairings/${SESS}/exchange/envelope`)));
+    await assertSucceeds(getDoc(doc(anonFs, `devicePairings/${SESS}/exchange/envelope`)));
 
     // Completing without valid secretProof fails
-    await assertFails(updateDoc(doc(db("alice"), `devicePairings/${SESS}`), {
+    await assertFails(updateDoc(doc(aliceFs, `devicePairings/${SESS}`), {
       status: "completed",
       consumed: true,
       completedAt: serverTimestamp(),
@@ -584,8 +588,8 @@ describe("device linking and linked-device revocation", () => {
     }));
 
     // Valid one-time completion + linkedDevice creation + envelope deletion succeeds
-    const compBatch = writeBatch(db("alice"));
-    compBatch.update(doc(db("alice"), `devicePairings/${SESS}`), {
+    const compBatch = writeBatch(aliceFs);
+    compBatch.update(doc(aliceFs, `devicePairings/${SESS}`), {
       status: "completed",
       consumed: true,
       completedAt: serverTimestamp(),
@@ -593,7 +597,7 @@ describe("device linking and linked-device revocation", () => {
       secretProof: SECRET,
       deviceSignature: "MEUCIQDz0123456789abcdef0123456789abcdef",
     });
-    compBatch.set(doc(db("alice"), "users/alice/linkedDevices/dev_new_0001"), {
+    compBatch.set(doc(aliceFs, "users/alice/linkedDevices/dev_new_0001"), {
       deviceId: "dev_new_0001",
       uid: "alice",
       deviceName: "Pixel 8 Pro",
@@ -612,12 +616,12 @@ describe("device linking and linked-device revocation", () => {
       pairedByDeviceId: "dev_primary_01",
       sessionId: SESS,
     });
-    compBatch.delete(doc(db("alice"), `devicePairings/${SESS}/exchange/envelope`));
+    compBatch.delete(doc(aliceFs, `devicePairings/${SESS}/exchange/envelope`));
     await assertSucceeds(compBatch.commit());
 
     // Replay of completion or reading envelope after consumption fails
-    await assertFails(getDoc(doc(anon(), `devicePairings/${SESS}/exchange/envelope`)));
-    await assertFails(updateDoc(doc(db("alice"), `devicePairings/${SESS}`), {
+    await assertFails(getDoc(doc(anonFs, `devicePairings/${SESS}/exchange/envelope`)));
+    await assertFails(updateDoc(doc(aliceFs, `devicePairings/${SESS}`), {
       status: "completed",
       consumed: true,
       completedAt: serverTimestamp(),

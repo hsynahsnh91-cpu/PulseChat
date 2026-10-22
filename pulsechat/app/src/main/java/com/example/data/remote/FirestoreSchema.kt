@@ -75,6 +75,9 @@ fun Long.toTimestamp(): Timestamp = Timestamp(Date(this))
 fun DocumentSnapshot.millis(field: String): Long =
     getTimestamp(field, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE).millis()
 
+fun DocumentSnapshot.millisOr(field: String, default: Long): Long =
+    millis(field).takeIf { it > 0L } ?: default
+
 fun Map<*, *>.millisOf(key: String): Long = when (val v = this[key]) {
     is Timestamp -> v.millis()
     is Number -> v.toLong()

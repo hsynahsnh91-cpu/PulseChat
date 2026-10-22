@@ -1489,7 +1489,7 @@ private fun iconForDeviceKind(kind: DeviceKind): ImageVector = when (kind) {
     DeviceKind.ANDROID_PHONE -> Icons.Default.Smartphone
     DeviceKind.ANDROID_TABLET -> Icons.Default.TabletAndroid
     DeviceKind.WEB -> Icons.Default.Computer
-    DeviceKind.OTHER -> Icons.Default.Devices
+    DeviceKind.OTHER, DeviceKind.UNKNOWN -> Icons.Default.Devices
 }
 
 @Composable
@@ -1497,5 +1497,5 @@ private fun labelForDeviceKind(kind: DeviceKind): String = when (kind) {
     DeviceKind.ANDROID_PHONE -> stringResource(R.string.device_kind_android_phone)
     DeviceKind.ANDROID_TABLET -> stringResource(R.string.device_kind_android_tablet)
     DeviceKind.WEB -> stringResource(R.string.device_kind_web)
-    DeviceKind.OTHER -> stringResource(R.string.device_kind_other)
+    DeviceKind.OTHER, DeviceKind.UNKNOWN -> stringResource(R.string.device_kind_other)
 }

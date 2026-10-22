@@ -114,6 +114,7 @@ class DeviceLinkingViewModel(
             PairingError.UNAUTHORIZED -> R.string.device_link_err_unauthorized
             PairingError.DEVICE_MISMATCH -> R.string.device_link_err_device_mismatch
             PairingError.DEVICE_REVOKED -> R.string.device_link_err_device_revoked
+            PairingError.INVALID_SECRET_PROOF -> R.string.device_link_err_unauthorized
             PairingError.ALREADY_SIGNED_IN_DIFFERENT_ACCOUNT -> R.string.device_link_err_already_signed_in
             PairingError.RATE_LIMITED -> R.string.device_link_err_rate_limited
             PairingError.NETWORK -> R.string.error_network
@@ -121,7 +122,7 @@ class DeviceLinkingViewModel(
             PairingError.INVALID_STATE -> R.string.device_link_err_invalid_state
             PairingError.CRYPTO_FAILURE -> R.string.device_link_err_crypto
             PairingError.BACKEND_UNAVAILABLE -> R.string.error_backend_not_ready
-            PairingError.UNKNOWN -> R.string.error_generic
+            PairingError.UNKNOWN -> R.string.error_unknown
         }
     }
 }

@@ -932,9 +932,12 @@ class DeviceLinkRepository(
         }
 
         val parsed = try {
-            DevicePairingPolicy.parseQrUri(rawQr)
+            DevicePairingPolicy.parseQrUri(rawQr).getOrThrow()
         } catch (e: PairingException) {
             _approverState.value = ApproverScanState.Error(e.error, e.message)
+            return
+        } catch (e: Exception) {
+            _approverState.value = ApproverScanState.Error(PairingError.INVALID_QR, e.message)
             return
         }
 
