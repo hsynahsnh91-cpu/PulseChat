@@ -18,6 +18,8 @@ class MessagePolicyTest {
 
     @Test fun editAllowedOnlyForOwnRecentAckedText() {
         assertTrue(MessagePolicy.canEdit(facts(), now))
+        assertTrue(MessagePolicy.canEdit(facts(age = -5_000L), now))
+        assertFalse(MessagePolicy.canEdit(facts(age = now), now))
         assertFalse(MessagePolicy.canEdit(facts(mine = false), now))
         assertFalse(MessagePolicy.canEdit(facts(age = MessagePolicy.EDIT_WINDOW_MS + 1), now))
         assertFalse(MessagePolicy.canEdit(facts(type = MessageType.IMAGE), now))

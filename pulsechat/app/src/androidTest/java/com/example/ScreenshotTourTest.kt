@@ -10,6 +10,12 @@ import android.graphics.Shader
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.activity.compose.setContent
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.filter
+import androidx.compose.ui.test.onChildren
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -19,6 +25,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import androidx.core.content.FileProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -27,6 +35,8 @@ import com.example.data.prefs.AppLanguage
 import com.example.data.prefs.ThemeMode
 import com.example.domain.model.MessageStatus
 import com.example.domain.model.MessageType
+import com.example.ui.chat.VideoEditorDialog
+import com.example.ui.theme.PulseChatTheme
 import com.example.util.LocaleHelper
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -172,7 +182,10 @@ class ScreenshotTourTest : EmulatorE2ETest() {
         c.chatRepository.sendText(cid, "Here is the updated spec: https://example.com/specs/pulsechat-redesign-v2 – the spacing scale, motion guidelines and the new palette are in section 3.", null, emptyList())
         c.chatRepository.sendText(cid, "Ref: PULSECHAT-REDESIGN-2026-10-21-0001-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", null, emptyList())
         c.chatRepository.sendMediaUri(cid, photo(), MessageType.IMAGE, "Moodboard", null)
-        await("Bob's messages sent", 90_000) { c.db.messageDao().observeRecent(cid, 0L, 20).first().count { it.isOnServer() } >= 4 }
+        // A video: its cover travels with the message, so the bubble shows it before any download.
+        runCatching { c.chatRepository.sendMediaUri(cid, TestMedia.sampleVideo(context), MessageType.VIDEO, "Studio walk-through", null) }
+            .onFailure { Log.e("PulseTour", "video message failed", it) }
+        await("Bob's messages sent", 120_000) { c.db.messageDao().observeRecent(cid, 0L, 20).first().count { it.isOnServer() } >= 5 }
         // A status update for Alice to view (its viewers list is shown later). Long enough text to stay
         // on screen while the tour opens the viewers list.
         val statusOk = runCatching {
@@ -204,7 +217,7 @@ class ScreenshotTourTest : EmulatorE2ETest() {
                 mine != null && c.db.statusDao().observeViews(mine.statusId).first().isNotEmpty()
             }
         }.onFailure { Log.e("PulseTour", "status view did not arrive", it) }
-        c.chatRepository.ensureAiConversation(str(R.string.ai_assistant_name))
+        val aiChat = c.chatRepository.ensureAiConversation(str(R.string.ai_assistant_name))
         c.folders.create("Work", setOf(cid))
         compose.waitUntil(30_000) { compose.onAllNodesWithText("Alice Johnson").fetchSemanticsNodes().isNotEmpty() }
 
@@ -277,6 +290,104 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             goHome()
         }
 
+        // Per-chat notifications, edit history, live location and chat lock (light phone, dark Arabic).
+        // Bob writes and edits a message, then shares a live location (its points are written here
+        // directly; the location service itself is covered by Phase2FeaturesE2ETest).
+        // The photo and the video are downloaded now (the chat shots above show them before download),
+        // so Settings › Storage has media to show.
+        runCatching {
+            c.db.messageDao().observeRecent(cid, 0L, 30).first()
+                .filter { it.type == MessageType.IMAGE || it.type == MessageType.VIDEO }
+                .forEach { c.chatRepository.downloadMedia(it.messageId) }
+        }.onFailure { Log.e("PulseTour", "media download failed", it) }
+        val live = runCatching {
+            val late = c.chatRepository.sendText(cid, "Running 5 minutes late", null, emptyList())
+            await("late message sent") { c.db.messageDao().get(late.messageId)?.isOnServer() == true }
+            c.chatRepository.editMessage(late.messageId, "Running 10 minutes late, sorry!")
+            c.liveLocation.start(cid, 60 * 60_000L, 52.0116, 4.3571, 8f, System.currentTimeMillis())
+        }.onFailure { Log.e("PulseTour", "phase 2 setup failed", it) }.getOrNull()
+        for (v in listOf(variants[0], variants[2])) {
+            apply(v)
+            goHome()
+            // A fresh point, so the bubble shows a live session.
+            live?.let { c.liveLocation.publish(it, 52.0121, 4.3580, 6f, System.currentTimeMillis()) }
+            runCatching {
+                compose.onNodeWithText("Alice Johnson").performClick()
+                settle(2_000)
+                shot("${v.id}-9-edited-and-live")
+                compose.onNodeWithTag("edited_label", useUnmergedTree = true).performClick()
+                compose.waitUntil(10_000) { exists("edit_history") }
+                settle()
+                shot("${v.id}-9b-edit-history")
+                Espresso.pressBack()
+                settle()
+                // The bubble is part of its message row (one item for TalkBack), so it is found in the unmerged tree.
+                shell("cmd statusbar collapse")
+                compose.onNodeWithTag("live_location_bubble", useUnmergedTree = true).performTouchInput { click(Offset(centerX, height * 0.25f)) } // on the map
+                compose.waitUntil(10_000) { exists("live_location_screen") }
+                settle(4_000) // map tiles
+                shot("${v.id}-10-live-map")
+                goHome()
+                compose.onNodeWithText("Alice Johnson").performClick()
+                settle(1_500)
+                tap("composer_attach")
+                settle()
+                compose.onNodeWithText(str(R.string.attach_location)).performClick()
+                compose.waitUntil(10_000) { exists("location_share_sheet") }
+                settle()
+                shot("${v.id}-10b-location-sheet")
+                Espresso.pressBack()
+                settle()
+            }.onFailure { Log.e("PulseTour", "edit history / live location shots failed", it) }
+            goHome()
+            runCatching {
+                // This chat's notification settings, then the mute choices.
+                compose.onNodeWithText("Alice Johnson").performClick()
+                settle(1_500)
+                tap("chat_menu")
+                compose.onNodeWithText(str(R.string.contact_info)).performClick()
+                compose.waitUntil(10_000) { exists("info_mute") }
+                compose.onNodeWithTag("info_mute").performScrollTo()
+                settle()
+                shot("${v.id}-8-chat-notifications")
+                tap("info_mute")
+                settle()
+                shot("${v.id}-8b-mute-options")
+                compose.onNodeWithTag("mute_option_ONE_HOUR").performClick()
+                settle()
+            }.onFailure { Log.e("PulseTour", "notification settings shots failed", it) }
+            goHome()
+            runCatching {
+                // The muted mark in the list, and a locked chat behind its own entry and check.
+                c.chatSettings.lock(aiChat)
+                c.chatSettings.closeLockedChats()
+                settle(1_500)
+                shot("${v.id}-11-home-muted-locked")
+                tap("locked_chats_entry")
+                compose.waitUntil(10_000) { exists("chat_lock_gate") }
+                settle()
+                shot("${v.id}-11b-locked-gate")
+                c.chatSettings.markLockedChatsOpen()
+                compose.waitUntil(10_000) { exists("locked_chats_list") }
+                settle()
+                shot("${v.id}-11c-locked-list")
+            }.onFailure { Log.e("PulseTour", "chat lock shots failed", it) }
+            runCatching { c.chatSettings.unlock(aiChat); c.chatSettings.closeLockedChats(); c.chatSettings.setMutedUntil(cid, 0L) }
+            goHome()
+            runCatching {
+                // Storage: what PulseChat keeps on the phone, and the temporary files that can go.
+                tap("home_menu")
+                compose.onNodeWithTag("menu_settings").performClick()
+                settle()
+                compose.onNodeWithTag("settings_storage").performScrollTo().performClick()
+                compose.waitUntil(20_000) { exists("storage_summary") && compose.onAllNodesWithText(str(R.string.storage_counting)).fetchSemanticsNodes().isEmpty() }
+                settle()
+                shot("${v.id}-12-storage")
+            }.onFailure { Log.e("PulseTour", "storage shot failed", it) }
+            goHome()
+        }
+        live?.let { runCatching { c.liveLocation.stop(com.example.data.repository.LiveLocationRepository.StopReason.USER) } }
+
         // Call screen last (on the tablet layout, then the small phone), so a call problem cannot cost the
         // other screenshots.
         for (v in listOf(variants[3], variants[0])) {
@@ -298,6 +409,30 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             }
             settle(3_000)
             goHome()
+        }
+
+        // Video editor (trim and cover) on the light phone and in dark Arabic. It is opened from the
+        // gallery in the app; here the same screen is shown directly with a real video, last, because it
+        // replaces the activity's content.
+        for (v in listOf(variants[0], variants[2])) {
+            apply(v)
+            runCatching {
+                val video = TestMedia.sampleVideo(context)
+                compose.activityRule.scenario.onActivity { activity ->
+                    activity.setContent { PulseChatTheme(if (v.dark) ThemeMode.DARK else ThemeMode.LIGHT) { VideoEditorDialog(video, 32L * 1024 * 1024, onDone = {}, onDismiss = {}) } }
+                }
+                compose.waitUntil(20_000) { exists("video_trim_range") }
+                val thumbs = compose.onNodeWithTag("video_trim_range").onChildren().filter(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
+                thumbs[0].performSemanticsAction(SemanticsActions.SetProgress) { it(1_500f) }
+                compose.onNodeWithTag("video_trim_range").onChildren().filter(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))[1]
+                    .performSemanticsAction(SemanticsActions.SetProgress) { it(4_600f) }
+                compose.onNodeWithTag("video_cover_slider").performSemanticsAction(SemanticsActions.SetProgress) { it(2_400f) }
+                compose.waitUntil(15_000) {
+                    exists("video_start_frame") && compose.onAllNodesWithContentDescription(str(R.string.video_edit_cover)).fetchSemanticsNodes().isNotEmpty()
+                }
+                settle(1_500)
+                shot("${v.id}-13-video-editor")
+            }.onFailure { Log.e("PulseTour", "video editor shot failed", it) }
         }
         c.authRepository.signOut()
     }

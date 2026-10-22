@@ -71,6 +71,8 @@ class RemindersViewModel(private val c: AppContainer) : ViewModel() {
     val upcoming: StateFlow<List<Reminder>?> = c.reminders.observeUpcoming().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val past: StateFlow<List<Reminder>> = c.reminders.observePast().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val exactAllowed = MutableStateFlow(c.reminders.scheduler.canScheduleExact())
+    /** Reminders about messages of locked chats do not show their text here. */
+    val lockedChats: StateFlow<Set<String>> = c.chatSettings.observeLockedIds().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     fun refresh() {
         val before = exactAllowed.value
@@ -99,6 +101,7 @@ fun RemindersScreen(onBack: () -> Unit, openMessage: (conversationId: String, me
     val upcoming by vm.upcoming.collectAsState()
     val past by vm.past.collectAsState()
     val exact by vm.exactAllowed.collectAsState()
+    val lockedChats by vm.lockedChats.collectAsState()
     var editing by remember { mutableStateOf<Reminder?>(null) }
     LifecycleResumeEffect(Unit) {
         vm.refresh()
@@ -118,10 +121,10 @@ fun RemindersScreen(onBack: () -> Unit, openMessage: (conversationId: String, me
                 else -> LazyColumn {
                     item { SectionHeader(stringResource(R.string.reminders_upcoming)) }
                     if (list.isEmpty()) item { Text(stringResource(R.string.reminders_none_upcoming), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp)) }
-                    items(list, key = { it.id }) { r -> ReminderRow(r, onOpen = { r.conversationId?.let { openMessage(it, r.messageId) } }, onEdit = { editing = r }, onDone = { vm.done(r.id) }, onDelete = { vm.delete(r.id) }) }
+                    items(list, key = { it.id }) { r -> ReminderRow(r, r.conversationId in lockedChats, onOpen = { r.conversationId?.let { openMessage(it, r.messageId) } }, onEdit = { editing = r }, onDone = { vm.done(r.id) }, onDelete = { vm.delete(r.id) }) }
                     if (past.isNotEmpty()) {
                         item { SectionHeader(stringResource(R.string.reminders_earlier)) }
-                        items(past, key = { "p_" + it.id }) { r -> ReminderRow(r, onOpen = { r.conversationId?.let { openMessage(it, r.messageId) } }, onEdit = { editing = r }, onDone = null, onDelete = { vm.delete(r.id) }) }
+                        items(past, key = { "p_" + it.id }) { r -> ReminderRow(r, r.conversationId in lockedChats, onOpen = { r.conversationId?.let { openMessage(it, r.messageId) } }, onEdit = { editing = r }, onDone = null, onDelete = { vm.delete(r.id) }) }
                     }
                 }
             }
@@ -133,7 +136,7 @@ fun RemindersScreen(onBack: () -> Unit, openMessage: (conversationId: String, me
 }
 
 @Composable
-private fun ReminderRow(r: Reminder, onOpen: () -> Unit, onEdit: () -> Unit, onDone: (() -> Unit)?, onDelete: () -> Unit) {
+private fun ReminderRow(r: Reminder, locked: Boolean, onOpen: () -> Unit, onEdit: () -> Unit, onDone: (() -> Unit)?, onDelete: () -> Unit) {
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(enabled = r.conversationId != null, onClick = onOpen).padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
@@ -141,7 +144,7 @@ private fun ReminderRow(r: Reminder, onOpen: () -> Unit, onEdit: () -> Unit, onD
         Icon(if (r.source == ReminderSource.MESSAGE) Icons.Rounded.NotificationsActive else Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
-            Text(r.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            Text(if (locked) stringResource(R.string.reminder_locked_chat) else r.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
             Text(Formatters.dateTime(context, r.remindAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.action_more)) }

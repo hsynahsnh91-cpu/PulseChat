@@ -59,6 +59,12 @@ class AppLockManager(private val prefs: AppPreferences, private val callLive: ()
     /** Called right before PulseChat opens another app's screen (pickers, camera, share sheet, system settings). */
     fun onExternalActivityLaunched() { externalSince = System.currentTimeMillis() }
 
+    /** True while coming back from a screen PulseChat opened itself (read before [onForeground] resets it). */
+    fun isReturningFromOwnScreen(): Boolean {
+        val external = externalSince
+        return external != 0L && System.currentTimeMillis() - external < EXTERNAL_GRACE_MS
+    }
+
     fun unlock() { _locked.value = false }
     fun disableLock() { _locked.value = false }
 

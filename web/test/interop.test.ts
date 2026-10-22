@@ -7,9 +7,10 @@
  */
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
+import { onLog } from "firebase/app";
 import {
-  Bytes, collection, deleteDoc, doc, getDoc, getDocFromServer, getDocs, serverTimestamp, setDoc, Timestamp, updateDoc, waitForPendingWrites,
-  writeBatch, type Unsubscribe,
+  Bytes, collection, deleteDoc, disableNetwork, doc, enableNetwork, getDoc, getDocFromServer, getDocs, serverTimestamp, setDoc, Timestamp,
+  updateDoc, waitForPendingWrites, writeBatch, type Unsubscribe,
 } from "firebase/firestore";
 import { getBytes, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
@@ -48,10 +49,29 @@ async function newUser(base: string, displayName = base): Promise<{ pc: PulseCha
   return { pc, uid, username: name };
 }
 
+// Known Firestore emulator bug (firebase/firebase-tools#8654): a Listen stream sometimes receives a corrupted
+// frame ("RESOURCE_EXHAUSTED: Received message larger than max (554173458 vs ...)") and the SDK then waits its
+// maximum backoff, about a minute, before listening again. That pause is not what these tests check, so the
+// next wait restarts the clients' connections (pending writes and listeners carry over) and keeps waiting.
+let listenDesyncs = 0;
+let handledDesyncs = 0;
+onLog((entry) => {
+  if (entry.type === "@firebase/firestore" && entry.message.includes("'Listen'") && entry.message.includes("RESOURCE_EXHAUSTED")) listenDesyncs++;
+});
+
+async function restartConnectionsAfterDesync(what: string): Promise<boolean> {
+  if (listenDesyncs === handledDesyncs) return false;
+  handledDesyncs = listenDesyncs;
+  console.warn(`emulator Listen-stream desync (firebase-tools#8654) before: ${what}; restarting the client connections`);
+  await Promise.all(clients.map((pc) => disableNetwork(pc.db).then(() => enableNetwork(pc.db)).catch(() => undefined)));
+  return true;
+}
+
 async function until(what: string, condition: () => boolean, timeoutMs = 20_000, details?: () => string): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+  let deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (condition()) return;
+    if (await restartConnectionsAfterDesync(what)) deadline = Math.max(deadline, Date.now() + timeoutMs);
     await new Promise((r) => setTimeout(r, 25));
   }
   assert.fail(`timed out waiting for: ${what}${details ? ` (state: ${details()})` : ""}`);
@@ -122,8 +142,10 @@ describe("direct chat between two web clients", () => {
     assert.deepEqual(await searchUsers(bob.pc, "Alice"), []);
     assert.deepEqual(await searchUsers(bob.pc, alice.username.slice(0, -2)), []);
 
-    const aliceChats = live<Conversation[]>((set) => observeConversations(alice.pc, set), []);
-    const bobChats = live<Conversation[]>((set) => observeConversations(bob.pc, set), []);
+    // Listener errors are recorded so a failed wait says why (a denied or broken listener vs. a late update).
+    const listenErrors: string[] = [];
+    const aliceChats = live<Conversation[]>((set) => observeConversations(alice.pc, set, (e) => { listenErrors.push(`alice: ${e.code}`); }), []);
+    const bobChats = live<Conversation[]>((set) => observeConversations(bob.pc, set, (e) => { listenErrors.push(`bob: ${e.code}`); }), []);
 
     // Bob's first message creates dm_<low>_<high> in the same batch.
     const draft = directChat(bob.pc, alice.uid);
@@ -131,7 +153,8 @@ describe("direct chat between two web clients", () => {
     const firstId = await sendText(bob.pc, draft, "  Hello from the web 👋  ");
     const aliceConv = () => aliceChats.value.find((c) => c.id === draft.id)!;
     const bobConv = () => bobChats.value.find((c) => c.id === draft.id)!;
-    await until("chat appears for Alice", () => aliceConv()?.lastMessage?.id === firstId);
+    await until("chat appears for Alice", () => aliceConv()?.lastMessage?.id === firstId, 20_000, () =>
+      `Alice sees [${aliceChats.value.map((c) => `${c.id}:${c.lastMessage?.id ?? "-"}`).join(", ")}], listener errors [${listenErrors.join(", ")}]`);
     assert.equal(aliceConv().peerId, bob.uid);
     assert.equal(aliceConv().lastMessage?.preview, "Hello from the web 👋");
 
@@ -185,6 +208,10 @@ describe("direct chat between two web clients", () => {
       const m = aliceMessages.value.find((x) => x.id === firstId);
       return m?.text === "Hello again" && m.editedAt > 0;
     });
+    // The replaced text is kept in the message's edit history, visible to the chat's members.
+    const edited = aliceMessages.value.find((x) => x.id === firstId)!;
+    assert.deepEqual(edited.edits.map((e) => e.text), ["Hello from the web 👋"]);
+    assert.ok(edited.edits[0].at > 0);
     await until("Bob sees his photo as the last message", () => bobConv().lastMessage?.id === photoId);
     await deleteForEveryone(bob.pc, bobConv(), bobMessages.value.find((m) => m.id === photoId)!);
     await until("deletion reaches Alice", () => aliceMessages.value.find((m) => m.id === photoId)?.deleted === true);

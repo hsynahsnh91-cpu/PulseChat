@@ -12,6 +12,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,7 +23,8 @@ import org.junit.runner.RunWith
  * see docs/CALL_AUDIO.md). Verifies the invariants behind the echo/feedback fix:
  * - a double tap on "call" builds exactly one call (one peer connection, one microphone track);
  * - hanging up releases every peer connection and microphone track and cancels the call on the server;
- * - five back-to-back calls never accumulate peer connections, tracks or duplicate-pipeline warnings.
+ * - five back-to-back calls never accumulate peer connections, tracks or duplicate-pipeline warnings;
+ * - every call gets the voice-isolation step and a first automatic quality, with no settings involved.
  */
 @RunWith(AndroidJUnit4::class)
 class CallLifecycleE2ETest : EmulatorE2ETest() {
@@ -45,6 +47,13 @@ class CallLifecycleE2ETest : EmulatorE2ETest() {
         assertEquals("exactly one start succeeds: $started", 1, started.count { it })
         await("ringing") { calls.ui.value.state == CallState.RINGING }
         assertEquals(com.example.calls.CallManager.MediaCounts(1, 1), calls.mediaCounts())
+        // Voice isolation and automatic quality are part of every call (nothing to switch on).
+        assertTrue("the media engine has the voice-isolation step", calls.voiceIsolationAvailable)
+        assertNotNull("a first quality was chosen from the network", calls.quality.value)
+        val events = c.callDiagnostics.recent
+        assertTrue("voice isolation on: ${events.filter { "isolation" in it }}", events.any { "voice isolation: on" in it })
+        assertTrue("quality applied: ${events.filter { "quality" in it }}", events.any { "quality: voice" in it })
+        assertTrue("encoder limits accepted: ${events.filter { "quality limits" in it }}", events.none { "quality limits" in it })
         val firstCall = calls.ui.value.callId!!
         calls.hangUp()
         await("call cleared") { calls.ui.value.state == CallState.IDLE }

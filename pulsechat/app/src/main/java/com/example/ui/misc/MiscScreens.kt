@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -119,6 +121,23 @@ fun ArchivedScreen(onBack: () -> Unit, openChat: (String) -> Unit) {
                 ChatRow(row, vm.me, emptySet(), row.conversation.conversationId in selection, selection.isNotEmpty(),
                     onClick = { if (selection.isNotEmpty()) vm.toggleSelection(row.conversation.conversationId) else openChat(row.conversation.conversationId) },
                     onLongClick = { vm.toggleSelection(row.conversation.conversationId) })
+            }
+        }
+    }
+}
+
+/** Chats locked on this phone; reached only through [com.example.ui.security.ChatLockGuard]. */
+@Composable
+fun LockedChatsScreen(onBack: () -> Unit, openChat: (String) -> Unit) {
+    val vm: HomeViewModel = viewModel(key = "locked", factory = containerFactory { HomeViewModel(it) })
+    val locked by vm.lockedChats.collectAsState()
+    Scaffold(topBar = { BackTopBar(stringResource(R.string.chat_locked_list_title), onBack) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("locked_chats_list")) {
+            item { Text(stringResource(R.string.locked_chats_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+            if (locked.isEmpty()) item { EmptyState(Icons.Rounded.Lock, stringResource(R.string.locked_chats_empty)) }
+            items(locked, key = { it.conversation.conversationId }) { row ->
+                ChatRow(row, vm.me, emptySet(), selected = false, selectionMode = false,
+                    onClick = { openChat(row.conversation.conversationId) }, onLongClick = { openChat(row.conversation.conversationId) })
             }
         }
     }

@@ -18,6 +18,7 @@ import com.example.data.remote.RemoteMappers
 import com.example.domain.FieldError
 import com.example.domain.Ids
 import com.example.domain.Validators
+import com.example.security.DeviceKeyManager
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseNetworkException
@@ -72,6 +73,7 @@ class AuthRepository(
     private val prefs: AppPreferences,
     private val projectId: String,
     private val scope: CoroutineScope,
+    private val keyManager: DeviceKeyManager? = null,
 ) {
     private val _session = MutableStateFlow<SessionState>(SessionState.Loading)
     val session: StateFlow<SessionState> = _session.asStateFlow()
@@ -131,7 +133,11 @@ class AuthRepository(
                 ?: throw AuthException(AuthError.INVALID_CREDENTIALS)
         } else Validators.normalizeUsername(input)
         try {
-            auth.signInWithEmailAndPassword(Ids.authEmailForUsername(username, projectId), password).await()
+            val email = Ids.authEmailForUsername(username, projectId)
+            val result = auth.signInWithEmailAndPassword(email, password).await()
+            prefs.currentAuthMethod = "primary_login"
+            prefs.currentPairingSessionId = null
+            result.user?.uid?.let { keyManager?.storeAccountDelegation(it, email, password) }
             prefs.rememberAccount(username)
         } catch (e: Exception) {
             val mapped = map(e)
@@ -159,8 +165,9 @@ class AuthRepository(
         suppressEvaluation = true
         try {
             if (isUsernameTaken(uname)) throw AuthException(AuthError.USERNAME_TAKEN)
+            val email = Ids.authEmailForUsername(uname, projectId)
             val created = try {
-                auth.createUserWithEmailAndPassword(Ids.authEmailForUsername(uname, projectId), password).await()
+                auth.createUserWithEmailAndPassword(email, password).await()
             } catch (e: Exception) { throw map(e) }
             val user = created.user ?: throw AuthException(AuthError.UNKNOWN)
             try {
@@ -169,6 +176,9 @@ class AuthRepository(
                 runCatching { user.delete().await() }
                 throw map(e)
             }
+            prefs.currentAuthMethod = "primary_login"
+            prefs.currentPairingSessionId = null
+            keyManager?.storeAccountDelegation(user.uid, email, password)
             prefs.rememberAccount(uname)
         } finally {
             suppressEvaluation = false
@@ -207,7 +217,58 @@ class AuthRepository(
         val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
         try {
             auth.signInWithCredential(GoogleAuthProvider.getCredential(idToken, null)).await()
+            prefs.currentAuthMethod = "primary_login"
+            prefs.currentPairingSessionId = null
         } catch (e: Exception) { throw map(e) }
+    }
+
+    /**
+     * Completes authentication on a new device for an approved QR pairing session.
+     * Session evaluation is held until [finalizeOnServer] atomically consumes the pairing session
+     * and records the linked device; on any failure, Firebase Auth is immediately signed out.
+     */
+    suspend fun executePairedSignIn(
+        expectedUid: String,
+        sessionId: String,
+        customToken: String?,
+        delegatedEmailPassword: Pair<String, String>?,
+        alreadyConsumedByEndpoint: Boolean = false,
+        finalizeOnServer: suspend (String) -> Unit,
+    ) {
+        suppressEvaluation = true
+        try {
+            val signedInUser = when {
+                !customToken.isNullOrBlank() -> auth.signInWithCustomToken(customToken).await().user
+                delegatedEmailPassword != null ->
+                    auth.signInWithEmailAndPassword(delegatedEmailPassword.first, delegatedEmailPassword.second).await().user
+                else -> null
+            } ?: throw AuthException(AuthError.INVALID_CREDENTIALS, detail = "Missing pairing credential")
+
+            if (signedInUser.uid != expectedUid) {
+                auth.signOut()
+                throw AuthException(AuthError.INVALID_CREDENTIALS, detail = "Paired UID mismatch")
+            }
+            if (!alreadyConsumedByEndpoint) {
+                finalizeOnServer(signedInUser.uid)
+            }
+            prefs.currentAuthMethod = "qr_linked"
+            prefs.currentPairingSessionId = sessionId
+            if (delegatedEmailPassword != null) {
+                keyManager?.storeAccountDelegation(signedInUser.uid, delegatedEmailPassword.first, delegatedEmailPassword.second)
+            }
+            val profileDoc = runCatching { firestore.collection(Fs.USERS).document(signedInUser.uid).get().await() }.getOrNull()
+            if (profileDoc != null && profileDoc.exists()) {
+                val mapped = RemoteMappers.user(profileDoc, db.userDao().get(signedInUser.uid))
+                db.userDao().upsert(mapped)
+                if (mapped.username.isNotBlank()) prefs.rememberAccount(mapped.username)
+            }
+        } catch (e: Exception) {
+            runCatching { auth.signOut() }
+            throw e
+        } finally {
+            suppressEvaluation = false
+            evaluate(auth.currentUser)
+        }
     }
 
     /** Second step for new Google users: choose a unique username and display name. */
@@ -305,7 +366,10 @@ class AuthRepository(
 
     suspend fun signOut() {
         val uid = auth.currentUser?.uid
-        if (uid != null) signOutHooks.forEach { hook -> runCatching { hook(uid) }.onFailure { Log.w(TAG, "sign-out hook failed", it) } }
+        if (uid != null) {
+            keyManager?.clearAccountDelegation(uid)
+            signOutHooks.forEach { hook -> runCatching { hook(uid) }.onFailure { Log.w(TAG, "sign-out hook failed", it) } }
+        }
         auth.signOut()
         prefs.clearAccountScoped()
         runCatching { db.statusDao().clearAll() }

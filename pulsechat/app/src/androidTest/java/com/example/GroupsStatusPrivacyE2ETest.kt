@@ -69,6 +69,10 @@ class GroupsStatusPrivacyE2ETest : EmulatorE2ETest() {
 
         val group = c.chatRepository.createGroup("Pulse team", "E2E group", null, listOf(carol))
         c.chatRepository.setDisappearing(group, 86_400L)
+        // Like a person who sets the timer and then writes: the setting is confirmed and shown first
+        // (a snapshot of the brand-new group taken just before the change can still be on its way).
+        c.firestore.waitForPendingWrites().await()
+        await("timer applied on this phone") { c.db.conversationDao().get(group)?.disappearingSeconds == 86_400L }
         val welcome = c.chatRepository.sendText(group, "Welcome to the team", null, emptyList())
         assertTrue("disappearing timer applies to new messages", welcome.expiresAt > welcome.createdAt)
         await("group message acknowledged") { c.db.messageDao().get(welcome.messageId)?.status == MessageStatus.SENT }
@@ -103,7 +107,7 @@ class GroupsStatusPrivacyE2ETest : EmulatorE2ETest() {
         val mutedUntil = System.currentTimeMillis() + 8 * 60 * 60 * 1000L
         assertTrue(c.chatRepository.setPinned(group, true))
         c.chatRepository.setFavorite(group, true)
-        c.chatRepository.setMutedUntil(group, mutedUntil)
+        c.chatSettings.setMutedUntil(group, mutedUntil)
         c.chatRepository.setMarkedUnread(group, true)
         c.chatRepository.setArchived(dm, true)
         await("both statuses delivered to the audience") {
@@ -120,7 +124,7 @@ class GroupsStatusPrivacyE2ETest : EmulatorE2ETest() {
         awaitSignedIn()
         await("chat preferences restored") {
             val g = c.db.conversationDao().get(group)
-            g != null && g.isPinned && g.isFavorite && g.mutedUntil == mutedUntil && g.markedUnread
+            g != null && g.isPinned && g.isFavorite && g.markedUnread && c.chatSettings.notificationSettings(group).mutedUntil == mutedUntil
         }
         await("archived chat restored") { c.db.conversationDao().get(dm)?.isArchived == true }
         await("block list restored") { dave in c.db.contactDao().blockedIds(carol) }

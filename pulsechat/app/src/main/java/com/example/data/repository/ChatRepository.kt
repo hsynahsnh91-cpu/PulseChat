@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import android.net.Uri
+import android.util.Base64
 import android.util.Log
 import androidx.room.withTransaction
 import com.example.data.db.AppDatabase
@@ -14,9 +15,11 @@ import com.example.data.model.User
 import com.example.data.prefs.AppPreferences
 import com.example.data.remote.Fs
 import com.example.data.remote.RemoteMappers
+import com.example.data.remote.toTimestamp
 import com.example.domain.ChatListPolicy
 import com.example.domain.DeliveryPolicy
 import com.example.domain.DisappearingPolicy
+import com.example.domain.EditHistory
 import com.example.domain.GroupError
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
@@ -24,6 +27,7 @@ import com.example.domain.MessageOrder
 import com.example.domain.MessagePolicy
 import com.example.domain.PresencePolicy
 import com.example.domain.TextTools
+import com.example.domain.VideoEditMath
 import com.example.domain.model.MessageStatus
 import com.example.domain.model.MessageType
 import com.example.domain.model.TransferState
@@ -62,6 +66,9 @@ enum class ChatError {
 
 class ChatException(val error: ChatError) : Exception(error.name)
 
+/** The cover of a video message: its position (ms) and a small JPEG (Base64), from the video editor. */
+data class VideoCover(val coverMs: Long, val thumb: String?)
+
 /** Write side of messaging. Every mutation is applied to Room first, then committed to Firestore. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatRepository(
@@ -78,6 +85,8 @@ class ChatRepository(
 ) {
     /** Send failures are reported to Settings › Diagnostics (set by AppContainer). */
     var diagnostics: DiagnosticsLog? = null
+    /** Stops live sharing when its message is deleted for everyone (set by AppContainer). */
+    var onLiveLocationDeleted: ((String) -> Unit)? = null
     private val _errors = MutableSharedFlow<ChatError>(extraBufferCapacity = 8)
     /** One-off failures of background commits, surfaced as snackbars. */
     val errors: SharedFlow<ChatError> = _errors.asSharedFlow()
@@ -268,6 +277,26 @@ class ChatRepository(
         pushMessage(m, conv)
     }
 
+    /** The chat message that shows a live-location session (points are written by LiveLocationRepository). */
+    suspend fun sendLiveLocation(cid: String, lat: Double, lng: Double, liveId: String, liveUntil: Long) {
+        val me = requireUid()
+        val conv = requireWritable(cid, me)
+        val now = nextCreatedAt(conv)
+        val m = Message(
+            messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = "", type = MessageType.LOCATION,
+            status = initialStatus(), createdAt = now, locationLat = lat, locationLng = lng, liveId = liveId, liveUntil = liveUntil,
+            expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
+        )
+        insertLocal(m)
+        pushMessage(m, conv)
+    }
+
+    /** Throws when the user may not post in [cid] (checked before live sharing starts). */
+    suspend fun checkCanPost(cid: String) {
+        val me = requireUid()
+        requireWritable(cid, me)
+    }
+
     suspend fun sendPoll(cid: String, question: String, options: List<String>) {
         val me = requireUid()
         val conv = requireWritable(cid, me)
@@ -283,7 +312,7 @@ class ChatRepository(
         pushMessage(m, conv)
     }
 
-    suspend fun sendMediaUri(cid: String, uri: Uri, type: MessageType, caption: String, replyTo: Message?) {
+    suspend fun sendMediaUri(cid: String, uri: Uri, type: MessageType, caption: String, replyTo: Message?, cover: VideoCover? = null) {
         val me = requireUid()
         val conv = requireWritable(cid, me)
         val local = try {
@@ -294,7 +323,7 @@ class ChatRepository(
             Log.w(TAG, "import failed", e)
             throw ChatException(ChatError.FILE_UNREADABLE)
         }
-        sendLocalMedia(conv, me, local, MediaRepository.typeForMime(local.mime).let { if (type == MessageType.DOCUMENT) MessageType.DOCUMENT else it }, caption, null, replyTo, forwarded = false)
+        sendLocalMedia(conv, me, local, MediaRepository.typeForMime(local.mime).let { if (type == MessageType.DOCUMENT) MessageType.DOCUMENT else it }, caption, null, replyTo, forwarded = false, cover = cover)
     }
 
     suspend fun sendVoice(cid: String, file: File, durationMs: Long, waveform: List<Int>, replyTo: Message?) {
@@ -306,8 +335,14 @@ class ChatRepository(
 
     private suspend fun sendLocalMedia(
         conv: Conversation, me: String, local: LocalMedia, type: MessageType, caption: String, waveform: String?,
-        replyTo: Message?, forwarded: Boolean,
+        replyTo: Message?, forwarded: Boolean, cover: VideoCover? = null,
     ) {
+        // Every video travels with a small cover (the one chosen in the editor, or a frame near the
+        // start), so the other side sees it in the chat before downloading the video.
+        val coverMs = if (type == MessageType.VIDEO) (cover?.coverMs ?: VideoEditMath.defaultCoverMs(local.durationMs)) else 0L
+        val thumb = if (type != MessageType.VIDEO) null else {
+            cover?.thumb ?: runCatching { media.videoCover(local.path, coverMs) }.getOrNull()?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+        }
         val now = nextCreatedAt(conv)
         val id = Ids.newMessageId()
         val ext = MediaRepository.extensionFor(local.mime, local.fileName)
@@ -320,6 +355,7 @@ class ChatRepository(
                 transferState = TransferState.UPLOADING, transferProgress = 0,
                 storagePath = "chat-media/${conv.conversationId}/$me/$id.$ext", isForwarded = forwarded,
                 expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
+                mediaThumb = thumb, mediaCoverMs = coverMs,
             ), replyTo
         )
         insertLocal(m, clearDraft = caption.isNotBlank())
@@ -594,6 +630,14 @@ class ChatRepository(
         batch.update(convRef(cid), values)
     }
 
+    private fun touchConversationBestEffort(cid: String, lastPreview: String? = null) {
+        val values = mutableMapOf<String, Any?>("updatedAt" to FieldValue.serverTimestamp())
+        if (lastPreview != null) values["lastMessage.preview"] = lastPreview
+        convRef(cid).update(values).addOnFailureListener { e ->
+            Log.d(TAG, "touchConversation skipped: ${e.message}")
+        }
+    }
+
     suspend fun editMessage(messageId: String, newText: String) {
         val me = requireUid()
         val m = db.messageDao().get(messageId) ?: throw ChatException(ChatError.NOT_FOUND)
@@ -606,12 +650,32 @@ class ChatRepository(
         }
         val text = newText.trim()
         if (text == m.content) return
-        db.messageDao().update(m.copy(content = text, editedAt = serverClock.now()))
+        if (!EditHistory.canEditAgain(m.editHistory)) throw ChatException(ChatError.NOT_ALLOWED)
+        // The replaced text joins the message's edit history (readable by the chat's members only,
+        // removed with the message; see domain/EditHistory and firestore.rules editByAuthor).
+        val at = maxOf(serverClock.now(), m.createdAt + 1L)
+        db.messageDao().update(m.copy(content = text, editedAt = at, editHistory = EditHistory.append(m.editHistory, m.content, at)))
         sync.refreshLastMessage(m.conversationId)
-        val batch = firestore.batch()
-        batch.update(msgRef(m.conversationId, m.messageId), mapOf("text" to text, "editedAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()))
-        touchConversation(batch, m.conversationId, if (conv?.lastMessageId == m.messageId) TextTools.preview(text, 100) else null)
-        commit(batch) { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
+        val ref = msgRef(m.conversationId, m.messageId)
+        val baseUpdate = mapOf(
+            "text" to text,
+            "editedAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp(),
+        )
+        val withHistory = baseUpdate + ("edits" to FieldValue.arrayUnion(mapOf("text" to m.content, "at" to at.toTimestamp())))
+        val preview = if (conv?.lastMessageId == m.messageId && conv.lastMessageSenderId == me) TextTools.preview(text, 100) else null
+        ref.update(withHistory)
+            .addOnSuccessListener { touchConversationBestEffort(m.conversationId, preview) }
+            .addOnFailureListener { e ->
+                // Compatible with servers whose live rules have not yet added `edits` to editByAuthor().
+                ref.update(baseUpdate)
+                    .addOnSuccessListener { touchConversationBestEffort(m.conversationId, preview) }
+                    .addOnFailureListener { e2 ->
+                        Log.w(TAG, "editMessage failed: ${e2.message ?: e.message}")
+                        sync.enqueue { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
+                        _errors.tryEmit(ChatError.UPDATE_FAILED)
+                    }
+            }
     }
 
     suspend fun deleteForMe(ids: List<String>) {
@@ -638,20 +702,36 @@ class ChatRepository(
                     deletedForEveryone = true, content = "", mediaUrl = null, localMediaPath = null, reactions = "", isStarred = false,
                     replyToMessageId = null, replyToPreview = null, replyToSenderId = null, pollOptions = null, pollQuestion = null,
                     contactName = null, contactPhone = null, locationLat = null, locationLng = null, mentions = "", transferState = TransferState.NONE,
+                    editHistory = "", liveId = null, liveUntil = 0L, mediaThumb = null, mediaCoverMs = 0L,
                 )
             )
             media.deleteLocal(listOf(m.localMediaPath))
             sync.refreshLastMessage(m.conversationId)
-            val batch = firestore.batch()
-            batch.update(
-                msgRef(m.conversationId, m.messageId), mapOf(
-                    "deletedForEveryone" to true, "text" to "", "media" to FieldValue.delete(), "replyTo" to FieldValue.delete(),
-                    "poll" to FieldValue.delete(), "contact" to FieldValue.delete(), "location" to FieldValue.delete(),
-                    "mentions" to emptyList<String>(), "reactions" to emptyMap<String, String>(), "updatedAt" to FieldValue.serverTimestamp(),
-                )
+            val baseDelete = mapOf(
+                "deletedForEveryone" to true, "text" to "", "media" to FieldValue.delete(), "replyTo" to FieldValue.delete(),
+                "poll" to FieldValue.delete(), "contact" to FieldValue.delete(), "location" to FieldValue.delete(),
+                "mentions" to emptyList<String>(), "reactions" to emptyMap<String, String>(), "updatedAt" to FieldValue.serverTimestamp(),
             )
-            touchConversation(batch, m.conversationId, if (conv?.lastMessageId == m.messageId) "" else null)
-            commit(batch) { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
+            val withEditsDelete = baseDelete + ("edits" to FieldValue.delete())
+            val preview = if (conv?.lastMessageId == m.messageId && conv.lastMessageSenderId == me) "" else null
+            val batch = firestore.batch()
+            batch.update(msgRef(m.conversationId, m.messageId), withEditsDelete)
+            // A live location goes with its message: sharing stops and the shared points are deleted.
+            m.liveId?.let { liveId ->
+                onLiveLocationDeleted?.invoke(liveId)
+                batch.delete(convRef(m.conversationId).collection(Fs.LIVE).document(liveId))
+            }
+            batch.commit()
+                .addOnSuccessListener { touchConversationBestEffort(m.conversationId, preview) }
+                .addOnFailureListener { e ->
+                    msgRef(m.conversationId, m.messageId).update(baseDelete)
+                        .addOnSuccessListener { touchConversationBestEffort(m.conversationId, preview) }
+                        .addOnFailureListener { e2 ->
+                            Log.w(TAG, "deleteForEveryone failed: ${e2.message ?: e.message}")
+                            sync.enqueue { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
+                            _errors.tryEmit(ChatError.UPDATE_FAILED)
+                        }
+                }
             if (!m.storagePath.isNullOrBlank()) scope.launch(Dispatchers.IO) { media.deleteRemote(m.storagePath) }
         }
     }
@@ -705,7 +785,8 @@ class ChatRepository(
                         val copy = File(media.mediaDir, "fwd_${Ids.newId("m")}.${MediaRepository.extensionFor(src.mediaMimeType ?: "", src.fileName ?: "")}")
                         File(path).copyTo(copy, overwrite = true)
                         val local = LocalMedia(copy.absolutePath, src.mediaMimeType ?: "application/octet-stream", copy.length(), src.fileName ?: copy.name, src.mediaWidth, src.mediaHeight, src.mediaDurationSeconds * 1000L)
-                        sendLocalMedia(conv, me, local, src.type, src.content, src.waveform, null, forwarded = true)
+                        sendLocalMedia(conv, me, local, src.type, src.content, src.waveform, null, forwarded = true,
+                            cover = if (src.type == MessageType.VIDEO) VideoCover(src.mediaCoverMs, src.mediaThumb) else null)
                         sent++
                     } else if (src.mediaUrl != null) {
                         val m = src.copy(
@@ -785,7 +866,6 @@ class ChatRepository(
         if (archived) db.conversationDao().setPinned(cid, false, 0L)
     }
 
-    suspend fun setMutedUntil(cid: String, until: Long) = pref(cid, mapOf("mutedUntil" to until)) { db.conversationDao().setMutedUntil(cid, until) }
     suspend fun setFavorite(cid: String, favorite: Boolean) = pref(cid, mapOf("favorite" to favorite)) { db.conversationDao().setFavorite(cid, favorite) }
 
     suspend fun setMarkedUnread(cid: String, unread: Boolean) {

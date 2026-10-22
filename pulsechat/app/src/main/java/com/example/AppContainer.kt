@@ -13,9 +13,13 @@ import com.example.data.repository.AuthRepository
 import com.example.data.repository.AutoReplyManager
 import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
+import com.example.data.repository.ChatSettingsRepository
+import com.example.data.repository.DeviceLinkRepository
+import com.example.data.repository.LiveLocationRepository
 import com.example.data.repository.DiagnosticsLog
 import com.example.data.repository.FolderRepository
 import com.example.data.repository.ReminderRepository
+import com.example.data.repository.StorageManager
 import com.example.data.repository.ScheduledMessageRepository
 import com.example.data.repository.TranslationRepository
 import com.example.data.repository.MediaRepository
@@ -29,6 +33,7 @@ import com.example.media.VoicePlayer
 import com.example.notifications.NotificationHelper
 import com.example.notifications.PushTokenManager
 import com.example.security.AppLockManager
+import com.example.security.DeviceKeyManager
 import com.example.util.AppForeground
 import com.example.util.ConnectivityMonitor
 import com.example.util.EmulatorConfig
@@ -51,6 +56,7 @@ import kotlinx.coroutines.launch
 class AppContainer(val app: Application) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val prefs = AppPreferences(app)
+    val keyManager by lazy { DeviceKeyManager(app, prefs) }
     val db: AppDatabase = AppDatabase.getDatabase(app)
     val connectivity = ConnectivityMonitor(app)
     val serverClock = ServerClock()
@@ -71,8 +77,12 @@ class AppContainer(val app: Application) {
     }
 
     val media = MediaRepository(app, { storage }, { firestore }, prefs, { authRepository.currentUid })
+    /** Video editor: cuts without re-encoding, filmstrip frames and covers. */
+    val videoTrimmer get() = media.videoTrimmer
+    /** Settings › Storage: what PulseChat keeps on this phone, and clearing temporary files. */
+    val storageManager by lazy { StorageManager(app, db, media) }
     val authRepository: AuthRepository by lazy {
-        AuthRepository(auth, firestore, db, prefs, FirebaseApp.getInstance().options.projectId ?: "pulsechat", appScope)
+        AuthRepository(auth, firestore, db, prefs, FirebaseApp.getInstance().options.projectId ?: "pulsechat", appScope, keyManager)
     }
     private val uid: () -> String? = { authRepository.currentUid }
     val userRepository by lazy { UserRepository(firestore, db, prefs, media, serverClock, appScope, uid) }
@@ -83,6 +93,20 @@ class AppContainer(val app: Application) {
     val aiRepository by lazy { AiRepository() }
     val notifications by lazy { NotificationHelper(app, prefs, db) }
     val pushTokens by lazy { PushTokenManager(firestore, prefs, appScope, uid) }
+    val deviceLinkRepository by lazy {
+        DeviceLinkRepository(
+            context = app,
+            firestore = firestore,
+            authRepository = authRepository,
+            prefs = prefs,
+            keyManager = keyManager,
+            pushTokens = pushTokens,
+            notifications = notifications,
+            serverClock = serverClock,
+            projectId = FirebaseApp.getInstance().options.projectId ?: "pulsechat",
+            scope = appScope,
+        )
+    }
     val callDiagnostics by lazy { CallDiagnostics(prefs, BuildConfig.DEBUG) }
     val callManager by lazy { CallManager(app, firestore, db, callRepository, userRepository, notifications, prefs, callDiagnostics, appScope, uid) }
     val voicePlayer by lazy { VoicePlayer(app) }
@@ -92,6 +116,9 @@ class AppContainer(val app: Application) {
     val folders by lazy { FolderRepository(db, uid) }
     val translations by lazy { TranslationRepository(db) }
     val appLock by lazy { AppLockManager(prefs) { callManager.ui.value.isLive } }
+    /** Per-chat notification settings and chat locks (kept apart from the conversations themselves). */
+    val chatSettings by lazy { ChatSettingsRepository(db, syncManager, uid) }
+    val liveLocation by lazy { LiveLocationRepository(app, { firestore }, chatRepository, serverClock, uid) }
     val autoReply by lazy { AutoReplyManager(app) }
 
     /** "Show in chat" requests (conversationId to messageId) for an already open chat screen. */
@@ -107,6 +134,7 @@ class AppContainer(val app: Application) {
         }
         installAppCheck()
         chatRepository.diagnostics = diagnosticsLog
+        chatRepository.onLiveLocationDeleted = { liveId -> liveLocation.onMessageDeleted(liveId) }
         syncManager.diagnostics = diagnosticsLog
         authRepository.addSignOutHook { id -> onSignedOut(id) }
         syncManager.onIncoming = { conv, messages -> handleIncoming(conv, messages) }
@@ -125,11 +153,18 @@ class AppContainer(val app: Application) {
                 if (foreground) {
                     backgroundJob?.cancel()
                     connectivity.refresh()
+                    // Read before the app lock forgets that the user is returning from PulseChat's own picker.
+                    chatSettings.onAppForeground(appLock.isReturningFromOwnScreen())
                     appLock.onForeground()
-                    uid()?.let { startRealtime(it) }
+                    uid()?.let {
+                        startRealtime(it)
+                        appScope.launch { deviceLinkRepository.touchCurrentDevice(it, online = true) }
+                    }
                 } else {
                     appLock.onBackground()
+                    chatSettings.onAppBackground()
                     voicePlayer.stop()
+                    uid()?.let { appScope.launch { deviceLinkRepository.touchCurrentDevice(it, online = false) } }
                     backgroundJob?.cancel()
                     // Keep listeners briefly (e.g. app switching), then rely on push messages.
                     backgroundJob = appScope.launch {
@@ -166,7 +201,11 @@ class AppContainer(val app: Application) {
     }
 
     private suspend fun onSignedIn(id: String) {
+        runCatching { chatSettings.importLegacyMutes(id) }
+        // A live location whose service did not survive a restart is ended, never resumed silently.
+        liveLocation.endIfOrphaned()
         startRealtime(id)
+        deviceLinkRepository.onSignedIn(id)
         userRepository.startPresence()
         pushTokens.registerCurrentToken()
         userRepository.pullOwnSettings()
@@ -193,10 +232,13 @@ class AppContainer(val app: Application) {
 
     private suspend fun onSignedOut(id: String) {
         callManager.hangUp()
+        liveLocation.stop(LiveLocationRepository.StopReason.SIGNED_OUT)
+        chatSettings.closeLockedChats()
         runCatching { scheduledMessages.clearForSignOut(id) }
         runCatching { reminders.clearForSignOut(id) }
         userRepository.goOffline(id)
         userRepository.stopPresence()
+        deviceLinkRepository.onSignedOut(id)
         pushTokens.unregister(id)
         stopRealtime()
         notifications.cancelAllMessages()

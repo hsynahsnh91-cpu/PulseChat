@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.model.BlockedUser
+import com.example.data.model.ChatNotificationSettings
+import com.example.data.model.LockedChat
 import com.example.data.model.ChatFolder
 import com.example.data.model.ChatFolderMember
 import com.example.data.model.DiagnosticEvent
@@ -40,8 +42,11 @@ import com.example.data.model.User
         MessageTranslation::class,
         MessageTranscript::class,
         DiagnosticEvent::class,
+        // v5
+        ChatNotificationSettings::class,
+        LockedChat::class,
     ],
-    version = 4,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -59,6 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun translationDao(): TranslationDao
     abstract fun transcriptDao(): TranscriptDao
     abstract fun diagnosticDao(): DiagnosticDao
+    abstract fun chatSettingsDao(): ChatSettingsDao
 
     companion object {
         const val NAME = "pulsechat_database"

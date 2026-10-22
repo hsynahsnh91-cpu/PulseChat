@@ -2,6 +2,7 @@ package com.example.ui.calls
 
 import com.example.calls.AudioRoute
 import com.example.calls.CallStatsSnapshot
+import com.example.calls.QualityState
 import androidx.compose.material.icons.rounded.PhoneInTalk
 import androidx.compose.material.icons.rounded.Headset
 import androidx.compose.material.icons.rounded.Bluetooth
@@ -108,6 +109,7 @@ fun CallScreen(onClose: () -> Unit) {
     val ui by manager.ui.collectAsState()
     val routes by manager.audioRoutes.collectAsState()
     val stats by manager.stats.collectAsState()
+    val quality by manager.quality.collectAsState()
     val settings by container.prefs.settings.collectAsState()
     var routeMenu by remember { mutableStateOf(false) }
     val view = LocalView.current
@@ -133,7 +135,8 @@ fun CallScreen(onClose: () -> Unit) {
     LightSystemBarIcons()
     Box(Modifier.fillMaxSize().background(CallPalette.Background)) {
         val showVideo = ui.isVideo && (ui.state.isActive || ui.state == CallState.RINGING && ui.direction == CallDirection.OUTGOING || ui.state == CallState.INITIATING)
-        val remoteVideoShown = showVideo && ui.remoteVideo && ui.state.isActive
+        // If the other side's video stops arriving (weak network), their photo replaces a frozen frame.
+        val remoteVideoShown = showVideo && ui.remoteVideo && ui.state.isActive && !ui.remoteVideoPaused
         if (remoteVideoShown) {
             VideoRenderer(manager, remote = true, modifier = Modifier.fillMaxSize())
         }
@@ -210,7 +213,7 @@ fun CallScreen(onClose: () -> Unit) {
             }
         }
         if (settings.callShowDetails && ui.isLive) {
-            CallDetailsPanel(stats, routes.current, Modifier.align(Alignment.TopStart).statusBarsPadding().padding(Spacing.md))
+            CallDetailsPanel(stats, quality, ui.isVideo, routes.current, Modifier.align(Alignment.TopStart).statusBarsPadding().padding(Spacing.md))
         }
         if (ui.isVideo && ui.cameraOn && (ui.state.isActive || ui.state == CallState.RINGING || ui.state == CallState.INITIATING)) {
             VideoRenderer(manager, remote = false, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(Spacing.lg).size(width = 110.dp, height = 160.dp).clip(RoundedCornerShape(Radii.md)))
@@ -323,7 +326,7 @@ private fun routeIcon(route: AudioRoute?): ImageVector = when (route) {
 
 /** Live call-quality numbers, shown only when "Show call details" is on (Settings › Diagnostics). */
 @Composable
-private fun CallDetailsPanel(stats: CallStatsSnapshot?, route: AudioRoute?, modifier: Modifier) {
+private fun CallDetailsPanel(stats: CallStatsSnapshot?, quality: QualityState?, video: Boolean, route: AudioRoute?, modifier: Modifier) {
     fun fmt(v: Double?, digits: Int = 1) = v?.let { String.format(java.util.Locale.US, "%.${digits}f", it) } ?: "–"
     Column(modifier.clip(RoundedCornerShape(Radii.sm)).background(CallPalette.Scrim).padding(10.dp)) {
         val style = MaterialTheme.typography.labelSmall
@@ -337,6 +340,14 @@ private fun CallDetailsPanel(stats: CallStatsSnapshot?, route: AudioRoute?, modi
         if (stats.echoReturnLossEnhancementDb != null) Text(stringResource(R.string.call_details_echo, fmt(stats.echoReturnLossEnhancementDb)), color = Color.White, style = style)
         Text(stringResource(R.string.call_details_streams, stats.inboundAudioStreams, stats.outboundAudioStreams),
             color = if (stats.duplicateAudio) CallPalette.Warning else Color.White, style = style)
+        if (quality != null) {
+            val bandwidth = stats.availableOutKbps?.toString() ?: "–"
+            Text(
+                if (video) stringResource(R.string.call_details_quality_video, quality.video.label, quality.audio.maxKbps, bandwidth)
+                else stringResource(R.string.call_details_quality_voice, quality.audio.maxKbps, bandwidth),
+                color = Color.White, style = style,
+            )
+        }
         if (route != null) Text(routeName(route), color = Color.White, style = style)
     }
 }

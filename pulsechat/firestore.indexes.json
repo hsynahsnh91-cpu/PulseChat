@@ -17,6 +17,22 @@
       "indexes": [
         { "order": "ASCENDING", "queryScope": "COLLECTION" }
       ]
+    },
+    {
+      "collectionGroup": "devicePairings",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" }
+      ]
+    },
+    {
+      "collectionGroup": "devicePairingCodes",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" }
+      ]
     }
   ]
 }

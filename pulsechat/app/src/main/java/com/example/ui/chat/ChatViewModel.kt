@@ -7,17 +7,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.AppContainer
 import com.example.R
+import com.example.data.model.ChatNotificationSettings
 import com.example.data.model.Contact
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.Receipt
 import com.example.data.model.User
 import com.example.data.prefs.AppSettings
+import com.example.data.repository.VideoCover
 import com.example.data.repository.AiError
 import com.example.data.repository.AiException
 import com.example.data.repository.AiRepository
 import com.example.data.repository.ChatError
 import com.example.data.repository.DiagnosticsLog
+import com.example.data.repository.LiveLocationRepository
+import com.example.location.LiveLocationService
+import com.example.data.repository.LiveLocationView
 import com.example.data.repository.ScheduleException
 import com.example.data.repository.TranslationException
 import com.example.data.model.MessageTranscript
@@ -97,6 +102,22 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
     val events: SharedFlow<ChatEvent> = _events.asSharedFlow()
 
     val conversation: StateFlow<Conversation?> = repo.observeConversation(conversationId).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    /** This chat's own notification settings (mute, preview), separate from the conversation. */
+    val notificationSettings: StateFlow<ChatNotificationSettings?> =
+        c.chatSettings.observeNotificationSettings(conversationId).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val locked: StateFlow<Boolean> = c.chatSettings.observeIsLocked(conversationId).stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    /** The live location this phone shares now (in this chat or another). */
+    val liveSession: StateFlow<LiveLocationRepository.Session?> = c.liveLocation.active
+
+    fun observeLive(m: Message): Flow<LiveLocationView?> = m.liveId?.let { c.liveLocation.observe(m.conversationId, it) } ?: flowOf(null)
+    /** ID of the live location this phone shares now (only that one has a Stop button). */
+    val activeLiveId: StateFlow<String?> = c.liveLocation.active.map { it?.liveId }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Stops [m]'s session only if it is the one this phone is sharing. */
+    fun stopLiveLocation(m: Message) {
+        if (c.liveLocation.active.value?.liveId == m.liveId) stopLiveLocation()
+    }
+    fun serverNow(): Long = c.serverClock.now()
     private val limit = MutableStateFlow(PAGE)
     val messages: StateFlow<List<Message>> = limit.flatMapLatest { repo.observeMessages(conversationId, it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -304,10 +325,10 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
         launchSafely { repo.sendText(conversationId, text, reply, mentions) }
     }
 
-    fun sendMedia(uri: Uri, type: MessageType, caption: String) {
+    fun sendMedia(uri: Uri, type: MessageType, caption: String, cover: VideoCover? = null) {
         val reply = replyTo.value
         replyTo.value = null
-        launchSafely { repo.sendMediaUri(conversationId, uri, type, caption, reply) }
+        launchSafely { repo.sendMediaUri(conversationId, uri, type, caption, reply, cover) }
     }
 
     fun sendContact(name: String, phone: String) = launchSafely { repo.sendContact(conversationId, name, phone) }
@@ -479,7 +500,33 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
     // ------------------------------------------------------------------ conversation actions
 
     fun unblockPeer() = launchSafely { conversation.value?.peerId?.let { c.userRepository.unblock(it) } }
-    fun setMuted(until: Long) = launchSafely { repo.setMutedUntil(conversationId, until) }
+    fun setMuted(until: Long) = launchSafely { c.chatSettings.setMutedUntil(conversationId, until) }
+
+    /** Call only after the phone's screen-lock check succeeded. */
+    fun setLocked(lock: Boolean) = launchSafely {
+        if (lock) {
+            c.chatSettings.lock(conversationId)
+            // Notifications already on screen may show this chat's messages: remove them.
+            c.notifications.cancelConversation(conversationId)
+            toast(R.string.chat_lock_done)
+        } else {
+            c.chatSettings.unlock(conversationId)
+            toast(R.string.chat_lock_removed)
+        }
+    }
+
+    /** Starts sharing after the user's explicit choice; [fixTime] is the device time of the first point. */
+    fun startLiveLocation(durationMs: Long, lat: Double, lng: Double, accuracy: Float, fixTime: Long) = launchSafely {
+        c.liveLocation.start(conversationId, durationMs, lat, lng, accuracy, fixTime)
+        try {
+            LiveLocationService.start(c.app)
+        } catch (e: Exception) {
+            c.liveLocation.stop(LiveLocationRepository.StopReason.FAILED)
+            throw e
+        }
+    }
+
+    fun stopLiveLocation() = c.liveLocation.stop(LiveLocationRepository.StopReason.USER)
     fun clearChat(keepStarred: Boolean) = launchSafely { repo.clearChat(conversationId, keepStarred) }
     fun setDisappearing(seconds: Long) = launchSafely { repo.setDisappearing(conversationId, seconds) }
     fun blockPeer() = launchSafely { conversation.value?.peerId?.let { c.userRepository.block(it) } }

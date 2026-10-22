@@ -7,7 +7,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,6 +51,9 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Timer
@@ -83,6 +88,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -103,6 +109,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -115,9 +122,12 @@ import com.example.data.model.ScheduledState
 import com.example.data.model.ScheduledMessage
 import com.example.data.model.Conversation
 import com.example.data.model.Message
+import com.example.data.repository.VideoCover
 import com.example.domain.DisappearingPolicy
+import com.example.domain.DurationFormat
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
+import com.example.domain.MediaLimits
 import com.example.domain.MessagePolicy
 import com.example.domain.NetworkKind
 import com.example.domain.TextTools
@@ -129,6 +139,13 @@ import com.example.ui.common.AiConsentDialog
 import com.example.ui.common.Banner
 import com.example.ui.common.ChoiceDialog
 import com.example.ui.common.ConfirmDialog
+import com.example.ui.common.MuteDialog
+import com.example.ui.location.LiveLocationSupport
+import com.example.ui.location.LocationShareSheet
+import com.example.ui.security.DeviceAuth
+import com.example.ui.security.LockChatDialog
+import com.example.ui.security.NoScreenLockDialog
+import com.example.ui.security.rememberDeviceAuth
 import com.example.ui.common.Formatters
 import com.example.ui.common.appContainer
 import com.example.ui.common.containerFactory
@@ -137,7 +154,9 @@ import com.example.ui.components.UserAvatar
 import com.example.ui.status.MediaCaptionDialog
 import com.example.ui.theme.PulseTheme
 import com.example.util.LocationHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -173,6 +192,8 @@ data class ChatNav(
     val openMediaBrowser: (String) -> Unit = {},
     /** Opens another chat (from a shared contact card). */
     val openChat: (String) -> Unit = {},
+    /** Opens the full-screen map of a live location (conversation ID, live ID). */
+    val openLiveLocation: (String, String) -> Unit = { _, _ -> },
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -220,6 +241,9 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     val suggestions by vm.actionSuggestions.collectAsState()
     val newSinceVisit by vm.newSinceVisit.collectAsState()
     val newBannerDismissed by vm.newBannerDismissed.collectAsState()
+    val notificationSettings by vm.notificationSettings.collectAsState()
+    val chatLocked by vm.locked.collectAsState()
+    val liveSession by vm.liveSession.collectAsState()
 
     var emojiOpen by rememberSaveable { mutableStateOf(false) }
     // Emoji panel and keyboard replace each other instead of stacking (which pushed the composer
@@ -259,6 +283,17 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     var languagePickerFor by remember { mutableStateOf<Message?>(null) }
     var downloadPrompt by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
     var editImage by remember { mutableStateOf<Uri?>(null) }
+    // Video editor: the original picked video, and the editor's result (cut + cover) while captioning.
+    var editVideo by remember { mutableStateOf<Uri?>(null) }
+    var videoSource by remember { mutableStateOf<Uri?>(null) }
+    var editedVideo by remember { mutableStateOf<EditedVideo?>(null) }
+    var editHistoryFor by remember { mutableStateOf<Message?>(null) }
+    var lockConfirmOpen by remember { mutableStateOf(false) }
+    var noScreenLockOpen by remember { mutableStateOf(false) }
+    var locationSheet by remember { mutableStateOf(false) }
+    var pendingLiveDuration by remember { mutableStateOf<Long?>(null) }
+    val deviceAuth = rememberDeviceAuth()
+    val muted = notificationSettings?.isMuted() == true
 
     val conv = conversation
     val me = vm.me
@@ -363,6 +398,21 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result.values.any { it }) fetchLocation() else Toast.makeText(context, R.string.permission_location_denied, Toast.LENGTH_LONG).show()
     }
+    /** Live sharing starts from the first real fix; without location services nothing is started. */
+    fun startLive(durationMs: Long) {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        if (!LocationManagerCompat.isLocationEnabled(lm)) { Toast.makeText(context, R.string.location_unavailable, Toast.LENGTH_LONG).show(); return }
+        LocationHelper.current(context) { loc ->
+            if (loc == null) Toast.makeText(context, R.string.location_unavailable, Toast.LENGTH_LONG).show()
+            else vm.startLiveLocation(durationMs, loc.latitude, loc.longitude, loc.accuracy, loc.time)
+        }
+    }
+    val livePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val duration = pendingLiveDuration
+        pendingLiveDuration = null
+        if (result.values.any { it } && duration != null) startLive(duration)
+        else if (!result.values.any { it }) Toast.makeText(context, R.string.permission_location_denied, Toast.LENGTH_LONG).show()
+    }
     val startCall = rememberCallStarter(onStarted = nav.openCall)
 
     BackHandler(enabled = selection.isNotEmpty() || searchActive || emojiOpen) {
@@ -447,8 +497,9 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                             if (!isAi) DropdownMenuItem(text = { Text(stringResource(R.string.media_browser_title)) }, leadingIcon = { Icon(Icons.Rounded.PermMedia, null) },
                                 onClick = { menuOpen = false; nav.openMediaBrowser(conversationId) }, modifier = Modifier.testTag("menu_media_browser"))
                             if (!isAi && !readOnlyLegacy) {
-                                DropdownMenuItem(text = { Text(stringResource(if (conv?.isMuted() == true) R.string.action_unmute else R.string.action_mute)) },
-                                    onClick = { menuOpen = false; if (conv?.isMuted() == true) vm.setMuted(0L) else muteOpen = true })
+                                DropdownMenuItem(text = { Text(stringResource(if (muted) R.string.action_unmute else R.string.action_mute)) },
+                                    leadingIcon = { Icon(if (muted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff, null) },
+                                    onClick = { menuOpen = false; if (muted) vm.setMuted(0L) else muteOpen = true }, modifier = Modifier.testTag("menu_mute"))
                                 DropdownMenuItem(text = { Text(stringResource(R.string.disappearing_title)) }, onClick = { menuOpen = false; disappearingOpen = true })
                                 DropdownMenuItem(text = { Text(stringResource(R.string.ai_summarize)) }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
                                     onClick = { menuOpen = false; vm.aiSummarize() })
@@ -457,6 +508,22 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                                 DropdownMenuItem(text = { Text(stringResource(R.string.scheduled_messages)) }, leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
                                     onClick = { menuOpen = false; scheduledSheet = true }, modifier = Modifier.testTag("menu_scheduled"))
                             }
+                            // Chat lock: changing it always needs the phone's screen-lock check.
+                            DropdownMenuItem(
+                                text = { Text(stringResource(if (chatLocked) R.string.chat_lock_remove else R.string.chat_lock_add)) },
+                                leadingIcon = { Icon(if (chatLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock, null) },
+                                modifier = Modifier.testTag("menu_lock"),
+                                onClick = {
+                                    menuOpen = false
+                                    when {
+                                        !DeviceAuth.isAvailable(context) -> noScreenLockOpen = true
+                                        chatLocked -> deviceAuth.authenticate(context.getString(R.string.chat_lock_remove), context.getString(R.string.chat_lock_prompt_subtitle)) { r ->
+                                            if (r == DeviceAuth.Result.SUCCESS) vm.setLocked(false) else if (r == DeviceAuth.Result.UNAVAILABLE) noScreenLockOpen = true
+                                        }
+                                        else -> lockConfirmOpen = true
+                                    }
+                                },
+                            )
                             DropdownMenuItem(text = { Text(stringResource(R.string.action_clear_chat)) }, onClick = { menuOpen = false; clearOpen = true })
                             if (!isGroup && !isAi && peerId != null && !readOnlyLegacy) {
                                 DropdownMenuItem(text = { Text(stringResource(if (peerBlocked) R.string.action_unblock else R.string.action_block)) },
@@ -512,6 +579,13 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         onVote = { m, i -> vm.vote(m.messageId, i) },
                         onReactions = { m -> reactionsDetailFor = m },
                         onMessageContact = { m -> vm.messageContact(m) },
+                        onShowEdits = { m -> editHistoryFor = m },
+                        live = LiveLocationSupport(
+                            observe = vm::observeLive, now = vm::serverNow,
+                            onOpen = { m -> m.liveId?.let { nav.openLiveLocation(m.conversationId, it) } },
+                            onStop = { m -> vm.stopLiveLocation(m) },
+                            activeLiveId = vm.activeLiveId,
+                        ),
                     )
                 }
                 LazyColumn(
@@ -668,6 +742,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                 onTranslate = if (m.content.isNotBlank() && !m.deletedForEveryone && m.type != MessageType.SYSTEM && m.type != MessageType.POLL) ({ actionTarget = null; vm.translate(m) }) else null,
                 onRemind = if (!m.deletedForEveryone && m.type != MessageType.SYSTEM && !readOnlyLegacy) ({ actionTarget = null; reminderFor = m }) else null,
                 onTranscribe = if (m.type == MessageType.AUDIO && !m.deletedForEveryone && !isAi) ({ actionTarget = null; vm.transcribe(m) }) else null,
+                onEditHistory = if (m.editedAt > 0 && !m.deletedForEveryone) ({ actionTarget = null; editHistoryFor = m }) else null,
             ),
         )
     }
@@ -696,18 +771,49 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                 AttachOption.CAMERA_VIDEO -> requestCamera(true)
                 AttachOption.DOCUMENT -> documentPicker.launch(arrayOf("*/*"))
                 AttachOption.CONTACT -> contactSheet = true
-                AttachOption.LOCATION -> if (has(Manifest.permission.ACCESS_FINE_LOCATION) || has(Manifest.permission.ACCESS_COARSE_LOCATION)) fetchLocation()
-                    else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                AttachOption.LOCATION -> locationSheet = true
                 AttachOption.POLL -> pollOpen = true
                 AttachOption.AI_TOOLS -> aiToolsOpen = true
             }
         }
     }
     pendingMedia?.let { (uri, video) ->
-        MediaCaptionDialog(uri, video, title, onDismiss = { pendingMedia = null }, onEdit = if (!video) ({ editImage = uri }) else null) { caption ->
-            pendingMedia = null
-            vm.sendMedia(uri, if (video) MessageType.VIDEO else MessageType.IMAGE, caption)
+        val maxVideoBytes = remember { container.media.effectiveMaxBytes(MessageType.VIDEO) }
+        // A video that is too large to send as it is can be shortened in the editor first.
+        val originalBytes by produceState(0L, uri, video) {
+            value = if (!video) 0L else withContext(Dispatchers.IO) { container.videoTrimmer.probe(uri).sizeBytes }
         }
+        val edited = editedVideo?.takeIf { it.uri == uri }
+        val tooLarge = video && edited == null && originalBytes > maxVideoBytes
+        val note = when {
+            edited != null -> stringResource(if (edited.trimmed) R.string.video_edited_trimmed else R.string.video_edited_cover, DurationFormat.clock(edited.durationMs))
+            tooLarge -> stringResource(R.string.video_too_large_hint, MediaLimits.humanSize(maxVideoBytes))
+            else -> null
+        }
+        MediaCaptionDialog(
+            uri, video, title,
+            onDismiss = { pendingMedia = null; editedVideo = null; videoSource = null },
+            onEdit = if (!video) ({ editImage = uri }) else ({ editVideo = videoSource ?: uri }),
+            note = note, noteIsWarning = tooLarge, sendEnabled = !tooLarge,
+        ) { caption ->
+            pendingMedia = null
+            val cover = edited?.let { e -> VideoCover(e.coverMs, e.cover?.let { b -> android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP) }) }
+            editedVideo = null
+            videoSource = null
+            vm.sendMedia(uri, if (video) MessageType.VIDEO else MessageType.IMAGE, caption, cover)
+        }
+    }
+    editVideo?.let { src ->
+        VideoEditorDialog(
+            source = src, maxBytes = container.media.effectiveMaxBytes(MessageType.VIDEO),
+            onDone = { result ->
+                editVideo = null
+                if (videoSource == null) videoSource = src
+                editedVideo = result
+                pendingMedia = result.uri to true
+            },
+            onDismiss = { editVideo = null },
+        )
     }
     pendingDocument?.let { uri ->
         ConfirmDialog(title = stringResource(R.string.document_send_title), text = uri.lastPathSegment, confirmLabel = stringResource(R.string.action_send),
@@ -724,6 +830,25 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     pendingContact?.let { (name, phone) ->
         ConfirmDialog(title = stringResource(R.string.contact_send_title), text = "$name\n$phone", confirmLabel = stringResource(R.string.action_send),
             onConfirm = { vm.sendContact(name, phone); pendingContact = null }, onDismiss = { pendingContact = null })
+    }
+    if (locationSheet) {
+        LocationShareSheet(
+            chatName = title,
+            activeHere = liveSession?.takeIf { it.conversationId == conversationId },
+            activeElsewhere = liveSession != null && liveSession?.conversationId != conversationId,
+            onSendCurrent = {
+                locationSheet = false
+                if (has(Manifest.permission.ACCESS_FINE_LOCATION) || has(Manifest.permission.ACCESS_COARSE_LOCATION)) fetchLocation()
+                else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            },
+            onShareLive = { duration ->
+                locationSheet = false
+                if (has(Manifest.permission.ACCESS_FINE_LOCATION) || has(Manifest.permission.ACCESS_COARSE_LOCATION)) startLive(duration)
+                else { pendingLiveDuration = duration; livePermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
+            },
+            onStopLive = { locationSheet = false; vm.stopLiveLocation() },
+            onDismiss = { locationSheet = false },
+        )
     }
     pendingLocation?.let { (lat, lng) ->
         ConfirmDialog(title = stringResource(R.string.location_send_title), text = String.format(java.util.Locale.US, "%.5f, %.5f", lat, lng),
@@ -784,11 +909,30 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
         AiConsentDialog(onAccept = { vm.grantAiConsent(); consentAction = null; action() }, onDecline = { consentAction = null })
     }
     if (muteOpen) {
-        val hour = 3_600_000L
-        ChoiceDialog(stringResource(R.string.mute_title),
-            listOf(8 * hour to stringResource(R.string.mute_8h), 7 * 24 * hour to stringResource(R.string.mute_week), -1L to stringResource(R.string.mute_always)), null,
-            onSelect = { d -> muteOpen = false; vm.setMuted(if (d < 0) Long.MAX_VALUE else System.currentTimeMillis() + d) }, onDismiss = { muteOpen = false })
+        MuteDialog(isGroup = isGroup, onSelect = { until -> muteOpen = false; vm.setMuted(until) }, onDismiss = { muteOpen = false })
     }
+    if (lockConfirmOpen) {
+        LockChatDialog(
+            onConfirm = {
+                lockConfirmOpen = false
+                deviceAuth.authenticate(context.getString(R.string.chat_lock_confirm_prompt), context.getString(R.string.chat_lock_prompt_subtitle)) { r ->
+                    if (r == DeviceAuth.Result.SUCCESS) vm.setLocked(true) else if (r == DeviceAuth.Result.UNAVAILABLE) noScreenLockOpen = true
+                }
+            },
+            onDismiss = { lockConfirmOpen = false },
+        )
+    }
+    if (noScreenLockOpen) {
+        NoScreenLockDialog(
+            onOpenSettings = {
+                noScreenLockOpen = false
+                container.appLock.onExternalActivityLaunched()
+                runCatching { context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS)) }
+            },
+            onDismiss = { noScreenLockOpen = false },
+        )
+    }
+    editHistoryFor?.let { m -> EditHistorySheet(m, onDismiss = { editHistoryFor = null }) }
     if (disappearingOpen) {
         ChoiceDialog(stringResource(R.string.disappearing_title), DisappearingPolicy.OPTIONS.map { it to Formatters.disappearingLabel(context, it) }, conv?.disappearingSeconds,
             onSelect = { s -> disappearingOpen = false; vm.setDisappearing(s) }, onDismiss = { disappearingOpen = false })

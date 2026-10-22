@@ -41,6 +41,8 @@ data class AppSettings(
     val callEchoMode: EchoCancellerMode = EchoCancellerMode.AUTO,
     val callAutoGain: Boolean = false,
     val callShowDetails: Boolean = false,
+    /** Voice isolation on the outgoing call audio (automatic; can only be turned off in Diagnostics). */
+    val callVoiceIsolation: Boolean = true,
     // In-chat translation: BCP-47 tag of the target language ("" = the app language)
     val translationTarget: String = "",
 )
@@ -94,6 +96,7 @@ class AppPreferences(context: Context) {
             callEchoMode = runCatching { EchoCancellerMode.valueOf(prefs.getString("call_echo_mode", d.callEchoMode.name)!!) }.getOrDefault(d.callEchoMode),
             callAutoGain = prefs.getBoolean("call_auto_gain", d.callAutoGain),
             callShowDetails = prefs.getBoolean("call_show_details", d.callShowDetails),
+            callVoiceIsolation = prefs.getBoolean("call_voice_isolation", d.callVoiceIsolation),
             translationTarget = prefs.getString("translation_target", "") ?: "",
         )
     }
@@ -157,6 +160,7 @@ class AppPreferences(context: Context) {
     fun setCallEchoMode(mode: EchoCancellerMode) = edit { putString("call_echo_mode", mode.name) }
     fun setCallAutoGain(value: Boolean) = edit { putBoolean("call_auto_gain", value) }
     fun setCallShowDetails(value: Boolean) = edit { putBoolean("call_show_details", value) }
+    fun setCallVoiceIsolation(value: Boolean) = edit { putBoolean("call_voice_isolation", value) }
     fun setTranslationTarget(tag: String) = edit { putString("translation_target", tag) }
 
     /** Summary of the last call for Settings › Diagnostics (JSON, no personal data). */
@@ -195,6 +199,24 @@ class AppPreferences(context: Context) {
         get() = secure.getString("push_token", null)
         set(value) { secure.edit().putString("push_token", value).apply() }
 
+    /** How the current session authenticated on this device ("primary_login" or "qr_linked"). */
+    var currentAuthMethod: String?
+        get() = secure.getString("auth_method", null)
+        set(value) {
+            secure.edit().apply {
+                if (value == null) remove("auth_method") else putString("auth_method", value)
+            }.apply()
+        }
+
+    /** Pairing session ID that authorized this device when [currentAuthMethod] is "qr_linked". */
+    var currentPairingSessionId: String?
+        get() = secure.getString("pairing_session_id", null)
+        set(value) {
+            secure.edit().apply {
+                if (value == null) remove("pairing_session_id") else putString("pairing_session_id", value)
+            }.apply()
+        }
+
     /** Clears per-account settings on sign-out (device-wide appearance settings are kept). */
     fun clearAccountScoped() {
         prefs.edit()
@@ -203,7 +225,7 @@ class AppPreferences(context: Context) {
             .remove("ai_consent").remove("ai_smart_replies")
             .apply()
         // App lock belongs to the signed-in account (and signing out is the way out of a forgotten PIN).
-        secure.edit().remove("push_token")
+        secure.edit().remove("push_token").remove("auth_method").remove("pairing_session_id")
             .putBoolean("app_lock", false).remove("app_lock_pin").remove("app_lock_biometric")
             .remove("app_lock_failures").remove("app_lock_lockout_until")
             .apply()

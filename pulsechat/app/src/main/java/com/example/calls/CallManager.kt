@@ -2,9 +2,12 @@ package com.example.calls
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.example.data.db.AppDatabase
 import com.example.data.model.CallRecord
 import com.example.data.prefs.AppPreferences
@@ -44,13 +47,16 @@ import org.webrtc.DataChannel
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
+import org.webrtc.ExternalAudioProcessingFactory
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RTCStatsCollectorCallback
+import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
@@ -78,6 +84,8 @@ data class CallUiState(
     val startedAt: Long = 0L,
     val connectedAt: Long = 0L,
     val remoteVideo: Boolean = false,
+    /** The other side's video stopped arriving (network): the call screen shows their photo instead of a frozen frame. */
+    val remoteVideoPaused: Boolean = false,
     val failure: String? = null,
 ) {
     val isLive: Boolean get() = state != CallState.IDLE && !state.isTerminal
@@ -97,7 +105,12 @@ data class CallUiState(
  *   finished peer connection are ignored (session counter), so retries, reconnects, double taps or
  *   duplicate push/listener deliveries cannot stack tracks, peer connections or audio sessions;
  * - exactly one echo canceller and one noise suppressor are active, no volume or gain is ever
- *   changed by the app, and WebRTC's automatic gain control is off unless the user enables it.
+ *   changed by the app, and WebRTC's automatic gain control is off unless the user enables it;
+ * - voice isolation ([VoiceIsolationProcessor]) only shapes our own outgoing signal, after echo
+ *   cancellation, and never raises its level;
+ * - automatic quality ([CallQualityPolicy]) only changes encoder limits of the existing senders
+ *   (bitrate, frame rate, resolution scale, pause/resume of video): no renegotiation, no camera
+ *   restart, so quality changes never interrupt the call.
  */
 class CallManager(
     private val context: Context,
@@ -116,6 +129,9 @@ class CallManager(
     private val _stats = MutableStateFlow<CallStatsSnapshot?>(null)
     /** Latest WebRTC quality numbers of the live call (null when idle). */
     val stats: StateFlow<CallStatsSnapshot?> = _stats.asStateFlow()
+    private val _quality = MutableStateFlow<QualityState?>(null)
+    /** Video/voice quality automatically chosen for the live call (diagnostics; null when idle). */
+    val quality: StateFlow<QualityState?> = _quality.asStateFlow()
 
     private val callDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     val eglBase: EglBase by lazy { EglBase.create() }
@@ -138,6 +154,17 @@ class CallManager(
     private var remoteVideoTrack: VideoTrack? = null
     private var localSink: VideoSink? = null
     private var remoteSink: VideoSink? = null
+    private var audioSender: RtpSender? = null
+    private var videoSender: RtpSender? = null
+    private var lastRemoteFrames: Long? = null
+    private var remoteStalledChecks = 0
+    /** Voice isolation: one processor and one processing factory for the whole process. */
+    val voiceIsolation = VoiceIsolationProcessor()
+    private var voiceProcessing: ExternalAudioProcessingFactory? = null
+    private var voiceProcessingUnavailable = false
+    private var voiceIsolationOn = false
+    /** True once the media engine was built with the voice-isolation hook (diagnostics/tests). */
+    val voiceIsolationAvailable: Boolean get() = voiceProcessing != null
     private var livePeerConnections = 0
     private var liveAudioTracks = 0
     private var remoteAudioTracks = 0
@@ -446,6 +473,16 @@ class CallManager(
         sink?.let { remoteVideoTrack?.addSink(it) }
     }
 
+    /**
+     * Tests only: the process-wide media engine (built if needed) with voice isolation armed, while no
+     * call is live - lets an instrumented test run a local loopback through the real audio pipeline.
+     */
+    @VisibleForTesting
+    suspend fun mediaEngineForTests(): PeerConnectionFactory = withContext(callDispatcher) {
+        check(!_ui.value.isLive) { "a call is live" }
+        ensureFactory(currentProcessingConfig()).also { voiceIsolationOn = startVoiceIsolation() }
+    }
+
     /** Live WebRTC objects owned by the call engine (diagnostics/tests: both must be 0 or 1). */
     data class MediaCounts(val peerConnections: Int, val microphoneTracks: Int)
 
@@ -598,15 +635,129 @@ class CallManager(
                 override fun onWebRtcAudioTrackError(errorMessage: String?) { diagnostics.warn("playout error: $errorMessage") }
             })
             .createAudioDeviceModule()
-        val created = PeerConnectionFactory.builder()
+        val builder = PeerConnectionFactory.builder()
             .setAudioDeviceModule(adm)
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
-            .createPeerConnectionFactory()
+        // Voice isolation runs inside WebRTC's audio processing (after echo cancellation and noise
+        // suppression). Without the hook, calls work exactly as before.
+        voiceProcessingFactory()?.let { builder.setAudioProcessingFactory(it) }
+        val created = builder.createPeerConnectionFactory()
         adm.release()
         factory = created
         factoryConfig = config
         return created
+    }
+
+    /** The process-wide audio processing with the voice-isolation step, or null if this build lacks the hook. */
+    private fun voiceProcessingFactory(): ExternalAudioProcessingFactory? {
+        voiceProcessing?.let { return it }
+        if (voiceProcessingUnavailable) return null
+        return try {
+            ExternalAudioProcessingFactory().also {
+                it.setCapturePostProcessing(voiceIsolation)
+                voiceProcessing = it
+            }
+        } catch (t: Throwable) {
+            voiceProcessingUnavailable = true
+            diagnostics.event("voice isolation unavailable: ${t.javaClass.simpleName}")
+            null
+        }
+    }
+
+    /** Turns voice isolation on (automatic) or off (Diagnostics switch) for the call being set up. */
+    private fun startVoiceIsolation(): Boolean {
+        val processing = voiceProcessing
+        val available = processing != null && voiceIsolation.healthy
+        val on = available && prefs.current.callVoiceIsolation
+        voiceIsolation.startCall()
+        if (processing != null) runCatching { processing.setBypassFlagForCapturePost(!on) }
+        diagnostics.onVoiceIsolation(active = on, available = available)
+        return on
+    }
+
+    /** The network the phone is on right now (kind, metered, the system's link estimates). */
+    private fun callNetwork(): CallNetwork = runCatching {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return@runCatching CallNetwork(LinkType.OTHER)
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        if (caps == null) CallNetwork(LinkType.NONE)
+        else CallNetwork(
+            type = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> LinkType.WIFI
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> LinkType.ETHERNET
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> LinkType.CELLULAR
+                else -> LinkType.OTHER
+            },
+            metered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+            upKbps = caps.linkUpstreamBandwidthKbps,
+            downKbps = caps.linkDownstreamBandwidthKbps,
+        )
+    }.getOrDefault(CallNetwork(LinkType.OTHER))
+
+    /**
+     * Applies a quality step to the existing senders: voice bitrate and priority, video bitrate, frame
+     * rate, resolution scale and pause/resume. Encoder limits only - nothing is renegotiated.
+     */
+    private fun applyQuality(next: QualityState, video: Boolean, first: Boolean) {
+        _quality.value = next
+        audioSender?.let { sender ->
+            setEncoding(sender, "voice", null) { e ->
+                e.maxBitrateBps = next.audio.maxKbps * 1000
+                e.networkPriority = NETWORK_PRIORITY_HIGH
+                e.bitratePriority = AUDIO_BITRATE_PRIORITY
+            }
+        }
+        if (video) videoSender?.let { sender ->
+            // Under pressure WebRTC lowers frame rate and resolution together, within these limits.
+            setEncoding(sender, "video", RtpParameters.DegradationPreference.BALANCED) { e ->
+                e.active = next.video.sending
+                e.maxBitrateBps = next.video.maxKbps * 1000
+                e.maxFramerate = next.video.maxFps
+                e.scaleResolutionDownBy = next.video.scaleDown
+            }
+        }
+        diagnostics.onQuality(next, first, video)
+    }
+
+    private fun setEncoding(sender: RtpSender, what: String, degradation: RtpParameters.DegradationPreference?, change: (RtpParameters.Encoding) -> Unit) {
+        try {
+            var params = sender.parameters
+            params.encodings.forEach(change)
+            if (degradation != null) params.degradationPreference = degradation
+            if (sender.setParameters(params)) return
+            if (degradation != null) {
+                // A phone that refuses the degradation preference still gets the limits.
+                params = sender.parameters
+                params.encodings.forEach(change)
+                if (sender.setParameters(params)) return
+            }
+            diagnostics.event("$what quality limits not applied")
+        } catch (e: Exception) {
+            diagnostics.event("$what quality limits failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /** One quality check (every stats interval of a connected call). */
+    private fun adaptQuality(snap: CallStatsSnapshot) {
+        val current = _quality.value ?: return
+        val s = _ui.value
+        if (s.state != CallState.CONNECTED) return
+        val next = CallQualityPolicy.next(current, QualitySample(snap.availableOutKbps, snap.sendLossPercent, snap.rttMs), callNetwork(), snap.at, s.isVideo)
+        if (next.video != current.video || next.audio != current.audio) applyQuality(next, s.isVideo, first = false)
+        else _quality.value = next
+    }
+
+    /** No new frame from the other side for a while: show their photo instead of a frozen picture. */
+    private fun watchRemoteVideo(snap: CallStatsSnapshot) {
+        val s = _ui.value
+        if (!s.isVideo || !s.remoteVideo || s.state != CallState.CONNECTED) return
+        remoteStalledChecks = RemoteVideoWatch.stalledChecks(lastRemoteFrames, snap.inboundVideoFramesDecoded, remoteStalledChecks)
+        lastRemoteFrames = snap.inboundVideoFramesDecoded
+        val paused = RemoteVideoWatch.paused(remoteStalledChecks)
+        if (paused != s.remoteVideoPaused) {
+            _ui.value = s.copy(remoteVideoPaused = paused)
+            diagnostics.event(if (paused) "remote video paused (no frames)" else "remote video resumed")
+        }
     }
 
     private suspend fun iceServers(): List<PeerConnection.IceServer> {
@@ -651,8 +802,11 @@ class CallManager(
         audioTrack = aTrack
         liveAudioTracks++
         aTrack.setEnabled(!_ui.value.micMuted)
-        connection.addTrack(aTrack, listOf("stream0"))
-        if (video) startCamera(f)?.let { connection.addTrack(it, listOf("stream0")) }
+        audioSender = connection.addTrack(aTrack, listOf("stream0"))
+        if (video) startCamera(f)?.let { videoSender = connection.addTrack(it, listOf("stream0")) }
+        voiceIsolationOn = startVoiceIsolation()
+        // First quality from the network the phone is actually on; the stats checks take over from there.
+        applyQuality(CallQualityPolicy.initial(callNetwork(), System.currentTimeMillis()), video, first = true)
         diagnostics.event("media ready: peerConnections=$livePeerConnections micTracks=$liveAudioTracks cameraTrack=${videoTrack != null}")
         if (livePeerConnections > 1 || liveAudioTracks > 1) diagnostics.warn("more than one peer connection or microphone track")
         startStats(seq)
@@ -704,6 +858,8 @@ class CallManager(
                 val snap = CallStatsParser.parse(entries, System.currentTimeMillis())
                 _stats.value = snap
                 diagnostics.onStats(snap)
+                adaptQuality(snap)
+                watchRemoteVideo(snap)
                 if (n++ % 5 == 0) diagnostics.event(diagnostics.statsLine(snap))
             }
         }
@@ -773,9 +929,10 @@ class CallManager(
         docReg?.remove(); docReg = null
         candReg?.remove(); candReg = null
         val route = audio.routes.value.current
+        val voice = if (voiceIsolationOn) voiceIsolation.stats() else null
         releaseMedia()
         audio.stop()
-        diagnostics.endCall(s.isVideo, state.name, duration, route)
+        diagnostics.endCall(s.isVideo, state.name, duration, route, voice)
         CallService.stop(context)
         scope.launch(callDispatcher) {
             delay(2_000)
@@ -827,6 +984,13 @@ class CallManager(
         surfaceHelper = null
         remoteVideoTrack = null
         remoteAudioTracks = 0
+        // The senders belong to the peer connection (disposed with it).
+        audioSender = null
+        videoSender = null
+        lastRemoteFrames = null
+        remoteStalledChecks = 0
+        voiceIsolationOn = false
+        _quality.value = null
         _stats.value = null
         if (hadPc) diagnostics.event("media released: peerConnections=$livePeerConnections micTracks=$liveAudioTracks")
     }
@@ -836,6 +1000,9 @@ class CallManager(
         private const val STATS_INTERVAL_MS = 2_000L
         private const val SDP_TIMEOUT_MS = 15_000L
         private const val SIGNALLING_TIMEOUT_MS = 20_000L
+        /** org.webrtc.Priority.HIGH: voice packets first on the network (and in the bandwidth split). */
+        private const val NETWORK_PRIORITY_HIGH = 3
+        private const val AUDIO_BITRATE_PRIORITY = 4.0
     }
 }
 

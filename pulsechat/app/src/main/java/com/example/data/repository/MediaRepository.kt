@@ -14,7 +14,9 @@ import com.example.data.prefs.AppPreferences
 import com.example.data.remote.Fs
 import com.example.domain.MediaLimits
 import com.example.domain.MediaRefs
+import com.example.domain.VideoEditMath
 import com.example.domain.model.MessageType
+import com.example.media.VideoTrimmer
 import com.google.firebase.firestore.Blob
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -76,8 +78,10 @@ class MediaRepository(
     private val currentUid: () -> String?,
 ) {
     val mediaDir: File = File(context.filesDir, "media").apply { mkdirs() }
-    private val captureDir: File = File(context.cacheDir, "capture").apply { mkdirs() }
-    private val remoteCacheDir: File = File(context.cacheDir, "remote-media").apply { mkdirs() }
+    val captureDir: File = File(context.cacheDir, "capture").apply { mkdirs() }
+    val remoteCacheDir: File = File(context.cacheDir, "remote-media").apply { mkdirs() }
+    /** Video editor support: cuts without re-encoding, frames, covers. */
+    val videoTrimmer = VideoTrimmer(context)
     private val uploads = ConcurrentHashMap<String, UploadTask>()
     private val downloads = ConcurrentHashMap<String, FileDownloadTask>()
     private val storeJobs = ConcurrentHashMap<String, Job>()
@@ -407,6 +411,16 @@ class MediaRepository(
             return
         }
         runCatching { storageProvider().reference.child(storagePath).delete().await() }
+    }
+
+    /**
+     * Cover image for a video message: the frame at [coverMs] as a small JPEG that travels with the
+     * message, so the other side sees it before downloading the video. Null if no frame can be read.
+     */
+    suspend fun videoCover(path: String, coverMs: Long): ByteArray? = withContext(Dispatchers.IO) {
+        val frame = videoTrimmer.frame(Uri.fromFile(File(path)), coverMs, VideoEditMath.COVER_MAX_DIM, exact = true)
+            ?: videoTrimmer.frame(Uri.fromFile(File(path)), 0L, VideoEditMath.COVER_MAX_DIM)
+        frame?.let { videoTrimmer.coverJpeg(it) }
     }
 
     fun totalLocalBytes(): Long = mediaDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }

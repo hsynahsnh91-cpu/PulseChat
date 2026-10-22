@@ -1,7 +1,9 @@
 package com.example.ui.chat
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import android.util.Base64
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -71,6 +73,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -87,6 +91,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.ui.location.LiveLocationBubble
+import com.example.ui.location.LiveLocationSupport
 import com.example.R
 import com.example.data.model.Message
 import com.example.domain.DurationFormat
@@ -148,6 +154,10 @@ class BubbleCallbacks(
     val onReactions: (Message) -> Unit,
     /** Opens a chat with the PulseChat user of a shared contact card. */
     val onMessageContact: (Message) -> Unit = {},
+    /** Opens the earlier versions of an edited message. */
+    val onShowEdits: (Message) -> Unit = {},
+    /** Live-location sessions (map, last update, stop); without it the starting point is shown. */
+    val live: LiveLocationSupport? = null,
 )
 
 private val REACTION_SHAPE = RoundedCornerShape(50)
@@ -315,7 +325,7 @@ private fun Bubble(
                     )
                     Spacer(Modifier.height(Spacing.xs))
                 }
-                val footer: @Composable () -> Unit = { Footer(m, mine, hideTicks || isAi, showReadReceipts) }
+                val footer: @Composable () -> Unit = { Footer(m, mine, hideTicks || isAi, showReadReceipts, onEdited = { callbacks.onShowEdits(m) }) }
                 if (m.deletedForEveryone) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Block, contentDescription = null, tint = colors.meta, modifier = Modifier.size(16.dp))
@@ -329,7 +339,7 @@ private fun Bubble(
                         MessageType.IMAGE, MessageType.VIDEO -> VisualMedia(m, mine, callbacks)
                         MessageType.AUDIO -> VoiceMessage(m, mine, voice, callbacks)
                         MessageType.DOCUMENT -> DocumentContent(m, mine, callbacks)
-                        MessageType.LOCATION -> LocationContent(m, callbacks)
+                        MessageType.LOCATION -> if (m.liveId != null) LiveLocationBubble(m, mine, callbacks.live, colors.meta) else LocationContent(m, callbacks)
                         MessageType.CONTACT -> ContactContent(m, callbacks)
                         MessageType.POLL -> PollContent(m, me, callbacks)
                         else -> Unit
@@ -418,13 +428,22 @@ private fun RichText(text: String, m: Message, names: Map<String, String>, searc
 }
 
 @Composable
-private fun Footer(m: Message, mine: Boolean, hideTicks: Boolean, showReadReceipts: Boolean) {
+private fun Footer(m: Message, mine: Boolean, hideTicks: Boolean, showReadReceipts: Boolean, onEdited: (() -> Unit)? = null) {
     val context = LocalContext.current
     val meta = LocalBubbleColors.current.meta.takeIf { it.isSpecified } ?: PulseTheme.colors.metaText
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (m.expiresAt > 0) Icon(Icons.Rounded.Timer, contentDescription = stringResource(R.string.disappearing_title), tint = meta, modifier = Modifier.size(12.dp).padding(end = 2.dp))
         if (m.isStarred) Icon(Icons.Rounded.Star, contentDescription = stringResource(R.string.starred), tint = meta, modifier = Modifier.size(12.dp).padding(end = 2.dp))
-        if (m.editedAt > 0 && !m.deletedForEveryone) Text(stringResource(R.string.edited) + " ", style = MaterialTheme.typography.labelSmall, color = meta, fontStyle = FontStyle.Italic)
+        if (m.editedAt > 0 && !m.deletedForEveryone) {
+            // "edited" opens the earlier versions (also available from the message's actions).
+            val historyLabel = stringResource(R.string.a11y_edited_show_history)
+            Text(
+                stringResource(R.string.edited) + " ", style = MaterialTheme.typography.labelSmall, color = meta, fontStyle = FontStyle.Italic,
+                modifier = if (onEdited == null) Modifier else Modifier.testTag("edited_label")
+                    .clickable(onClickLabel = historyLabel, role = Role.Button, onClick = onEdited)
+                    .semantics { contentDescription = historyLabel },
+            )
+        }
         Text(Formatters.time(context, m.createdAt), style = MaterialTheme.typography.labelSmall, color = meta, maxLines = 1)
         if (mine && !hideTicks && !m.deletedForEveryone) {
             Spacer(Modifier.width(3.dp))
@@ -498,16 +517,27 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
             if (local != null) AsyncImage(model = File(local), contentDescription = m.content.ifBlank { stringResource(R.string.preview_photo) }, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Icon(Icons.Rounded.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f), modifier = Modifier.size(56.dp))
         } else {
-            val thumb by produceState<Bitmap?>(null, local) {
-                value = if (local == null) null else withContext(Dispatchers.IO) {
-                    runCatching {
-                        val r = MediaMetadataRetriever()
-                        try { r.setDataSource(local); r.getFrameAtTime(0) } finally { r.release() }
-                    }.getOrNull()
+            // The cover chosen by the sender travels with the message, so it shows at once (even before
+            // the download); once the video is on this phone, the same frame is shown at full sharpness.
+            val thumb by produceState<Bitmap?>(null, local, m.mediaThumb, m.mediaCoverMs) {
+                value = m.mediaThumb?.let { t ->
+                    withContext(Dispatchers.IO) { runCatching { Base64.decode(t, Base64.NO_WRAP).let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) } }.getOrNull() }
+                }
+                if (local != null) {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            val r = MediaMetadataRetriever()
+                            try {
+                                r.setDataSource(local)
+                                if (m.mediaCoverMs > 0) r.getFrameAtTime(m.mediaCoverMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST) else r.getFrameAtTime(0)
+                            } finally { r.release() }
+                        }.getOrNull()
+                    }?.let { value = it }
                 }
             }
             thumb?.let { androidx.compose.foundation.Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-            if (m.transferState != TransferState.UPLOADING && m.transferState != TransferState.DOWNLOADING && (local != null || m.mediaUrl != null)) {
+            // Play once the video is on this phone; before that the download button is the only control.
+            if (m.transferState != TransferState.UPLOADING && m.transferState != TransferState.DOWNLOADING && local != null) {
                 Box(Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.action_play), tint = Color.White, modifier = Modifier.size(32.dp))
                 }

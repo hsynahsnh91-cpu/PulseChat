@@ -6,7 +6,9 @@
   calls, Unified Plan, Firestore signalling (`calls/{id}` + `candidates`). File: `app/.../calls/CallManager.kt`.
 - **Audio I/O:** WebRTC's `JavaAudioDeviceModule` (ADM): one `AudioRecord` (source `VOICE_COMMUNICATION`)
   and one `AudioTrack` (usage `USAGE_VOICE_COMMUNICATION`) for the whole process. Remote audio is mixed
-  and played only by this ADM. The app never reads, mixes, amplifies or re-plays audio samples itself.
+  and played only by this ADM. The app never mixes, amplifies or re-plays audio. Its only sample
+  processing is the voice-isolation step (section 3a) on its *own outgoing* signal, inside WebRTC's
+  audio processing after echo cancellation, and it can only lower the level.
 - **Routing/focus:** `calls/CallAudio.kt` (rewritten): `MODE_IN_COMMUNICATION`, audio focus, routes.
 
 ## 2. Root-cause investigation (code review against the 12 suspected causes)
@@ -43,10 +45,41 @@ phones yet** (only builds, unit tests and emulator tests ran) - see the test pla
 | Noise suppression | Phone NS on Android 10+ when supported, otherwise WebRTC NS (never both) |
 | Automatic gain control | WebRTC AGC **off** by default (Settings › Diagnostics › Automatic microphone level) |
 | High-pass filter | on |
+| Voice isolation | On (Settings › Diagnostics › Voice isolation to turn off): capture post-processing step after AEC/NS, see 3a |
+| Bitrates | Automatic (3b): voice 12–40 kbps with network priority HIGH, video 180p–720p or paused |
 | Volume | never changed by the app |
 | Routes | Bluetooth / wired or USB headset / speaker (video) / earpiece (voice); user choice kept unless the device disappears; a newly connected headset takes over |
 
 Changes to the echo/gain settings apply from the next call (the media engine is rebuilt only between calls).
+
+### 3a. Voice isolation (noise between words)
+
+`calls/VoiceGate.kt` (pure Kotlin, unit-tested on synthetic noise and speech) runs through
+`calls/VoiceIsolationProcessor.kt` as WebRTC's *capture post-processing* (`ExternalAudioProcessingFactory`
+of the WebRTC build in use): every 10 ms frame of the outgoing microphone signal, after the echo
+canceller and the noise suppressor, before the encoder. The other person's audio never passes through it.
+
+- Noise floor: minimum of the frame levels over 2 s (follows a room getting louder or quieter).
+- Speech: level of any 2.5 ms block 9 dB above the floor (stays open while 5 dB above), never below -60 dBFS.
+- Between words the level is lowered by 3 dB (quiet room, floor ≤ -72 dBFS) up to 15 dB (noisy, ≥ -48 dBFS).
+- Never cuts speech: 10 ms lookahead (the gate opens before the first syllable is played out), 300 ms
+  hold for word endings and short pauses, 1.5 ms attack / 150 ms release ramps (no clicks, no pumping).
+- Never amplifies (gain ≤ 1), never mutes; adds 10 ms of delay. On the audio thread it never throws and
+  turns itself off after any error, so the call continues unprocessed.
+
+### 3b. Automatic call quality
+
+`calls/CallQuality.kt` (`CallQualityPolicy`, unit-tested) picks the first quality from the network the
+phone is on (Wi-Fi/Ethernet, mobile data, metered, the system's link estimate) and then checks every 2 s:
+WebRTC's bandwidth estimate (`availableOutgoingBitrate`), the packet loss the other phone reports
+(`remote-inbound-rtp.fractionLost`) and the round-trip time. Video steps 720p/540p/360p/180p/paused (the
+camera keeps capturing 720p; only `scaleResolutionDownBy`, `maxFramerate`, `maxBitrateBps`, `active` of
+the existing sender change, with `degradationPreference = BALANCED`); voice 40/32/20/12 kbps with
+`networkPriority = HIGH`. Down fast (two bad checks, or one severe), up one step after three good checks
+and 10 s without a downgrade; video pauses only after three severe checks in a row; mobile/metered data
+never sends 720p. Nothing is renegotiated, so changes never interrupt the call. When the other side's
+video stops arriving (no new decoded frame for two checks) the call screen shows their photo instead of
+a frozen picture.
 
 ## 4. Invariants enforced in code
 
@@ -57,6 +90,8 @@ Changes to the echo/gain settings apply from the next call (the media engine is 
 - Teardown disposes the peer connection, our track handles, sources, capturer and texture helper, stops the
   stats job, restores mode/route/focus/mic-mute and increments the session so late callbacks are ignored.
 - Mute toggles only the call's microphone track; camera toggles only the video track.
+- Voice isolation shapes only the outgoing signal, after echo cancellation, with gain ≤ 1; quality
+  changes only touch encoder limits of the existing senders.
 
 ## 5. Diagnostics (no audio, content, tokens or keys are recorded)
 
@@ -93,6 +128,8 @@ details overlay must show `Audio streams: 1 in · 1 out`; record RTT/loss and th
 | 12 | Repeated calls | 10 calls of 1 minute | No accumulation of echo, volume or warnings |
 | 13 | Device matrix | Repeat 1-4 on another maker / Android version | Same results; note which echo option works best per device |
 | 14 | Same-room control | Phones side by side on speaker | Expected to howl/echo (physical coupling) - confirms test setup matters |
+| 15 | Background noise | A calls B next to a running fan/TV; A talks, pauses 3 s, talks | B hears the noise clearly lower in A's pauses, and the first syllable after each pause complete; turn *Voice isolation* off on A to compare |
+| 16 | Weak network | Video call; A walks to a weak Wi-Fi spot or switches to mobile data | The call continues; A's video gets softer or pauses (B then sees A's photo) and comes back; voice stays clear. Diagnostics › Last call shows the quality changes |
 
 After each failing scenario, copy the Diagnostics report on both phones (it contains no personal data) and
 note the *Echo cancellation* option used.

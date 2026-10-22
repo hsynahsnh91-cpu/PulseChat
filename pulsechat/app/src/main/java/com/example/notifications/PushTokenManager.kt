@@ -41,10 +41,17 @@ class PushTokenManager(
     }
 
     suspend fun unregister(uid: String) {
-        withTimeoutOrNull(4_000) {
-            runCatching { firestore.collection(Fs.USERS).document(uid).collection(Fs.DEVICES).document(prefs.deviceId).delete().await() }
-        }
+        unregisterForDevice(uid, prefs.deviceId)
         prefs.registeredPushToken = null
+        withTimeoutOrNull(2_500) {
+            runCatching { FirebaseMessaging.getInstance().deleteToken().await() }
+        }
+    }
+
+    suspend fun unregisterForDevice(uid: String, targetDeviceId: String) {
+        withTimeoutOrNull(4_000) {
+            runCatching { firestore.collection(Fs.USERS).document(uid).collection(Fs.DEVICES).document(targetDeviceId).delete().await() }
+        }
     }
 
     companion object { private const val TAG = "PushTokenManager" }

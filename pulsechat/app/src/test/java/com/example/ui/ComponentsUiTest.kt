@@ -54,8 +54,9 @@ class ComponentsUiTest {
         onVoiceSpeed = {}, onVote = { _, _ -> }, onReactions = onReactions,
     )
 
-    private fun row(conversation: Conversation, status: MessageStatus? = MessageStatus.READ) =
-        ChatListRow(conversation, peerName = "Omar", peerAvatar = null, peerColor = null, peerNickname = null, lastStatus = status, lastDeleted = false, lastSenderName = null)
+    private fun row(conversation: Conversation, status: MessageStatus? = MessageStatus.READ, mutedUntil: Long = 0L) =
+        ChatListRow(conversation, peerName = "Omar", peerAvatar = null, peerColor = null, peerNickname = null, lastStatus = status, lastDeleted = false, lastSenderName = null,
+            notifyMutedUntil = mutedUntil)
 
     @Test
     fun chatRowShowsUnreadPinnedMutedAndTicks() {
@@ -63,7 +64,8 @@ class ComponentsUiTest {
             conversationId = "c", participantIds = "me,omar", peerId = "omar", lastMessageText = "See you", lastMessageSenderId = "me",
             lastMessageId = "m", lastMessageType = MessageType.TEXT, lastMessageTimestamp = now, unreadCount = 3, isPinned = true, mutedUntil = Long.MAX_VALUE,
         )
-        compose.setContent { PulseChatTheme { ChatRow(row(conv), "me", emptySet(), selected = false, selectionMode = false, onClick = {}, onLongClick = {}) } }
+        // The muted mark comes from the chat's notification settings (joined into the row), not the conversation.
+        compose.setContent { PulseChatTheme { ChatRow(row(conv, mutedUntil = Long.MAX_VALUE), "me", emptySet(), selected = false, selectionMode = false, onClick = {}, onLongClick = {}) } }
         compose.onNodeWithText("Omar").assertIsDisplayed()
         compose.onNodeWithText("You: See you").assertIsDisplayed()
         compose.onNodeWithContentDescription("Pinned").assertExists()

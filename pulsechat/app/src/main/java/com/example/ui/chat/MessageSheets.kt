@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Translate
@@ -99,6 +100,7 @@ data class MessageActions(
     val onTranslate: (() -> Unit)? = null,
     val onRemind: (() -> Unit)? = null,
     val onTranscribe: (() -> Unit)? = null,
+    val onEditHistory: (() -> Unit)? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -128,6 +130,7 @@ fun MessageActionsSheet(message: Message, facts: MessagePolicy.Facts, now: Long,
             if (MessagePolicy.canStar(facts)) ActionRow(if (message.isStarred) Icons.Rounded.StarBorder else Icons.Rounded.Star,
                 stringResource(if (message.isStarred) R.string.action_unstar else R.string.action_star), actions.onStar)
             if (MessagePolicy.canEdit(facts, now)) ActionRow(Icons.Rounded.Edit, stringResource(R.string.action_edit), actions.onEdit)
+            actions.onEditHistory?.let { ActionRow(Icons.Rounded.History, stringResource(R.string.edit_history_title), it) }
             actions.onTranslate?.let { ActionRow(Icons.Rounded.Translate, stringResource(R.string.action_translate), it) }
             actions.onTranscribe?.let { ActionRow(Icons.Rounded.GraphicEq, stringResource(R.string.action_transcribe), it) }
             actions.onRemind?.let { ActionRow(Icons.Rounded.NotificationsActive, stringResource(R.string.action_remind_me), it) }

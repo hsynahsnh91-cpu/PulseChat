@@ -38,6 +38,8 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PersonRemove
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -71,12 +73,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.data.model.ChatNotificationSettings
 import com.example.R
 import com.example.data.model.User
 import com.example.domain.DisappearingPolicy
@@ -86,6 +90,11 @@ import com.example.ui.calls.rememberCallStarter
 import com.example.ui.common.BackTopBar
 import com.example.ui.common.ChoiceDialog
 import com.example.ui.common.ConfirmDialog
+import com.example.ui.common.MuteDialog
+import com.example.ui.common.PreviewDialog
+import com.example.ui.common.SettingsNote
+import com.example.ui.common.muteSummary
+import com.example.ui.common.previewSummary
 import com.example.ui.common.Formatters
 import com.example.ui.common.SectionHeader
 import com.example.ui.common.SettingsGroup
@@ -121,6 +130,8 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
     val presence by vm.presence.collectAsState()
     val media by vm.media.collectAsState()
     val blocked by vm.blocked.collectAsState()
+    val notifSettings by vm.notificationSettings.collectAsState()
+    val appPreviews by vm.appPreviews.collectAsState()
     val startCall = rememberCallStarter(onStarted = nav.openCall)
 
     var dialog by remember { mutableStateOf<String?>(null) }
@@ -210,11 +221,26 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                     }
                 }
             }
+            if (!c.isLocalOnly && !c.isLeft) item {
+                // Notifications of this chat only (other chats are not affected).
+                val muted = notifSettings?.isMuted() == true
+                SettingsGroup(stringResource(R.string.info_notifications)) {
+                    SettingsItem(
+                        if (muted) Icons.Rounded.NotificationsOff else Icons.Rounded.Notifications,
+                        stringResource(if (muted) R.string.action_unmute else R.string.info_mute),
+                        subtitle = muteSummary(context, notifSettings?.mutedUntil ?: 0L),
+                        modifier = Modifier.testTag("info_mute"),
+                    ) { if (muted) vm.setMuted(0L) else dialog = "mute" }
+                    SettingsItem(
+                        Icons.Rounded.Visibility, stringResource(R.string.notif_preview_title),
+                        subtitle = previewSummary(context, notifSettings?.preview ?: ChatNotificationSettings.PREVIEW_DEFAULT, appPreviews),
+                        modifier = Modifier.testTag("info_preview"),
+                    ) { dialog = "preview" }
+                }
+                SettingsNote(stringResource(R.string.notif_chat_note))
+            }
             item { SettingsGroup(stringResource(R.string.info_settings)) {
                 if (!c.isLocalOnly && !c.isLeft) {
-                    SettingsItem(Icons.Rounded.Notifications, stringResource(R.string.info_mute), subtitle = stringResource(if (c.isMuted()) R.string.muted else R.string.info_not_muted)) {
-                        if (c.isMuted()) vm.setMuted(0L) else dialog = "mute"
-                    }
                     val canChangeTimer = !c.isGroup || canEdit
                     SettingsItem(Icons.Rounded.Timer, stringResource(R.string.disappearing_title), subtitle = Formatters.disappearingLabel(context, c.disappearingSeconds),
                         enabled = canChangeTimer) { dialog = "disappearing" }
@@ -279,11 +305,10 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
         }
     }
 
-    val hour = 3_600_000L
     when (dialog) {
-        "mute" -> ChoiceDialog(stringResource(R.string.mute_title),
-            listOf(8 * hour to stringResource(R.string.mute_8h), 7 * 24 * hour to stringResource(R.string.mute_week), -1L to stringResource(R.string.mute_always)), null,
-            onSelect = { d -> dialog = null; vm.setMuted(if (d < 0) Long.MAX_VALUE else System.currentTimeMillis() + d) }, onDismiss = { dialog = null })
+        "mute" -> MuteDialog(isGroup = c.isGroup, onSelect = { until -> dialog = null; vm.setMuted(until) }, onDismiss = { dialog = null })
+        "preview" -> PreviewDialog(notifSettings?.preview ?: ChatNotificationSettings.PREVIEW_DEFAULT, appPreviews,
+            onSelect = { p -> dialog = null; vm.setPreview(p) }, onDismiss = { dialog = null })
         "disappearing" -> ChoiceDialog(stringResource(R.string.disappearing_title), DisappearingPolicy.OPTIONS.map { it to Formatters.disappearingLabel(context, it) },
             c.disappearingSeconds, onSelect = { s -> dialog = null; vm.setDisappearing(s) }, onDismiss = { dialog = null })
         "clear" -> ConfirmDialog(stringResource(R.string.clear_chat_title), stringResource(R.string.clear_chat_body), stringResource(R.string.action_clear),

@@ -151,7 +151,7 @@ fun ChatMediaScreen(conversationId: String, onBack: () -> Unit, openMedia: (Stri
                                 MediaRow(
                                     icon = Icons.Rounded.Description,
                                     title = m.fileName ?: stringResource(R.string.preview_document),
-                                    subtitle = listOfNotNull(m.fileSize, Formatters.dateTime(context, m.createdAt)).joinToString(" · "),
+                                    subtitle = listOfNotNull(m.fileSize, Formatters.dateTime(context, m.createdAt)).joinToString(stringResource(R.string.list_separator)),
                                     onClick = {
                                         val path = m.localMediaPath
                                         if (path != null && File(path).exists()) openDocument(context, container.media.contentUriFor(path), m.mediaMimeType)

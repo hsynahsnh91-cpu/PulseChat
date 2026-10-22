@@ -97,6 +97,17 @@ data class CallStatsSnapshot(
     val outboundAudioStreams: Int = 0,
     val packetsReceived: Long = 0,
     val packetsSent: Long = 0,
+    /** WebRTC's estimate of the bandwidth available for sending (kbps). */
+    val availableOutKbps: Int? = null,
+    /** Share of our packets the other phone reported lost (RTCP receiver reports), percent. */
+    val sendLossPercent: Double? = null,
+    /** Video frames decoded from the other side so far (stops growing when their video pauses). */
+    val inboundVideoFramesDecoded: Long? = null,
+    /** What we send: resolution, frame rate, and why the encoder holds back ("bandwidth", "cpu", "none"). */
+    val sentVideoWidth: Int? = null,
+    val sentVideoHeight: Int? = null,
+    val sentVideoFps: Double? = null,
+    val videoLimitation: String? = null,
 ) {
     /** More than one incoming or outgoing audio stream in a one-to-one call means duplicated audio. */
     val duplicateAudio: Boolean get() = inboundAudioStreams > 1 || outboundAudioStreams > 1
@@ -115,6 +126,9 @@ object CallStatsParser {
                 ?: pairs.firstOrNull { it.members["state"] == "succeeded" }
         }?.members
         val remoteRtt = entries.firstOrNull { it.type == "remote-inbound-rtp" && it.members.kind() == "audio" }?.members?.num("roundTripTime")
+        val remoteLoss = entries.filter { it.type == "remote-inbound-rtp" }.mapNotNull { it.members.num("fractionLost") }.maxOrNull()
+        val inboundVideo = entries.filter { it.type == "inbound-rtp" && it.members.kind() == "video" }
+        val outboundVideo = entries.firstOrNull { it.type == "outbound-rtp" && it.members.kind() == "video" }?.members
 
         val received = inboundAudio.sumOf { it.members.num("packetsReceived") ?: 0.0 }
         val lost = inboundAudio.sumOf { (it.members.num("packetsLost") ?: 0.0).coerceAtLeast(0.0) }
@@ -135,6 +149,13 @@ object CallStatsParser {
             outboundAudioStreams = outboundAudio.size,
             packetsReceived = received.toLong(),
             packetsSent = outboundAudio.sumOf { it.members.num("packetsSent") ?: 0.0 }.toLong(),
+            availableOutKbps = pair?.num("availableOutgoingBitrate")?.let { (it / 1000).toInt() },
+            sendLossPercent = remoteLoss?.let { (it * 100).coerceIn(0.0, 100.0) },
+            inboundVideoFramesDecoded = if (inboundVideo.isEmpty()) null else inboundVideo.sumOf { it.members.num("framesDecoded") ?: 0.0 }.toLong(),
+            sentVideoWidth = outboundVideo?.num("frameWidth")?.toInt(),
+            sentVideoHeight = outboundVideo?.num("frameHeight")?.toInt(),
+            sentVideoFps = outboundVideo?.num("framesPerSecond"),
+            videoLimitation = outboundVideo?.get("qualityLimitationReason") as? String,
         )
     }
 }

@@ -5,11 +5,15 @@ import com.example.data.model.Message
 import com.example.data.model.StatusItem
 import com.example.data.model.User
 import com.example.domain.DeliveryPolicy
+import com.example.domain.EditHistory
 import com.example.domain.Ids
 import com.example.domain.TextTools
+import com.example.domain.VideoEditMath
 import com.example.domain.model.MessageStatus
 import com.example.domain.model.MessageType
 import com.example.domain.model.TransferState
+import android.util.Base64
+import com.google.firebase.firestore.Blob
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import org.json.JSONObject
@@ -180,7 +184,43 @@ object RemoteMappers {
             expiresAt = doc.millis("expiresAt"),
             failureReason = null,
             systemEvent = (doc.get("system") as? Map<*, *>)?.let { JSONObject(it.mapKeys { k -> k.key.toString() }).toString() },
+            editHistory = if (deleted) "" else editHistory(doc.get("edits")),
+            liveId = if (deleted) null else location["liveId"] as? String,
+            liveUntil = if (deleted) 0L else location.millisOf("liveUntil"),
+            mediaThumb = if (deleted || type != MessageType.VIDEO) null else thumbOf(media["thumb"]) ?: existing?.mediaThumb,
+            mediaCoverMs = if (deleted) 0L else (media["coverMs"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: 0L,
         )
+    }
+
+    /** `media.thumb` (bytes) as Base64 for the local row; oversized or malformed covers are ignored. */
+    fun thumbOf(raw: Any?): String? {
+        val bytes = (raw as? Blob)?.toBytes() ?: return null
+        if (bytes.isEmpty() || bytes.size > MAX_THUMB_BYTES) return null
+        return Base64.encodeToString(bytes, Base64.NO_WRAP)
+    }
+
+    /** The video cover fields written with a video message (only when it has a cover). */
+    private fun videoCoverFields(m: Message): Map<String, Any> {
+        if (m.type != MessageType.VIDEO) return emptyMap()
+        val bytes = m.mediaThumb?.let { runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull() }
+        val fields = HashMap<String, Any>()
+        if (bytes != null && bytes.isNotEmpty() && bytes.size <= VideoEditMath.COVER_MAX_BYTES) fields["thumb"] = Blob.fromBytes(bytes)
+        if (m.mediaCoverMs > 0) fields["coverMs"] = m.mediaCoverMs
+        return fields
+    }
+
+    /** Covers above this are not stored (the rules refuse covers above 64 KB). */
+    private const val MAX_THUMB_BYTES = 64 * 1024
+
+    /** `edits` on a message document: [{text, at}] written with arrayUnion by each edit (oldest first). */
+    fun editHistory(raw: Any?): String {
+        val list = raw as? List<*> ?: return ""
+        val entries = list.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val text = entry["text"] as? String ?: return@mapNotNull null
+            EditHistory.Entry(text, entry.millisOf("at"))
+        }
+        return EditHistory.encode(entries)
     }
 
     /** Full document written when a message is first sent (create-only; see firestore.rules). */
@@ -217,11 +257,13 @@ object RemoteMappers {
                 "width" to m.mediaWidth,
                 "height" to m.mediaHeight,
                 "waveform" to m.waveform,
-            )
+            ) + videoCoverFields(m)
         }
         if (m.type == MessageType.CONTACT) map["contact"] = mapOf("name" to m.contactName, "phone" to m.contactPhone)
         if (m.type == MessageType.LOCATION && m.locationLat != null && m.locationLng != null) {
-            map["location"] = mapOf("lat" to m.locationLat, "lng" to m.locationLng)
+            // Live sessions add their ID and end time; older apps still show the starting point.
+            map["location"] = if (m.liveId == null) mapOf("lat" to m.locationLat, "lng" to m.locationLng)
+                else mapOf("lat" to m.locationLat, "lng" to m.locationLng, "liveId" to m.liveId, "liveUntil" to m.liveUntil)
         }
         if (m.type == MessageType.POLL) {
             map["poll"] = mapOf("question" to m.pollQuestion, "options" to m.pollOptionList(), "votes" to emptyMap<String, Int>())

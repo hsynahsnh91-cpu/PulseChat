@@ -98,6 +98,26 @@ class CallStatsParserTest {
         assertFalse(s.duplicateAudio)
     }
 
+    @Test fun parsesTheNumbersAutomaticQualityUses() {
+        val s = CallStatsParser.parse(
+            listOf(
+                e("candidate-pair", "state" to "succeeded", "nominated" to true, "currentRoundTripTime" to 0.12, "availableOutgoingBitrate" to 845_000.0),
+                e("remote-inbound-rtp", "kind" to "audio", "fractionLost" to 0.01, "roundTripTime" to 0.11),
+                e("remote-inbound-rtp", "kind" to "video", "fractionLost" to 0.06),
+                e("inbound-rtp", "kind" to "video", "framesDecoded" to 1_234L),
+                e("outbound-rtp", "kind" to "video", "frameWidth" to 640L, "frameHeight" to 360L, "framesPerSecond" to 24.0, "qualityLimitationReason" to "bandwidth"),
+            ),
+            now = 1L,
+        )
+        assertEquals(845, s.availableOutKbps)
+        assertEquals(6.0, s.sendLossPercent!!, 0.0001)
+        assertEquals(1_234L, s.inboundVideoFramesDecoded)
+        assertEquals(640, s.sentVideoWidth)
+        assertEquals(360, s.sentVideoHeight)
+        assertEquals("bandwidth", s.videoLimitation)
+        assertEquals(120, s.rttMs)
+    }
+
     @Test fun twoIncomingAudioStreamsAreFlaggedAsDuplicateAudio() {
         val s = CallStatsParser.parse(listOf(e("inbound-rtp", "kind" to "audio"), e("inbound-rtp", "mediaType" to "audio")), now = 1L)
         assertEquals(2, s.inboundAudioStreams)

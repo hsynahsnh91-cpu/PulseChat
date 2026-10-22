@@ -85,8 +85,9 @@ password hashes); they have been replaced.
 ## Required external configuration
 
 See `README.md` › Firebase setup: enable Email/Password + Google auth providers and SHA
-fingerprints, deploy rules/indexes/storage/functions (Blaze plan for functions), enable Firebase
-AI Logic (Gemini Developer API) and App Check, optionally configure TURN in `config/webrtc`.
+fingerprints, publish the Firestore rules (free plan); functions, TTL policies and Storage need the
+Blaze plan (each needs billing). Enable Firebase AI Logic (Gemini Developer API) with App Check (the
+setup enforces it, and it is required from 2 November 2026), optionally configure TURN in `config/webrtc`.
 Revoke the Gemini/AI Studio token that was previously hard-coded in `GeminiApiService.kt`.
 
 ---
@@ -289,7 +290,8 @@ Android 7–12 devices (the emulator is API 34), and the call screen during a co
   it runs like a release build) — a debuggable APK is slow by nature and does not show real speed.
 * Signing check: CI compares the APK certificate with the `SHA1_FINGERPRINT` / `SHA256_FINGERPRINT`
   secrets and says so when they differ. Fingerprints can only be compared — a stable signature needs
-  the matching keystore as the `DEBUG_KEYSTORE_BASE64` secret.
+  the matching keystore as the `DEBUG_KEYSTORE_BASE64` secret. The fingerprint secrets are optional;
+  without them CI only prints the APK's fingerprints.
 
 ## Verification
 
@@ -306,3 +308,169 @@ Android 7–12 devices (the emulator is API 34), and the call screen during a co
 **Not verified:** speed on real Android 9–11 phones (emulators do not represent frame timing), a stable
 APK signature (needs the `DEBUG_KEYSTORE_BASE64` secret), video statuses on real devices, and TalkBack
 on the new status viewer.
+
+# Per-chat notifications, chat lock, edit history and live location (October 2026)
+
+## Design decisions
+
+* **Notification settings are separate from the conversation.** New table
+  `chat_notification_settings` (Room v5, keyed by account + chat): mute end time (1 hour, 8 hours,
+  1 day or until turned back on) and a message-preview choice (app setting / show / hide). The
+  notification code reads it *before* posting (`NotificationHelper.showMessages` via
+  `NotificationPolicy`): a muted chat posts nothing, a hidden preview shows who wrote but not what.
+  Mute and preview are synced to the account's other phones through `users/{uid}/chatPrefs/{cid}`
+  (owner-only, existing rule). The existing channels are reused (one per kind, never per chat or
+  message); an expired mute needs no alarm, its time simply passes. Mutes stored on conversations
+  before v5 move to the new table at the next sign-in. In a muted group, a message that mentions you
+  still notifies (the mute dialog says so).
+* **Chat lock** (`locked_chats`, per account, never synced) uses the phone's own check:
+  `BiometricPrompt` with strong biometrics or the device PIN/pattern/password on Android 10+, the
+  system confirm-credential screen on Android 7–9. Locking and unlocking both require the check; a
+  phone without a screen lock cannot lock chats (the app explains how to set one). One guard
+  (`ChatLockGuard`) sits in front of every route that shows a chat's content — the chat itself, its
+  info, media gallery, single media viewer and live-location map — so notifications, search results,
+  reminders and links all pass through it; nothing of the chat is composed (no messages loaded, no read
+  receipts) before the check. Locked chats leave the chat list, archive, folders, unread badge,
+  message search and starred messages; their notifications show only "PulseChat · New message", with
+  no reply action; reminders about them hide the text. Opened locked chats close again when the app
+  goes to the background (not when returning from PulseChat's own pickers). The lock protects access
+  inside the app; it does not encrypt the chat's data on the phone, and the app says so.
+* **Edit history** is stored in the message document (`edits: [{text, at}]`, appended with
+  `arrayUnion` on every edit), so exactly the people who can read the message — the chat's current
+  members — can read its history. `firestore.rules` requires every edit to append exactly the replaced
+  text with an edit time inside the edit window, keeps earlier entries unchanged and caps the history
+  at 20 versions; "delete for everyone" must remove it with the content. Retention: as long as the
+  message exists; deleted for everyone or expired (disappearing messages) → history gone; deleted
+  for me → hidden on this phone. History text is never logged. PulseChat messages are not end-to-end
+  encrypted (the server can read them under the same rules), so the history follows the same model as
+  the message text. Replies keep pointing at the same message ID after edits.
+* **Live location** is a real stream of points: after the user's explicit choice (what is shared,
+  with whom, for how long, battery use) and the location permission, `LiveLocationService` (a
+  foreground service of type `location`, visible notification with Stop) requests updates from the
+  platform location manager (fused provider on Android 12+, GPS + network otherwise; about every
+  15 s), sends a point after 15 m of movement or at least once a minute, never sends a fix older than
+  2 minutes, and stops at the chosen end (15 minutes, 1 hour or 8 hours), when the user stops, signs
+  out, or deletes the message. It is not restarted after the app is killed; the session is then ended
+  at the next start. The session lives in `conversations/{cid}/live/{liveId}`: readable by chat
+  members only, written by the sender only, and the rules refuse new points after the end time or
+  after Stop. Viewers see the point on a map with its time; a point older than 3 minutes (or an
+  offline copy) is shown as "Not live · last update …", never as live; an ended session says so.
+* **Map**: OpenStreetMap raster tiles drawn with Coil (no new library, no API key), following the
+  tile usage policy: standard HTTPS URL, a User-Agent naming the app, cache headers honoured, only
+  visible tiles, attribution always shown. For a large public release a commercial or self-hosted
+  tile provider can be set in one place (`MapTiles.URL_TEMPLATE`).
+
+## Deployment order
+
+The new `firestore.rules` and this app version belong together: the rules require edit history on
+every edit (older app versions can no longer edit messages), and the previous rules reject this
+version's edit history and live-location writes. Install the new version on every phone (and update
+the web client if it is used), then publish the rules. Nothing else needs deploying: no new
+indexes, functions or Storage rules.
+
+## Verification
+
+* Unit tests (JVM/Robolectric): mute choices and expiry, the preview/lock decision, edit-history
+  storage and version ordering, live-location throttling, staleness and map-tile maths
+  (`Phase2PoliciesTest`); per-account settings, locked chats out of search, starred and the unread
+  badge (`ChatSettingsDaoTest`); the v4 → v5 migration with real v4 rows (`Migration4To5Test`); the
+  lock gate, edit-history sheet, "edited" label, live-location bubble states and mute dialog
+  (`Phase2UiTest`).
+* Rules tests: edit history cannot be skipped, invented or rewritten and goes with "delete for
+  everyone"; live-location sessions are member-only, sender-only, at most 8 hours and frozen once
+  stopped or expired. The web client appends history the same way (interop test).
+* Instrumented (`Phase2FeaturesE2ETest`, emulator + Firebase emulators): a muted chat posts no
+  notification while another chat does, hidden previews and locked chats hide the text, the mute is
+  restored on a fresh install of the account; edit history reaches the other person and is removed
+  with "delete for everyone"; live location publishes moving mock-GPS points, stops on request with
+  no point afterwards, and ends by itself at the chosen time; locked chats stay out of the list,
+  search and starred messages and open only after the check. The screenshot tour adds the
+  notification settings, mute options, edit history, live map, location sheet and locked chats.
+
+**Not verified:** fingerprint/PIN prompts on real phones (the CI emulator has no screen lock, so the
+check itself is simulated there), live location on real phones in the background for hours (battery,
+OEM background limits), and OpenStreetMap availability limits under heavy use.
+
+# Noise isolation, adaptive call quality, video editor and storage (October 2026)
+
+## Design decisions
+
+* **Noise isolation** (automatic): exactly one noise suppressor as before (the phone's when it has
+  one, otherwise WebRTC's), plus a new voice-isolation step that runs inside WebRTC's audio processing
+  as its capture post-processing (the `ExternalAudioProcessingFactory` hook of the WebRTC build already
+  in use - no new library, no native code of ours). It runs after the echo canceller, so it cannot
+  disturb echo cancellation, and only on our outgoing signal. It measures the residual background and
+  lowers it between words by 3–15 dB depending on how noisy the room is. Details: [CALL_AUDIO.md](CALL_AUDIO.md) §3a.
+* **Quiet between words without cutting speech**: speech detection per 2.5 ms block, 10 ms lookahead
+  (the level opens before the first syllable), 300 ms hold, smooth ramps; never amplifies or mutes.
+  It is speech-aware gating, not a machine-learning noise remover: noise *during* speech is handled by
+  the noise suppressor, as before.
+* **Automatic, adaptive quality** (invisible): first quality from the actual network, then every 2 s
+  from the call's own statistics (bandwidth estimate, reported loss, round-trip time); voice protected
+  first (network priority, video steps down before voice), video pauses rather than the call breaking
+  up, slow step-up with hysteresis. Only encoder limits of the existing senders change - no
+  renegotiation or camera restart, so a change never interrupts the call. No setting and no on-screen
+  indicator; the other side sees the caller's photo instead of a frozen frame when video stops arriving.
+  Details: [CALL_AUDIO.md](CALL_AUDIO.md) §3b.
+* **Video editor**: trim and cover before sending, with the platform's `MediaExtractor`/`MediaMuxer`
+  (no re-encoding, no new library). A cut starts on a keyframe; the editor snaps the start and says so.
+  The size estimate is checked against the sending limit (32 MB without Cloud Storage), so long videos
+  can be shortened until they fit. The cover (≤ 48 KB JPEG) travels in the message (`media.thumb`,
+  `media.coverMs`), so the other side sees it before downloading; the rules cap it at 64 KB.
+  Room v6 adds `messages.mediaThumb` and `messages.mediaCoverMs` (`MIGRATION_5_6`, columns only).
+* **Arabic separators** (found in the screenshot review): next to Arabic-Indic digits the middle dot
+  "·" looks like the Arabic zero "٠", so "الصور · ١" read as "الصور ١٠". Arabic strings now use the
+  Arabic comma (counts in brackets: "الصور (١)"), and lines joined in code use a localized separator.
+* **Storage management**: Settings › Storage and data now shows what PulseChat keeps by kind (bar and
+  list), temporary and unused files, the app's own data and the free space; *Clear temporary files*
+  only deletes what can be rebuilt (image cache via the image loader, cached media copies, captures and
+  edits older than 10 minutes, media-folder files no message or status uses and older than an hour).
+
+## Deployment
+
+* Optional rules update: `firestore.rules` now caps the video cover at 64 KB. Without publishing it
+  everything works (covers are written either way); publishing it only tightens the limit.
+* Nothing else: no new collections, indexes, functions or Storage rules.
+
+## Verification
+
+PR run [39779760127](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39779760127) (commit
+`7ef569b`): every job green; push run [39779753683](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39779753683)
+of the same commit: builds, unit and instrumented tests green, screenshots published.
+
+* Builds: debug, release (lint-vital), optimized; Windows fresh-clone build.
+* Unit tests (JVM/Robolectric): **194/194** (38 new). `VoiceGateTest` (10) on synthetic noise and
+  speech at 48 kHz: background lowered ≥ 8 dB between words, a quiet room left within 4 dB, the first
+  30 ms of a word and a soft consonant 12 dB above the noise come out at full level, word endings and
+  120 ms pauses kept, no gain step above 0.03 per sample, never louder than the input, the floor follows
+  a room that gets louder, every sample rate. `CallQualityPolicyTest` (12): first quality per network,
+  mobile data capped at 540p, step-by-step rise, fitting to bandwidth with room for the voice, severe
+  drops act at once, pause after a collapse and resume, no flicker on an unstable network, voice-only
+  calls. Stats parsing, video-edit and storage rules (`Phase3PoliciesTest`), the v5 → v6 migration,
+  `StorageManagerTest` (counts by kind; clearing keeps used files, recent captures and folders), and UI
+  tests for the storage summary, the clear button and a media that can't be sent as it is.
+* Rules: a video cover up to 64 KB is accepted, larger or non-image covers are refused.
+* Instrumented, API 34 emulator: **20/20**.
+  * `VoiceIsolationLoopbackTest`: two peer connections on the device call each other through the app's
+    real media engine; the outgoing microphone frames pass through voice isolation (WebRTC capture
+    post-processing at 48 kHz, about 150 frames in the check, no error) - passed in runs 39761967147,
+    39766083337, 39769334243, 39772385892, 39776108191, 39779753683 and 39779760127 (the last three on
+    the regular emulator without a host sound device, whose microphone records silence). On some runner hosts the native media engine
+    stalled inside this test and the whole run hung at 18/20; the test now runs on its own thread with a
+    hard deadline and reports such a stall as skipped ("not verifiable on this device"), with the stuck
+    stacks in the log, instead of hanging the run. Skipped as well on a device without a microphone.
+  * `VideoEditorUiTest` also checks that the previews show real frames (first picture of the clip, cover).
+  * `CallLifecycleE2ETest`: every call has the voice-isolation step and a first automatic quality
+    (`voice 40 kbps (network wifi)` on the emulator), and the encoder accepts the limits.
+  * `VideoEditorUiTest`: trimming 1.7–4.2 s of a 6 s video gives a 3.2 s cut that starts on the keyframe
+    at 1 s, keeps its voice track, has the chosen cover (≤ 48 KB); a video too large to send can only be
+    confirmed once it is short enough.
+  * `Phase3FeaturesE2ETest`: the cut and its cover reach the other person through the backend before any
+    download (`media.thumb`, `media.coverMs`); an unedited video travels with a cover too; a file that
+    is not a video is reported, with no half-written file left.
+  * Screenshot tour: the video bubble with its cover, Settings › Storage, and the video editor.
+
+**Not verified (needs real phones or people):** how much background noise users actually hear removed
+on different phones and rooms, speech onsets with real voices, quality steps on real weak/changing
+networks (Wi-Fi to mobile data), and trimming of every phone camera's files (unusual containers are
+reported and can still be sent whole).

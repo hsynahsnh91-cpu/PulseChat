@@ -3,6 +3,7 @@ package com.example.data.db
 import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.model.ChatNotificationSettings
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.User
@@ -90,10 +91,10 @@ class DaoTest {
         db.conversationDao().upsert(Conversation(conversationId = "a", participantIds = "me,x", isPinned = true))
         db.conversationDao().upsert(Conversation(conversationId = "b", participantIds = "me,y", isPinned = true, isArchived = true))
         assertEquals(1, db.conversationDao().pinnedCount("me"))
-        db.conversationDao().setMutedUntil("a", Long.MAX_VALUE)
+        db.chatSettingsDao().upsertNotificationSettings(ChatNotificationSettings("me", "a", mutedUntil = Long.MAX_VALUE))
         db.conversationDao().setDraft("a", "draft", 5)
         val a = db.conversationDao().get("a")!!
-        assertTrue(a.isMuted())
+        assertTrue(db.chatSettingsDao().notificationSettings("me", "a")!!.isMuted())
         assertEquals("draft", a.draftText)
     }
 

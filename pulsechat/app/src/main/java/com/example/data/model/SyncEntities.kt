@@ -40,7 +40,13 @@ data class ChatListRow(
     val lastStatus: MessageStatus?,
     val lastDeleted: Boolean?,
     val lastSenderName: String?,
+    /** From chat_notification_settings (v5): notifications of this chat are off until then. */
+    val notifyMutedUntil: Long = 0L,
+    /** Locked on this phone by this account: listed only in Locked chats. */
+    val isLocked: Boolean = false,
 ) : ChatListEntry {
+    fun isMuted(now: Long = System.currentTimeMillis()): Boolean = notifyMutedUntil > now
+
     val displayTitle: String
         get() = when {
             conversation.isGroup -> conversation.title
@@ -108,3 +114,6 @@ data class StorageRow(
 )
 
 data class MediaTypeCount(val type: MessageType, val files: Int, val bytes: Long)
+
+/** A media file a message keeps on this phone. */
+data class LocalMediaRow(val type: MessageType, val localMediaPath: String)

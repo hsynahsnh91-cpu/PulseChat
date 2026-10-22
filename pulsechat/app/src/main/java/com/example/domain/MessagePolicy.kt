@@ -29,11 +29,11 @@ object MessagePolicy {
 
     fun canEdit(f: Facts, now: Long): Boolean =
         f.isMine && f.type == MessageType.TEXT && !f.deletedForEveryone && f.status in acked &&
-            !f.isAiConversation && now - f.createdAt in 0 until EDIT_WINDOW_MS
+            !f.isAiConversation && f.createdAt > 0 && now - f.createdAt < EDIT_WINDOW_MS
 
     fun canDeleteForEveryone(f: Facts, now: Long): Boolean =
         f.isMine && !f.deletedForEveryone && f.status in acked && f.type !in nonInteractive &&
-            !f.isAiConversation && now - f.createdAt in 0 until DELETE_FOR_EVERYONE_WINDOW_MS
+            !f.isAiConversation && f.createdAt > 0 && now - f.createdAt < DELETE_FOR_EVERYONE_WINDOW_MS
 
     fun canReact(f: Facts): Boolean =
         !f.deletedForEveryone && f.type !in nonInteractive && !f.isAiConversation &&

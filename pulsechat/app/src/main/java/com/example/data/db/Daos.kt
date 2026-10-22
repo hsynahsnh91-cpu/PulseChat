@@ -8,9 +8,12 @@ import androidx.room.Update
 import com.example.data.model.BlockedUser
 import com.example.data.model.CallRecord
 import com.example.data.model.ChatListRow
+import com.example.data.model.ChatNotificationSettings
+import com.example.data.model.LockedChat
 import com.example.data.model.Contact
 import com.example.data.model.ContactRow
 import com.example.data.model.Conversation
+import com.example.data.model.LocalMediaRow
 import com.example.data.model.MediaTypeCount
 import com.example.data.model.Message
 import com.example.data.model.MessageSearchRow
@@ -27,6 +30,9 @@ import kotlinx.coroutines.flow.Flow
 
 /** Exact membership test on the comma-separated participant list (no substring false positives). */
 private const val MEMBER = "(',' || c.participantIds || ',') LIKE ('%,' || :userId || ',%')"
+
+/** Chats this account locked on this phone; their content stays out of lists, search and starred messages. */
+private const val NOT_LOCKED = "NOT EXISTS (SELECT 1 FROM locked_chats lk WHERE lk.ownerId = :userId AND lk.conversationId = c.conversationId)"
 
 @Dao
 interface UserDao {
@@ -75,12 +81,15 @@ interface ConversationDao {
     @Query(
         "SELECT c.*, u.displayName AS peerName, u.avatarUrl AS peerAvatar, u.avatarColorHex AS peerColor, " +
             "ct.customNickname AS peerNickname, m.status AS lastStatus, m.deletedForEveryone AS lastDeleted, " +
-            "su.displayName AS lastSenderName " +
+            "su.displayName AS lastSenderName, COALESCE(ns.mutedUntil, 0) AS notifyMutedUntil, " +
+            "(lk.conversationId IS NOT NULL) AS isLocked " +
             "FROM conversations c " +
             "LEFT JOIN users u ON u.userId = c.peerId " +
             "LEFT JOIN contacts ct ON ct.ownerUserId = :userId AND ct.targetUserId = c.peerId " +
             "LEFT JOIN messages m ON m.messageId = c.lastMessageId " +
             "LEFT JOIN users su ON su.userId = c.lastMessageSenderId " +
+            "LEFT JOIN chat_notification_settings ns ON ns.ownerId = :userId AND ns.conversationId = c.conversationId " +
+            "LEFT JOIN locked_chats lk ON lk.ownerId = :userId AND lk.conversationId = c.conversationId " +
             "WHERE $MEMBER AND c.isHidden = 0"
     )
     fun observeChatList(userId: String): Flow<List<ChatListRow>>
@@ -106,8 +115,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET isArchived = :archived WHERE conversationId = :id")
     suspend fun setArchived(id: String, archived: Boolean)
 
-    @Query("UPDATE conversations SET mutedUntil = :until WHERE conversationId = :id")
-    suspend fun setMutedUntil(id: String, until: Long)
+    /** Mutes used to live on the conversation (before v5); once copied to chat_notification_settings they are cleared. */
+    @Query("UPDATE conversations SET mutedUntil = 0 WHERE mutedUntil > 0 AND (',' || participantIds || ',') LIKE ('%,' || :userId || ',%')")
+    suspend fun clearLegacyMutes(userId: String)
 
     @Query("UPDATE conversations SET isFavorite = :favorite WHERE conversationId = :id")
     suspend fun setFavorite(id: String, favorite: Boolean)
@@ -143,7 +153,11 @@ interface ConversationDao {
     )
     suspend fun recomputeUnread(id: String, userId: String)
 
-    @Query("SELECT COALESCE(SUM(CASE WHEN c.unreadCount > 0 OR c.markedUnread = 1 THEN 1 ELSE 0 END), 0) FROM conversations c WHERE $MEMBER AND c.isArchived = 0 AND c.isHidden = 0 AND c.mutedUntil < :now")
+    @Query(
+        "SELECT COALESCE(SUM(CASE WHEN c.unreadCount > 0 OR c.markedUnread = 1 THEN 1 ELSE 0 END), 0) FROM conversations c " +
+            "WHERE $MEMBER AND c.isArchived = 0 AND c.isHidden = 0 AND $NOT_LOCKED " +
+            "AND NOT EXISTS (SELECT 1 FROM chat_notification_settings ns WHERE ns.ownerId = :userId AND ns.conversationId = c.conversationId AND ns.mutedUntil > :now)"
+    )
     fun observeUnreadChats(userId: String, now: Long): Flow<Int>
 
     @Query("DELETE FROM conversations WHERE conversationId = :id")
@@ -234,6 +248,10 @@ interface MessageDao {
     @Query("SELECT MAX(createdAt) FROM messages WHERE conversationId = :conversationId")
     suspend fun newestCreatedAt(conversationId: String): Long?
 
+    /** The chat message that shows a live-location session. */
+    @Query("SELECT * FROM messages WHERE liveId = :liveId LIMIT 1")
+    fun observeByLiveId(liveId: String): Flow<Message?>
+
     @Query("SELECT MAX(createdAt) FROM messages WHERE conversationId = :conversationId AND senderId != :me AND status != 'PENDING'")
     suspend fun latestIncomingAt(conversationId: String, me: String): Long?
 
@@ -248,7 +266,7 @@ interface MessageDao {
         "SELECT m.*, c.title AS conversationTitle, c.isGroup AS conversationIsGroup, pu.displayName AS peerName, su.displayName AS senderName " +
             "FROM messages m JOIN conversations c ON c.conversationId = m.conversationId " +
             "LEFT JOIN users pu ON pu.userId = c.peerId LEFT JOIN users su ON su.userId = m.senderId " +
-            "WHERE $MEMBER AND m.deletedForMe = 0 AND m.deletedForEveryone = 0 AND m.createdAt > c.clearedAt " +
+            "WHERE $MEMBER AND $NOT_LOCKED AND m.deletedForMe = 0 AND m.deletedForEveryone = 0 AND m.createdAt > c.clearedAt " +
             "AND (:query = '' OR m.content LIKE '%' || :query || '%' OR m.fileName LIKE '%' || :query || '%') " +
             "AND (:typeFilter = '' OR m.type = :typeFilter) AND (:linksOnly = 0 OR m.content LIKE '%http%' OR m.content LIKE '%www.%') " +
             "ORDER BY m.createdAt DESC LIMIT 200"
@@ -258,7 +276,7 @@ interface MessageDao {
     @Query(
         "SELECT m.*, c.title AS conversationTitle, c.isGroup AS conversationIsGroup, su.displayName AS senderName " +
             "FROM messages m JOIN conversations c ON c.conversationId = m.conversationId LEFT JOIN users su ON su.userId = m.senderId " +
-            "WHERE $MEMBER AND m.isStarred = 1 AND m.deletedForMe = 0 AND m.deletedForEveryone = 0 ORDER BY m.createdAt DESC"
+            "WHERE $MEMBER AND $NOT_LOCKED AND m.isStarred = 1 AND m.deletedForMe = 0 AND m.deletedForEveryone = 0 ORDER BY m.createdAt DESC"
     )
     fun observeStarred(userId: String): Flow<List<StarredRow>>
 
@@ -281,6 +299,10 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND localMediaPath IS NOT NULL")
     suspend fun withLocalMedia(conversationId: String): List<Message>
+
+    /** Every media file a message keeps on this phone (Settings › Storage). */
+    @Query("SELECT type, localMediaPath FROM messages WHERE localMediaPath IS NOT NULL")
+    suspend fun localMediaFiles(): List<LocalMediaRow>
 
     // ---- v4: media & link browser, AI context, diagnostics
     @Query(
@@ -418,6 +440,9 @@ interface CallDao {
 
 @Dao
 interface StatusDao {
+    /** Media files of statuses kept on this phone (Settings › Storage). */
+    @Query("SELECT localMediaPath FROM statuses WHERE localMediaPath IS NOT NULL")
+    suspend fun localMediaPaths(): List<String>
     @Query("SELECT * FROM statuses WHERE expiresAt > :now ORDER BY createdAt ASC")
     fun observeActive(now: Long): Flow<List<StatusItem>>
 
@@ -490,4 +515,39 @@ interface LegacyMigrationDao {
 
     @Query("UPDATE statuses SET userId = :newId WHERE userId = :oldId")
     suspend fun remapStatuses(oldId: String, newId: String)
+}
+
+/** Per-chat notification settings and chat locks (v5), always scoped to one account. */
+@Dao
+interface ChatSettingsDao {
+    @Query("SELECT * FROM chat_notification_settings WHERE ownerId = :ownerId AND conversationId = :conversationId")
+    suspend fun notificationSettings(ownerId: String, conversationId: String): ChatNotificationSettings?
+
+    @Query("SELECT * FROM chat_notification_settings WHERE ownerId = :ownerId AND conversationId = :conversationId")
+    fun observeNotificationSettings(ownerId: String, conversationId: String): Flow<ChatNotificationSettings?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertNotificationSettings(settings: ChatNotificationSettings)
+
+    /** Copies mutes kept on conversations before v5 (only where this account has no setting yet). */
+    @Query(
+        "INSERT OR IGNORE INTO chat_notification_settings (ownerId, conversationId, mutedUntil, preview, updatedAt) " +
+            "SELECT :userId, c.conversationId, c.mutedUntil, 'DEFAULT', 0 FROM conversations c WHERE c.mutedUntil > 0 AND $MEMBER"
+    )
+    suspend fun importLegacyMutes(userId: String)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM locked_chats WHERE ownerId = :ownerId AND conversationId = :conversationId)")
+    suspend fun isLocked(ownerId: String, conversationId: String): Boolean
+
+    @Query("SELECT EXISTS(SELECT 1 FROM locked_chats WHERE ownerId = :ownerId AND conversationId = :conversationId)")
+    fun observeIsLocked(ownerId: String, conversationId: String): Flow<Boolean>
+
+    @Query("SELECT conversationId FROM locked_chats WHERE ownerId = :ownerId")
+    fun observeLockedIds(ownerId: String): Flow<List<String>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun lock(chat: LockedChat)
+
+    @Query("DELETE FROM locked_chats WHERE ownerId = :ownerId AND conversationId = :conversationId")
+    suspend fun unlock(ownerId: String, conversationId: String)
 }

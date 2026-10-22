@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.AppContainer
 import com.example.R
+import com.example.data.model.ChatNotificationSettings
 import com.example.data.model.Contact
 import com.example.data.model.Conversation
 import com.example.data.model.Message
@@ -70,7 +71,13 @@ class InfoViewModel(private val c: AppContainer, val conversationId: String) : V
         }
     }
 
-    fun setMuted(until: Long) = act { c.chatRepository.setMutedUntil(conversationId, until) }
+    /** This chat's notification settings (separate from the conversation) and the app-wide preview setting. */
+    val notificationSettings: StateFlow<ChatNotificationSettings?> =
+        c.chatSettings.observeNotificationSettings(conversationId).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val appPreviews: StateFlow<Boolean> = c.prefs.settings.map { it.notificationPreviews }.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun setMuted(until: Long) = act { c.chatSettings.setMutedUntil(conversationId, until) }
+    fun setPreview(preview: String) = act { c.chatSettings.setPreview(conversationId, preview) }
     fun setDisappearing(seconds: Long) = act { c.chatRepository.setDisappearing(conversationId, seconds) }
     fun saveContact(nickname: String?) = act(R.string.toast_contact_saved) { conversation.value?.peerId?.let { c.userRepository.saveContact(it, nickname) } }
     fun removeContact() = act(R.string.toast_contact_removed) { conversation.value?.peerId?.let { c.userRepository.removeContact(it) } }
