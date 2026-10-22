@@ -141,9 +141,13 @@ fun TileMap(
             )
             Text(
                 stringResource(R.string.map_attribution), fontSize = 10.sp, color = Color(0xFF333333),
+                // Always visible; a link on the full-screen map only (in a chat bubble a tap opens the map).
                 modifier = Modifier.align(Alignment.BottomEnd).clip(RoundedCornerShape(topStart = 6.dp)).background(Color.White.copy(alpha = 0.85f))
-                    .clickable {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(MapTiles.COPYRIGHT_URL)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    .let { m ->
+                        if (!interactive) m
+                        else m.clickable {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(MapTiles.COPYRIGHT_URL)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        }
                     }
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )

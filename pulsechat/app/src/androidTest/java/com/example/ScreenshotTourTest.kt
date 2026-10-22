@@ -19,6 +19,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import androidx.core.content.FileProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -303,7 +305,7 @@ class ScreenshotTourTest : EmulatorE2ETest() {
                 settle()
                 // The bubble is part of its message row (one item for TalkBack), so it is found in the unmerged tree.
                 shell("cmd statusbar collapse")
-                compose.onNodeWithTag("live_location_bubble", useUnmergedTree = true).performClick()
+                compose.onNodeWithTag("live_location_bubble", useUnmergedTree = true).performTouchInput { click(Offset(centerX, height * 0.25f)) } // on the map
                 compose.waitUntil(10_000) { exists("live_location_screen") }
                 settle(4_000) // map tiles
                 shot("${v.id}-10-live-map")
