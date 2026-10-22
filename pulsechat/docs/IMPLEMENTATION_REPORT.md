@@ -171,3 +171,138 @@ Run [39647918513](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/3964
 reminders, notification actions and reboot re-arming, ML Kit language-pack download and translation
 quality, the photo editor on real photos, Gemini transcription/summary/extraction (AI Logic is not
 enabled on the production project yet).
+
+# UI/UX redesign — "Graphite Titanium" (October 2026)
+
+Design system details: [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).
+
+## Problems found (audit)
+
+* Identity: indigo/violet everywhere — theme primary, outgoing bubbles, AI colours, mention colour,
+  avatar defaults, the call-screen gradient, the notification accent and the launcher logo (a neon
+  cyan→purple JPG). Material roles that were not set (surface containers, surface tint) fell back to
+  Material's purple baseline, tinting menus, sheets, dialogs and the navigation bar.
+* Insets: the chat padded its bottom twice (Scaffold padding not consumed + `imePadding()` + the
+  composer's own `navigationBarsPadding()`), leaving a band under the composer and an extra gap above
+  the keyboard. Status-bar icons followed the device theme, not the in-app theme (invisible clock when
+  they differ) and stayed dark on the always-dark call/viewer screens.
+* Layout: on the sign-in screen the recent-account chips were squeezed into a `Row` — at 320dp with
+  large text one chip became a one-character-wide column and pushed the form below the fold; the
+  message actions sheet did not scroll (Delete unreachable on short phones); the quick-reaction row
+  overflowed 320dp; attachment labels broke mid-word; empty-state text ran under the floating buttons;
+  bubble width was 82% of any screen (very long lines on tablets); English messages in the Arabic UI
+  (and the reverse) were laid out in the UI's direction, so punctuation landed on the wrong side.
+* Motion: navigation used the 700 ms default cross-fade; otherwise almost no feedback.
+* Performance: the chat screen read the draft, recording level and voice-playback position at screen
+  level, so typing or playing a voice note recomposed the whole screen and every visible row;
+  `File.exists()` ran during composition for media rows; a new time formatter per message; derived
+  maps rebuilt on every recomposition.
+* Robustness: a fast double tap on Send started a voice recording; navigating to the call screen from
+  a coroutine that resumed off the main thread left a half-created back-stack entry, which crashed the
+  next activity recreation (found by the screenshot tour).
+
+## What changed
+
+See the commit list on the pull request; the main pieces:
+
+* Theme (`ui/theme`): full colour schemes for both themes, `PulseColors` (bubble text/meta/link
+  colours per bubble type, read ticks, semantic success/warning, sender palette, search highlight),
+  spacing/radius/shape/motion tokens, a type scale tuned for Latin and Arabic, `values-night` window
+  background, purple leftovers removed from `colors.xml`, notification accent from resources.
+* Call screen: solid graphite, light system-bar icons, clear on/off toggles, compact layout on short
+  screens, a ring that pulses only while the call is actually ringing. No change to audio routing,
+  echo cancellation, gain or connection logic.
+* Logo: the same speech-bubble-and-pulse mark redrawn as a vector in the new palette (adaptive icon
+  with a real monochrome layer for themed icons, regenerated legacy PNGs; the two 377 KB JPGs removed).
+
+## Motion added (and where)
+
+| Where | What | Duration |
+|---|---|---|
+| All screen changes (`PulseNavHost`) | fade + 1/10 slide toward the reading direction; call, media and status viewers fade only | 220 ms in, 120 ms out |
+| Composer | mic ↔ send icon (scale + fade); typing ↔ recording bar cross-fade | 120 ms |
+| Reply / edit bar | opens and closes with its height (composer moves instead of jumping) | 120–180 ms |
+| Message list | new messages fade in once (`animateItem`, no placement animation, no replay on scroll) | 180 ms |
+| Jump-to-latest button | fade + small scale | 120 ms |
+| Call screen | state line cross-fade; toggle colour; soft ring only while ringing | 120–180 ms; ring 1.6 s loop while ringing |
+| Voice recording | red dot pulses only while recording | 700 ms loop while recording |
+
+Compose scales all durations with the system animator scale; the two loops are skipped when
+animations are turned off (`rememberReducedMotion`). Nothing delays an action.
+
+## Verification
+
+* Run [39670967856](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39670967856) (commit
+  `06fdbfa`): all jobs green — debug and release builds with lint-vital, Windows fresh-clone build,
+  JVM/Robolectric unit tests **115/115** (109 existing + 6 new: palette contrast for both themes, the
+  call screen and avatars; legacy avatar colour mapping), rules 28/28, functions 4/4, web 17/17 + 7/7,
+  instrumented **11/11** on an API 34 emulator (the 10 existing suites + `ScreenshotTourTest`).
+* `ScreenshotTourTest` drives the real app with real data through the Firebase emulators at 360dp
+  light, 320dp with 130% text, 411dp dark Arabic (RTL) and an 800dp tablet: sign-in, chat list,
+  updates, chat (link, unbroken 70-character string, photo, reply, reaction, Arabic text), keyboard
+  open, attachment sheet, outgoing call, settings and diagnostics. The screenshots are published as
+  check runs on each push and were reviewed for every change in this section.
+
+**Not verified:** smoothness on real phones (no frame-timing measurement — CI emulators are not
+representative), physical devices with display cutouts or foldables, TalkBack walk-through, landscape,
+Android 7–12 devices (the emulator is API 34), and the call screen during a connected two-party call
+(the tour only shows the ringing state).
+
+# Rounder design, status views, contact sharing and message order (October 2026)
+
+## Root causes found
+
+* **"Connecting…" that never went away** — the chat-list listener asked only for document changes,
+  so a listener that started from the local cache and then found nothing new on the server never got
+  a "server confirmed" snapshot and the sync state stayed `CONNECTING`. The listener now also
+  receives metadata changes (`MetadataChanges.INCLUDE`), so the state becomes live as soon as the
+  server answers. The banner itself was removed (offline and error banners stay).
+* **A voice note jumping above newer messages** — messages were stamped with the device clock
+  corrected by a server-clock estimate that came from the time an upload was acknowledged. A slow
+  upload (voice notes, photos) made the estimate jump, so later messages could get earlier times. Every
+  send now gets `max(now, newest message in the chat + 1 ms)` (`domain/MessageOrder`), the estimate
+  comes only from fast round trips (midpoint of request and reply, < 3 s) and a pending local write
+  keeps its local time instead of being reordered by a half-written server timestamp.
+* **"Unknown" author on status updates** — when a status arrived while that person's profile was
+  still being fetched, the status was stored without a name and kept it. The profile refresh now
+  updates the name and photo of that person's status updates (`StatusDao.updateAuthor`).
+
+## What changed
+
+* Shapes: radii 8/12/16/24/28 dp, bubbles 20 dp, pill buttons, chips and search fields; settings,
+  conversation info and the about page use rounded grouped cards; Material Symbols Rounded icons in the
+  bottom bar (filled when selected) and rounded variants everywhere else.
+* Diagnostics: no longer listed in Settings; a long press on the version number in About opens it. The
+  screen and all its checks are unchanged.
+* Status: "My status" shows an eye and the number of people who viewed (no names there). The viewer was
+  rebuilt — rounded progress segments that move every frame, header with photo, name and time, tap
+  left/right, hold to pause (hides the chrome), swipe down to close, swipe up for the viewer list (own
+  updates: names and time of viewing) or for the reply field (others: reply and quick reactions sent to
+  the chat with a quote of the status), pause in background, the next photo preloaded, videos timed by
+  their real length.
+* Contact sharing: the attach sheet's "Contact" opens a searchable list of the user's PulseChat
+  contacts and chat partners (no blocked people) and sends their @username; the received card has a
+  "Message" button that opens the chat with that person. The phone's contact picker is no longer used.
+* Speed on Android 7–11 and low-RAM phones: fade-only 150 ms screen changes and no bubble shadows
+  (`DevicePerformance` + `LocalLiteMode`). CI also builds `pulsechat-fast-apk` (`optimized` build type:
+  the same app with the debug signing key, so it installs over the debug build, but not debuggable, so
+  it runs like a release build) — a debuggable APK is slow by nature and does not show real speed.
+* Signing check: CI compares the APK certificate with the `SHA1_FINGERPRINT` / `SHA256_FINGERPRINT`
+  secrets and says so when they differ. Fingerprints can only be compared — a stable signature needs
+  the matching keystore as the `DEBUG_KEYSTORE_BASE64` secret.
+
+## Verification
+
+* Unit tests (JVM/Robolectric): message order and server-clock estimate, status play order and
+  duration, contact search and the "Message" action on shared contacts, the views count on "My status"
+  (only the number, no action), and the queries behind the views count, author names, newest message
+  and shareable contacts (`Request14DaoTest`).
+* Instrumented (API 34 emulator + Firebase emulators): the existing suites; the diagnostics test now
+  opens the screen through the long press in About; the screenshot tour posts real status updates
+  (Bob posts, Alice views and posts) and captures the updates tab, my status with its viewer list, a
+  status from someone else, the contact-sharing sheet, about and diagnostics in light, dark Arabic and
+  large-text layouts. Results for the head commit are listed on pull request #4.
+
+**Not verified:** speed on real Android 9–11 phones (emulators do not represent frame timing), a stable
+APK signature (needs the `DEBUG_KEYSTORE_BASE64` secret), video statuses on real devices, and TalkBack
+on the new status viewer.

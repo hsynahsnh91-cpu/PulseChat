@@ -15,7 +15,18 @@ object Formatters {
     fun isToday(t: Long) = DateUtils.isToday(t)
     fun isYesterday(t: Long) = DateUtils.isToday(t + DateUtils.DAY_IN_MILLIS)
 
-    fun time(context: Context, t: Long): String = DateFormat.getTimeFormat(context).format(Date(t))
+    // Building a time formatter is costly and it is needed for every visible message, so one is kept
+    // per locale + 12/24-hour setting.
+    private var timeFormatKey: Pair<java.util.Locale, Boolean>? = null
+    private var timeFormat: java.text.DateFormat? = null
+
+    fun time(context: Context, t: Long): String {
+        val key = context.resources.configuration.locales[0] to DateFormat.is24HourFormat(context)
+        val format = synchronized(this) {
+            timeFormat?.takeIf { timeFormatKey == key } ?: DateFormat.getTimeFormat(context).also { timeFormat = it; timeFormatKey = key }
+        }
+        return synchronized(format) { format.format(Date(t)) }
+    }
 
     fun chatListTime(context: Context, t: Long): String {
         if (t <= 0) return ""
@@ -34,6 +45,23 @@ object Formatters {
         cal(t).get(Calendar.YEAR) == cal(System.currentTimeMillis()).get(Calendar.YEAR) ->
             DateUtils.formatDateTime(context, t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_NO_YEAR or DateUtils.FORMAT_SHOW_WEEKDAY)
         else -> DateUtils.formatDateTime(context, t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR)
+    }
+
+    /** "Today, 9:41", "Yesterday, 21:05" or "Mon, 21:05": when a status was posted or seen. */
+    fun dayAndTime(context: Context, t: Long): String {
+        val day = when {
+            isToday(t) -> context.getString(R.string.today)
+            isYesterday(t) -> context.getString(R.string.yesterday)
+            else -> DateUtils.formatDateTime(context, t, DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_ABBREV_WEEKDAY)
+        }
+        return context.getString(R.string.day_at_time, day, time(context, t))
+    }
+
+    /** Age of a status update: "Just now", "12 minutes ago" within the hour, otherwise [dayAndTime]. */
+    fun statusTime(context: Context, t: Long, now: Long = System.currentTimeMillis()): String = when {
+        now - t < DateUtils.MINUTE_IN_MILLIS -> context.getString(R.string.time_just_now)
+        now - t < DateUtils.HOUR_IN_MILLIS -> DateUtils.getRelativeTimeSpanString(t, now, DateUtils.MINUTE_IN_MILLIS).toString()
+        else -> dayAndTime(context, t)
     }
 
     fun dateTime(context: Context, t: Long): String =

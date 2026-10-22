@@ -23,15 +23,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -52,8 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import androidx.compose.material3.AssistChip
-import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.Folder
 import com.example.data.model.ChatFolder
 import com.example.data.model.ChatListRow
 import com.example.domain.ChatListPolicy
@@ -66,6 +66,7 @@ import com.example.ui.common.LoadingBox
 import com.example.ui.common.previewLine
 import com.example.ui.components.UserAvatar
 import com.example.ui.theme.PulseTheme
+import com.example.ui.theme.Spacing
 
 @Composable
 fun ChatsTab(
@@ -90,8 +91,8 @@ fun ChatsTab(
     LazyColumn(Modifier.fillMaxSize().testTag("chat_list"), contentPadding = contentPadding) {
         item(key = "filters") {
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 listOf(
                     ChatFilter.ALL to R.string.filter_all, ChatFilter.UNREAD to R.string.filter_unread,
@@ -103,14 +104,14 @@ fun ChatsTab(
                 folders.forEach { folder ->
                     FilterChip(
                         selected = selectedFolder == folder.folderId, onClick = { onFolder(if (selectedFolder == folder.folderId) null else folder.folderId) },
-                        label = { Text(folder.name) }, leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        label = { Text(folder.name) }, leadingIcon = { Icon(Icons.Rounded.Folder, contentDescription = null, modifier = Modifier.size(16.dp)) },
                         modifier = Modifier.testTag("folder_chip"),
                     )
                 }
                 AssistChip(
                     onClick = onManageFolders,
                     label = { Text(stringResource(if (folders.isEmpty()) R.string.folder_new else R.string.folders_edit)) },
-                    leadingIcon = { Icon(if (folders.isEmpty()) Icons.Default.CreateNewFolder else Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    leadingIcon = { Icon(if (folders.isEmpty()) Icons.Rounded.CreateNewFolder else Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },
                     modifier = Modifier.testTag("folders_manage"),
                 )
             }
@@ -121,7 +122,7 @@ fun ChatsTab(
                     Modifier.fillMaxWidth().clickable(onClick = onSearchMessages).heightIn(min = 48.dp).padding(horizontal = 20.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(16.dp))
                     Text(stringResource(R.string.search_messages_for, query), color = MaterialTheme.colorScheme.primary)
                 }
@@ -133,7 +134,7 @@ fun ChatsTab(
                     Modifier.fillMaxWidth().clickable(onClick = onOpenArchived).heightIn(min = 56.dp).padding(horizontal = 24.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.Archive, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Rounded.Archive, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(24.dp))
                     Text(stringResource(R.string.archived_chats), modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
                     Text(ui.archivedCount.toString(), color = if (ui.archivedUnread > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -143,14 +144,14 @@ fun ChatsTab(
         if (ui.chats.isEmpty()) {
             item(key = "empty") {
                 when {
-                    query.isNotBlank() -> EmptyState(Icons.Default.Search, stringResource(R.string.empty_search_title), stringResource(R.string.empty_search_body))
-                    selectedFolder != null -> EmptyState(Icons.Default.Folder, stringResource(R.string.folder_empty_title), stringResource(R.string.folder_empty_body)) {
+                    query.isNotBlank() -> EmptyState(Icons.Rounded.Search, stringResource(R.string.empty_search_title), stringResource(R.string.empty_search_body), avoidFab = true)
+                    selectedFolder != null -> EmptyState(Icons.Rounded.Folder, stringResource(R.string.folder_empty_title), stringResource(R.string.folder_empty_body), avoidFab = true) {
                         TextButton(onClick = onManageFolders) { Text(stringResource(R.string.folders_edit)) }
                     }
-                    filter != ChatFilter.ALL -> EmptyState(Icons.Outlined.ChatBubbleOutline, stringResource(R.string.empty_filter_title), stringResource(R.string.empty_filter_body)) {
+                    filter != ChatFilter.ALL -> EmptyState(Icons.Rounded.ChatBubbleOutline, stringResource(R.string.empty_filter_title), stringResource(R.string.empty_filter_body), avoidFab = true) {
                         TextButton(onClick = { onFilter(ChatFilter.ALL) }) { Text(stringResource(R.string.filter_show_all)) }
                     }
-                    else -> EmptyState(Icons.Outlined.ChatBubbleOutline, stringResource(R.string.empty_chats_title), stringResource(R.string.empty_chats_body)) {
+                    else -> EmptyState(Icons.Rounded.ChatBubbleOutline, stringResource(R.string.empty_chats_title), stringResource(R.string.empty_chats_body), avoidFab = true) {
                         TextButton(onClick = onNewChat) { Text(stringResource(R.string.action_start_chat)) }
                     }
                 }
@@ -197,19 +198,19 @@ fun ChatRow(
         Box {
             if (c.isGroup && row.displayAvatar == null) {
                 Box(Modifier.size(52.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Icon(Icons.Rounded.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             } else {
-                UserAvatar(displayName = title, avatarUrl = row.displayAvatar, size = 52.dp, isAiAssistant = c.peerId == Ids.AI_ASSISTANT_ID, colorHex = row.peerColor ?: "#4F46E5")
+                UserAvatar(displayName = title, avatarUrl = row.displayAvatar, size = 52.dp, isAiAssistant = c.peerId == Ids.AI_ASSISTANT_ID, colorHex = row.peerColor)
             }
             if (selected) {
                 Box(
                     Modifier.size(22.dp).align(Alignment.BottomEnd).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
                     contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.selected), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp)) }
+                ) { Icon(Icons.Rounded.Check, contentDescription = stringResource(R.string.selected), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp)) }
             }
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = if (unread) FontWeight.Bold else FontWeight.SemiBold,
@@ -226,7 +227,7 @@ fun ChatRow(
                     typingNow -> Text(stringResource(R.string.typing), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1)
                     !draft.isNullOrBlank() -> Text(
-                        stringResource(R.string.draft_prefix, draft), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                        stringResource(R.string.draft_prefix, draft), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
                     else -> {
@@ -248,19 +249,22 @@ fun ChatRow(
                         )
                     }
                 }
-                if (c.isFavorite) Icon(Icons.Default.Star, contentDescription = stringResource(R.string.filter_favorites), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
-                if (c.isMuted()) Icon(Icons.Default.NotificationsOff, contentDescription = stringResource(R.string.muted), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
-                if (c.isPinned) Icon(Icons.Default.PushPin, contentDescription = stringResource(R.string.pinned), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
-                if (!c.draftText.isNullOrBlank() && typing.isEmpty()) Icon(Icons.Default.Edit, contentDescription = null, tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(14.dp))
+                if (c.isFavorite) Icon(Icons.Rounded.Star, contentDescription = stringResource(R.string.filter_favorites), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+                if (c.isMuted()) Icon(Icons.Rounded.NotificationsOff, contentDescription = stringResource(R.string.muted), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+                if (c.isPinned) Icon(Icons.Rounded.PushPin, contentDescription = stringResource(R.string.pinned), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+                if (!c.draftText.isNullOrBlank() && typing.isEmpty()) Icon(Icons.Rounded.Edit, contentDescription = null, tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 if (badge != null) {
                     val badgeDesc = if (badge.isEmpty()) stringResource(R.string.a11y_marked_unread) else stringResource(R.string.a11y_unread_count, badge)
                     Spacer(Modifier.width(6.dp))
+                    // Muted chats get a neutral badge so their unread count does not compete for attention.
+                    val muted = c.isMuted()
                     Box(
-                        Modifier.clip(CircleShape).background(if (c.isMuted()) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary)
+                        Modifier.clip(CircleShape).background(if (muted) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.primary)
                             .widthIn(min = 20.dp).padding(horizontal = 6.dp, vertical = 2.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(badge, color = MaterialTheme.colorScheme.onPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        Text(badge, color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.semantics { contentDescription = badgeDesc })
                     }
                 }

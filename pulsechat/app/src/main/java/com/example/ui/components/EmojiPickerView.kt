@@ -15,14 +15,15 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.ui.theme.Radii
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Celebration
-import androidx.compose.material.icons.filled.EmojiEmotions
-import androidx.compose.material.icons.filled.EmojiFlags
-import androidx.compose.material.icons.filled.Fastfood
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Nature
-import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.rounded.Celebration
+import androidx.compose.material.icons.rounded.EmojiEmotions
+import androidx.compose.material.icons.rounded.EmojiFlags
+import androidx.compose.material.icons.rounded.Fastfood
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Nature
+import androidx.compose.material.icons.rounded.PanTool
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
@@ -40,7 +41,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.PrimaryIndigo
 
 data class EmojiCategory(
     @androidx.annotation.StringRes val titleRes: Int,
@@ -57,7 +57,7 @@ fun EmojiPickerView(
         listOf(
             EmojiCategory(
                 titleRes = com.example.R.string.emoji_cat_faces,
-                icon = Icons.Default.EmojiEmotions,
+                icon = Icons.Rounded.EmojiEmotions,
                 emojis = listOf(
                     "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊", "😇", "🥰", "😍", "🤩",
                     "😘", "😗", "😚", "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐", "🤨", "😐",
@@ -69,7 +69,7 @@ fun EmojiPickerView(
             ),
             EmojiCategory(
                 titleRes = com.example.R.string.emoji_cat_gestures,
-                icon = Icons.Default.PanTool,
+                icon = Icons.Rounded.PanTool,
                 emojis = listOf(
                     "👋", "🤚", "🖐", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉",
                     "👆", "🖕", "👇", "☝️", "🫵", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "🫶", "👐", "🤲",
@@ -78,7 +78,7 @@ fun EmojiPickerView(
             ),
             EmojiCategory(
                 titleRes = com.example.R.string.emoji_cat_hearts,
-                icon = Icons.Default.Favorite,
+                icon = Icons.Rounded.Favorite,
                 emojis = listOf(
                     "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❤️‍🔥", "❤️‍🩹", "❣️", "💕", "💞", "💓",
                     "💗", "💖", "💘", "💝", "💟", "☮️", "✝️", "☪️", "🕉", "☸️", "✡️", "🔯", "🕎", "☯️", "☦️", "🛐",
@@ -88,7 +88,7 @@ fun EmojiPickerView(
             ),
             EmojiCategory(
                 titleRes = com.example.R.string.emoji_cat_nature,
-                icon = Icons.Default.Nature,
+                icon = Icons.Rounded.Nature,
                 emojis = listOf(
                     "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
                     "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞",
@@ -98,7 +98,7 @@ fun EmojiPickerView(
             ),
             EmojiCategory(
                 titleRes = com.example.R.string.emoji_cat_food,
-                icon = Icons.Default.Fastfood,
+                icon = Icons.Rounded.Fastfood,
                 emojis = listOf(
                     "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝",
                     "🍅", "🥑", "🥦", "🌽", "🥕", "🫒", "🥐", "🍞", "🥖", "🥨", "🧀", "🍳", "🥞", "🧇", "🥓", "🥩",
@@ -108,7 +108,7 @@ fun EmojiPickerView(
             ),
             EmojiCategory(
                 titleRes = com.example.R.string.emoji_cat_flags,
-                icon = Icons.Default.EmojiFlags,
+                icon = Icons.Rounded.EmojiFlags,
                 emojis = listOf(
                     // Prominently featured: New Syrian Revolution Flag (Green-White-Black with 3 red stars) & official flag
                     "🇸🇾", "🟢⚪⚫", "🇸🇾⭐️⭐️⭐️", "🇵🇸", "🇸🇦", "🇦🇪", "🇶🇦", "🇰🇼", "🇧🇭", "🇴🇲", "🇯🇴", "🇱🇧", "🇮🇶", "🇪🇬", "🇾🇪",
@@ -142,7 +142,7 @@ fun EmojiPickerView(
                             imageVector = cat.icon,
                             contentDescription = androidx.compose.ui.res.stringResource(cat.titleRes),
                             modifier = Modifier.size(20.dp),
-                            tint = if (selectedCategoryIndex == index) PrimaryIndigo else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (selectedCategoryIndex == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 )
@@ -154,14 +154,14 @@ fun EmojiPickerView(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(PrimaryIndigo.copy(alpha = 0.1f))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Text(
                     text = androidx.compose.ui.res.stringResource(com.example.R.string.emoji_flags_banner),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PrimaryIndigo
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
@@ -175,7 +175,7 @@ fun EmojiPickerView(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(Radii.sm))
                         .clickable { onEmojiSelected(emoji) },
                     contentAlignment = Alignment.Center
                 ) {

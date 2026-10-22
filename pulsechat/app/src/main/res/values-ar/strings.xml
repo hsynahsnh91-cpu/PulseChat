@@ -191,7 +191,6 @@
     <string name="auto_roaming">أثناء التجوال</string>
     <string name="auto_wifi">عند الاتصال بشبكة Wi-Fi</string>
     <string name="banner_backend_not_ready">تعذّرت المزامنة حالياً. يرجى المحاولة لاحقاً.</string>
-    <string name="banner_connecting">جارٍ الاتصال…</string>
     <string name="banner_offline">أنت غير متصل. سيتم إرسال الرسائل عند عودة الاتصال.</string>
     <string name="banner_offline_chat">غير متصل: تُحفظ الرسائل الجديدة في قائمة الانتظار وتُرسل تلقائياً.</string>
     <string name="banner_sync_error">مشكلة في المزامنة. جارٍ إعادة المحاولة…</string>
@@ -940,4 +939,18 @@
         <item quantity="many">فشلت %1$d</item>
         <item quantity="other">فشلت %1$d</item>
     </plurals>
+    <string name="action_previous">السابق</string>
+    <string name="contact_share_title">مشاركة جهة اتصال</string>
+    <string name="contact_share_search">ابحث بالاسم أو اسم المستخدم</string>
+    <string name="contact_share_empty">لا توجد جهات اتصال بعد. يظهر هنا من تحفظهم أو تتحدث معهم.</string>
+    <string name="contact_share_no_match">لا توجد جهة اتصال تطابق بحثك.</string>
+    <string name="contact_message">مراسلة</string>
+    <string name="contact_lookup_failed">تعذّر فتح هذه المحادثة. حاول مرة أخرى.</string>
+    <string name="contact_not_on_pulsechat">تعذّر العثور على هذا الشخص في PulseChat.</string>
+    <string name="day_at_time">%1$s، %2$s</string>
+    <string name="time_just_now">الآن</string>
+    <string name="status_quote">الحالة · %1$s</string>
+    <string name="status_reply_hint">اكتب ردًّا…</string>
+    <string name="status_reply_sent">تم إرسال الرد</string>
+    <string name="status_viewed_by_count">شاهدها %1$d</string>
 </resources>

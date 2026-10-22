@@ -3,29 +3,33 @@ package com.example.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.example.ui.theme.OnlineGreen
+import com.example.ui.theme.AvatarPalette
+import com.example.ui.theme.PulseTheme
 
+/**
+ * Round avatar: profile photo, the assistant's mark, or the first letter of the name on the person's
+ * colour. Photos are decoded at the avatar's size (Coil reads the fixed size constraint).
+ */
 @Composable
 fun UserAvatar(
     displayName: String,
@@ -34,99 +38,49 @@ fun UserAvatar(
     size: Dp = 48.dp,
     isOnline: Boolean = false,
     isAiAssistant: Boolean = false,
-    colorHex: String = "#4F46E5"
+    colorHex: String? = null,
+    /** Background colour used when the person's 'ring' should match a non-default surface. */
+    ringColor: Color = MaterialTheme.colorScheme.background,
 ) {
-    val initial = displayName.trim().firstOrNull()?.uppercase() ?: ""
-    val avatarColor = try {
-        Color(android.graphics.Color.parseColor(colorHex))
-    } catch (e: Exception) {
-        MaterialTheme.colorScheme.primary
-    }
+    val initial = remember(displayName) { displayName.trim().firstOrNull()?.uppercase().orEmpty() }
+    val avatarColor = remember(colorHex, displayName) { AvatarPalette.resolve(colorHex, displayName) }
+    // The letter keeps its proportion to the circle at every font scale.
+    val letterSize = with(LocalDensity.current) { (size * 0.42f).toSp() }
 
-    Box(
-        modifier = modifier.size(size),
-        contentAlignment = Alignment.Center
-    ) {
-        if (!avatarUrl.isNullOrEmpty()) {
-            AsyncImage(
+    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+        when {
+            !avatarUrl.isNullOrEmpty() -> AsyncImage(
                 model = avatarUrl,
                 contentDescription = displayName,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
+                modifier = Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
             )
-        } else if (isAiAssistant) {
-            Box(
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(Color(0xFF8B5CF6), Color(0xFF06B6D4))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
+            isAiAssistant -> Box(
+                Modifier.size(size).clip(CircleShape).background(AvatarPalette.Assistant),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = "AI",
-                    tint = Color.White,
-                    modifier = Modifier.size(size * 0.55f)
-                )
+                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = AvatarPalette.OnAvatar, modifier = Modifier.size(size * 0.5f))
             }
-        } else if (initial.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(avatarColor),
-                contentAlignment = Alignment.Center
+            initial.isNotEmpty() -> Box(
+                Modifier.size(size).clip(CircleShape).background(avatarColor),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = initial,
-                    color = Color.White,
-                    fontSize = (size.value * 0.42f).sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(text = initial, color = AvatarPalette.OnAvatar, fontSize = letterSize, fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
-        } else {
-            // Neutral placeholder when no photo or name is available
-            Box(
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
+            else -> Box(
+                Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = displayName,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(size * 0.6f)
-                )
+                Icon(Icons.Rounded.Person, contentDescription = displayName, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(size * 0.6f))
             }
         }
 
-        // Online presence indicator dot
         if (isOnline) {
-            val dotSize = size * 0.28f
+            val dotSize = (size * 0.28f).coerceAtLeast(10.dp)
             Box(
-                modifier = Modifier
-                    .size(dotSize)
-                    .align(Alignment.BottomEnd)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(dotSize - 3.dp)
-                        .clip(CircleShape)
-                        .background(OnlineGreen)
-                )
-            }
+                Modifier.size(dotSize).align(Alignment.BottomEnd).clip(CircleShape)
+                    .background(PulseTheme.colors.online).border(2.dp, ringColor, CircleShape),
+            )
         }
     }
 }

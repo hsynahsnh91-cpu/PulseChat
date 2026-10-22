@@ -107,6 +107,36 @@ jobs:
           } | tee "$LOG_DIR/0-signing.log"
           { echo "### Debug APK signing certificate"; echo '```'; cat "$LOG_DIR/0-signing.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Compare the APK certificate with the registered fingerprints
+        # SHA1_FINGERPRINT / SHA256_FINGERPRINT are the fingerprints registered for Google sign-in.
+        # They can only be compared: an APK is signed with a keystore (DEBUG_KEYSTORE_BASE64), never
+        # with a fingerprint. Informational only; the fingerprints themselves are not printed again.
+        continue-on-error: true
+        env:
+          SHA1_FINGERPRINT: ${{ secrets.SHA1_FINGERPRINT }}
+          SHA256_FINGERPRINT: ${{ secrets.SHA256_FINGERPRINT }}
+          HAS_KEYSTORE_SECRET: ${{ secrets.DEBUG_KEYSTORE_BASE64 != '' }}
+        run: |
+          python3 - <<'PY' | tee -a "$LOG_DIR/0-signing.log" | tee -a "$GITHUB_STEP_SUMMARY"
+          import os, re
+          def norm(v):
+              return re.sub(r"[^0-9A-F]", "", (v or "").upper())
+          text = open(os.path.join(os.environ["LOG_DIR"], "0-signing.log")).read()
+          apk = {k: norm(m.group(1)) for k in ("SHA-1", "SHA-256") for m in [re.search(k + r": ([0-9A-F:]+)", text)] if m}
+          print("Registered fingerprints check:")
+          for kind, var in (("SHA-1", "SHA1_FINGERPRINT"), ("SHA-256", "SHA256_FINGERPRINT")):
+              expected = norm(os.environ.get(var))
+              if not expected:
+                  print(f"- {kind}: secret {var} not available to this run")
+              elif kind not in apk:
+                  print(f"- {kind}: APK certificate not read")
+              else:
+                  print(f"- {kind}: " + ("MATCH - this APK can use Google sign-in" if apk[kind] == expected
+                                          else "MISMATCH - this APK is signed with a different key than the registered one"))
+          if os.environ.get("HAS_KEYSTORE_SECRET") != "true":
+              print("- DEBUG_KEYSTORE_BASE64 is not set: this run signed with a new key, which can never match.")
+          PY
+
       - name: JVM unit tests
         run: |
           set -o pipefail
@@ -120,6 +150,11 @@ jobs:
             -dname "CN=PulseChat CI,O=CI,C=US"
           KEYSTORE_PATH="$RUNNER_TEMP/ci-upload.jks" STORE_PASSWORD=ci-store-pass KEY_PASSWORD=ci-store-pass \
             gradle --no-daemon --console=plain assembleRelease 2>&1 | tee "$LOG_DIR/3-assembleRelease.log"
+
+      - name: Assemble fast test build (debug key, not debuggable)
+        run: |
+          set -o pipefail
+          gradle --no-daemon --console=plain assembleOptimized 2>&1 | tee "$LOG_DIR/3b-assembleOptimized.log"
 
       - name: Publish CI log digest
         if: always()
@@ -215,6 +250,14 @@ jobs:
         with:
           name: pulsechat-debug-apk
           path: pulsechat/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+
+      - name: Upload fast APK (same app and key as the debug APK, much smoother)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulsechat-fast-apk
+          path: pulsechat/app/build/outputs/apk/optimized/*.apk
           if-no-files-found: ignore
 
   windows:
@@ -470,7 +513,39 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           working-directory: pulsechat
           script: |
-            bash -c 'set -o pipefail; gradle --no-daemon --console=plain connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2 -Pandroid.testInstrumentationRunnerArguments.webPeer=webpeer 2>&1 | tee "$LOG_DIR/4-connected.log"; rc=$?; adb logcat -d "*:E" | tail -400 > "$LOG_DIR/logcat.txt"; exit $rc'
+            bash -c 'set -o pipefail; gradle --no-daemon --console=plain connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2 -Pandroid.testInstrumentationRunnerArguments.webPeer=webpeer 2>&1 | tee "$LOG_DIR/4-connected.log"; rc=$?; adb logcat -d "*:E" | tail -400 > "$LOG_DIR/logcat.txt"; adb pull /data/local/tmp/pulsechat-screens "$LOG_DIR/screens" > /dev/null 2>&1; adb logcat -d -v time -s PulseTour:V PulseNav:V PulseCallDiag:V CallManager:V AndroidRuntime:E | tail -400 > "$LOG_DIR/logcat-tour.txt"; exit $rc'
+
+      - name: Publish screenshots for layout review (ScreenshotTourTest)
+        if: always() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pip install --quiet pillow > /dev/null 2>&1 || true
+          python3 - <<'PY'
+          import base64, glob, io, json, os, subprocess
+          try:
+              from PIL import Image
+          except Exception as e:
+              print("Pillow unavailable:", e); raise SystemExit(0)
+          files = sorted(glob.glob(os.path.join(os.environ["LOG_DIR"], "screens", "**", "*.png"), recursive=True))
+          for f in files:
+              name = os.path.splitext(os.path.basename(f))[0]
+              im = Image.open(f).convert("RGB")
+              w = 480
+              if im.width > w:
+                  im = im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+              buf = io.BytesIO()
+              im.save(buf, "JPEG", quality=60, optimize=True)
+              b64 = base64.b64encode(buf.getvalue()).decode()
+              chunks = [b64[i:i + 60000] for i in range(0, len(b64), 60000)]
+              for i, chunk in enumerate(chunks, 1):
+                  payload = {"name": f"Screenshot {name} [{i}/{len(chunks)}]", "head_sha": os.environ["GITHUB_SHA"], "status": "completed",
+                             "conclusion": "neutral", "output": {"title": name, "summary": f"JPEG, base64 part {i}/{len(chunks)}", "text": chunk}}
+                  with open("/tmp/shot.json", "w") as fh:
+                      json.dump(payload, fh)
+                  subprocess.run(["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/check-runs", "--method", "POST", "--input", "/tmp/shot.json"], stdout=subprocess.DEVNULL)
+          print(f"published {len(files)} screenshots")
+          PY
 
       - name: Publish instrumented-test digest
         if: always()
@@ -500,7 +575,7 @@ jobs:
                           break
                   if status == "PASS":
                       parts.append(f"PASS {tc.get('classname')}.{tc.get('name')}")
-          for name, limit in (("4-connected.log", 120), ("web-peer.log", 80), ("emulators.log", 60), ("logcat.txt", 200)):
+          for name, limit in (("4-connected.log", 120), ("web-peer.log", 80), ("emulators.log", 60), ("logcat-tour.txt", 160), ("logcat.txt", 120)):
               p = os.path.join(log_dir, name)
               if os.path.exists(p):
                   lines = open(p, errors="replace").read().splitlines()

@@ -15,11 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,8 +49,9 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.domain.StatusPolicy
+import com.example.ui.common.LightSystemBarIcons
 
-val STATUS_COLORS = listOf("#3730A3", "#0F766E", "#BE185D", "#B45309", "#6D28D9", "#1D4ED8", "#047857", "#334155")
+val STATUS_COLORS = com.example.ui.theme.StatusPalette.Hex
 val STATUS_FONTS = listOf("DEFAULT", "SERIF", "SANS", "MONO", "CURSIVE")
 
 fun statusFont(name: String): FontFamily = when (name) {
@@ -61,7 +62,7 @@ fun statusFont(name: String): FontFamily = when (name) {
     else -> FontFamily.Default
 }
 
-fun parseHexColor(hex: String, fallback: Color = Color(0xFF3730A3)): Color =
+fun parseHexColor(hex: String, fallback: Color = com.example.ui.theme.StatusPalette.Fallback): Color =
     runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(fallback)
 
 /** Full-screen text status editor (PulseChat palette). */
@@ -72,14 +73,15 @@ fun StatusTextComposer(onDismiss: () -> Unit, onPost: (text: String, background:
     var fontIndex by rememberSaveable { mutableIntStateOf(0) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(parseHexColor(STATUS_COLORS[colorIndex])).statusBarsPadding().navigationBarsPadding().imePadding()) {
+            LightSystemBarIcons()
             Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close), tint = Color.White) }
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_close), tint = Color.White) }
                 Row {
                     IconButton(onClick = { fontIndex = (fontIndex + 1) % STATUS_FONTS.size }) {
-                        Icon(Icons.Default.TextFields, contentDescription = stringResource(R.string.status_change_font), tint = Color.White)
+                        Icon(Icons.Rounded.TextFields, contentDescription = stringResource(R.string.status_change_font), tint = Color.White)
                     }
                     IconButton(onClick = { colorIndex = (colorIndex + 1) % STATUS_COLORS.size }) {
-                        Icon(Icons.Default.Palette, contentDescription = stringResource(R.string.status_change_color), tint = Color.White)
+                        Icon(Icons.Rounded.Palette, contentDescription = stringResource(R.string.status_change_color), tint = Color.White)
                     }
                 }
             }
@@ -99,7 +101,7 @@ fun StatusTextComposer(onDismiss: () -> Unit, onPost: (text: String, background:
                 FloatingActionButton(
                     onClick = { onPost(text.trim(), STATUS_COLORS[colorIndex], STATUS_FONTS[fontIndex]) },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-                ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.action_send)) }
+                ) { Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.action_send)) }
             }
         }
     }
@@ -111,11 +113,12 @@ fun MediaCaptionDialog(uri: Uri, isVideo: Boolean, title: String, onDismiss: () 
     var caption by rememberSaveable { mutableStateOf("") }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding().imePadding()) {
+            LightSystemBarIcons()
             Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close), tint = Color.White) }
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_close), tint = Color.White) }
                 Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 if (onEdit != null && !isVideo) {
-                    IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.editor_open), tint = Color.White) }
+                    IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.editor_open), tint = Color.White) }
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -134,7 +137,7 @@ fun MediaCaptionDialog(uri: Uri, isVideo: Boolean, title: String, onDismiss: () 
                     ),
                 )
                 FloatingActionButton(onClick = { onSend(caption.trim()) }, modifier = Modifier.padding(start = 12.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.action_send))
+                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.action_send))
                 }
             }
         }

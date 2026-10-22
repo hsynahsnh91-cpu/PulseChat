@@ -20,6 +20,7 @@ import com.example.domain.DisappearingPolicy
 import com.example.domain.GroupError
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
+import com.example.domain.MessageOrder
 import com.example.domain.MessagePolicy
 import com.example.domain.PresencePolicy
 import com.example.domain.TextTools
@@ -189,7 +190,7 @@ class ChatRepository(
             MessagePolicy.TextError.TOO_LONG -> throw ChatException(ChatError.TOO_LONG)
             null -> Unit
         }
-        val now = System.currentTimeMillis()
+        val now = nextCreatedAt(conv)
         val m = withReply(
             Message(
                 messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = text.trim(),
@@ -210,6 +211,17 @@ class ChatRepository(
         replyToPreview = TextTools.preview(SyncManager.previewText(replyTo).ifBlank { replyTo.fileName.orEmpty() }, 120),
     )
 
+    /**
+     * Time stamp for a message created on this phone now: the estimated server time (device time in
+     * chats that stay on the phone), but never earlier than the newest message already in the chat.
+     * So a new message is listed last right away - also while it is still uploading and when the
+     * phone's clock is behind - until the server's own time replaces it.
+     */
+    suspend fun nextCreatedAt(cid: String, localOnly: Boolean = false): Long =
+        MessageOrder.nextCreatedAt(if (localOnly) System.currentTimeMillis() else serverClock.now(), db.messageDao().newestCreatedAt(cid))
+
+    private suspend fun nextCreatedAt(conv: Conversation): Long = nextCreatedAt(conv.conversationId, conv.isLocalOnly)
+
     /** Inserts a device-local message (used by the AI assistant conversation). */
     suspend fun insertLocal(m: Message, clearDraft: Boolean = false) {
         db.withTransaction {
@@ -220,10 +232,20 @@ class ChatRepository(
         }
     }
 
+    /**
+     * Private reply to a status update: a normal message in the one-to-one chat with its author,
+     * quoting the status ([quote] is the short description shown in the quote).
+     */
+    suspend fun sendStatusReply(ownerId: String, statusId: String, quote: String, text: String): Message {
+        val cid = openDirectChat(ownerId)
+        val quoted = Message(messageId = "status_$statusId", conversationId = cid, senderId = ownerId, content = quote, type = MessageType.TEXT)
+        return sendText(cid, text.trim(), quoted, emptyList())
+    }
+
     suspend fun sendContact(cid: String, name: String, phone: String) {
         val me = requireUid()
         val conv = requireWritable(cid, me)
-        val now = System.currentTimeMillis()
+        val now = nextCreatedAt(conv)
         val m = Message(
             messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = name.trim(), type = MessageType.CONTACT,
             status = initialStatus(), createdAt = now, contactName = name.trim().take(100), contactPhone = phone.trim().take(40),
@@ -236,7 +258,7 @@ class ChatRepository(
     suspend fun sendLocation(cid: String, lat: Double, lng: Double) {
         val me = requireUid()
         val conv = requireWritable(cid, me)
-        val now = System.currentTimeMillis()
+        val now = nextCreatedAt(conv)
         val m = Message(
             messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = "", type = MessageType.LOCATION,
             status = initialStatus(), createdAt = now, locationLat = lat, locationLng = lng,
@@ -251,7 +273,7 @@ class ChatRepository(
         val conv = requireWritable(cid, me)
         val clean = options.map { it.trim().replace("|", "/") }.filter { it.isNotEmpty() }.distinct().take(12)
         if (question.isBlank() || clean.size < 2) throw ChatException(ChatError.EMPTY)
-        val now = System.currentTimeMillis()
+        val now = nextCreatedAt(conv)
         val m = Message(
             messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = question.trim(), type = MessageType.POLL,
             status = initialStatus(), createdAt = now, pollQuestion = question.trim().take(300), pollOptions = clean.joinToString("|"),
@@ -286,7 +308,7 @@ class ChatRepository(
         conv: Conversation, me: String, local: LocalMedia, type: MessageType, caption: String, waveform: String?,
         replyTo: Message?, forwarded: Boolean,
     ) {
-        val now = System.currentTimeMillis()
+        val now = nextCreatedAt(conv)
         val id = Ids.newMessageId()
         val ext = MediaRepository.extensionFor(local.mime, local.fileName)
         val m = withReply(
@@ -408,7 +430,7 @@ class ChatRepository(
             null -> return ScheduledOutcome(ScheduledResult.RETRY, "check_failed")
             false -> Unit
         }
-        val now = System.currentTimeMillis()
+        val now = nextCreatedAt(conv)
         val existing = db.messageDao().get(id)
         val m = existing?.copy(status = MessageStatus.SENDING, failureReason = null) ?: Message(
             messageId = id, conversationId = cid, senderId = me, content = text.trim(), type = MessageType.TEXT,
@@ -676,7 +698,7 @@ class ChatRepository(
         for (cid in targetIds.distinct()) {
             val conv = try { requireWritable(cid, me) } catch (e: ChatException) { _errors.tryEmit(e.error); continue }
             for (src in forwardable) {
-                val now = System.currentTimeMillis()
+                val now = nextCreatedAt(conv)
                 if (src.type.isMedia) {
                     val path = src.localMediaPath
                     if (path != null && File(path).exists()) {
@@ -807,10 +829,10 @@ class ChatRepository(
     private fun systemExtra(me: String, event: String, targets: List<String> = emptyList(), value: String? = null): Map<String, Any?> =
         mapOf("system" to mapOf("event" to event, "actor" to me, "targets" to targets, "value" to value))
 
-    private fun systemMessage(cid: String, me: String, event: String, targets: List<String> = emptyList(), value: String? = null): Message =
+    private suspend fun systemMessage(cid: String, me: String, event: String, targets: List<String> = emptyList(), value: String? = null): Message =
         Message(
             messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = "", type = MessageType.SYSTEM,
-            status = initialStatus(), createdAt = System.currentTimeMillis(),
+            status = initialStatus(), createdAt = nextCreatedAt(cid),
             systemEvent = JSONObject(mapOf("event" to event, "actor" to me, "targets" to org.json.JSONArray(targets), "value" to (value ?: ""))).toString(),
         )
 

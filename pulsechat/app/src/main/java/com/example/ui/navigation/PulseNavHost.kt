@@ -60,6 +60,19 @@ import com.example.ui.settings.StorageSettingsScreen
 import com.example.ui.status.StatusViewerScreen
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import com.example.ui.theme.LocalLiteMode
+import com.example.ui.theme.Motion
+import androidx.lifecycle.Lifecycle
+import kotlinx.coroutines.flow.first
+import androidx.navigation.NavController
+import android.util.Log
+import com.example.BuildConfig
+import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object Routes {
     const val HOME = "home"
@@ -83,7 +96,12 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     val callUi by container.callManager.ui.collectAsState()
     val intent by pendingIntent.collectAsState()
 
-    fun openPeer(peerId: String) { scope.launch { nav.go(Routes.chat(container.chatRepository.openDirectChat(peerId))) } }
+    fun openPeer(peerId: String) {
+        scope.launch {
+            val cid = container.chatRepository.openDirectChat(peerId)
+            withContext(Dispatchers.Main.immediate) { nav.go(Routes.chat(cid)) } // navigation on the main thread only
+        }
+    }
     /** Opens a chat at a message; an already open chat screen receives the jump through chatJumps. */
     fun openChatAt(cid: String, messageId: String?) {
         if (messageId != null) container.chatJumps.value = cid to messageId
@@ -117,7 +135,34 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     NotificationPermissionRequest()
 
     val settingsNav = SettingsNav(back = { nav.popBackStack() }, open = { nav.go(it) })
-    NavHost(navController = nav, startDestination = Routes.HOME) {
+    if (BuildConfig.DEBUG) {
+        // Debug builds only: a navigation trace for diagnosing screen-flow problems from logcat.
+        DisposableEffect(nav) {
+            val listener = NavController.OnDestinationChangedListener { _, destination, _ -> Log.d("PulseNav", "destination=${destination.route}") }
+            nav.addOnDestinationChangedListener(listener)
+            onDispose { nav.removeOnDestinationChangedListener(listener) }
+        }
+    }
+    // Short, direction-aware transitions (the default is a 700 ms cross-fade, which made every screen
+    // change feel slow). Start/End follow the layout direction, so Arabic slides the other way.
+    // Android 11 and older / low-memory phones: a shorter fade only, so both screens are drawn
+    // together for less time (the slide costs a full redraw of both on every frame).
+    val lite = LocalLiteMode.current
+    NavHost(
+        navController = nav, startDestination = Routes.HOME,
+        enterTransition = {
+            if (lite) fadeIn(Motion.enter(Motion.NAVIGATION_LITE))
+            else fadeIn(Motion.enter(Motion.NAVIGATION)) +
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, Motion.enter(Motion.NAVIGATION)) { it / 10 }
+        },
+        exitTransition = { fadeOut(Motion.exit(if (lite) Motion.NAVIGATION_LITE / 2 else Motion.QUICK)) },
+        popEnterTransition = { fadeIn(Motion.enter(if (lite) Motion.NAVIGATION_LITE else Motion.NAVIGATION)) },
+        popExitTransition = {
+            if (lite) fadeOut(Motion.exit(Motion.NAVIGATION_LITE / 2))
+            else fadeOut(Motion.exit(Motion.NAVIGATION)) +
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, Motion.exit(Motion.NAVIGATION)) { it / 10 }
+        },
+    ) {
         composable(Routes.HOME) {
             HomeScreen(
                 HomeNav(
@@ -150,6 +195,8 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                 openMedia = { nav.go(Routes.media(it)) },
                 openCall = { nav.go(Routes.CALL) },
                 openMediaBrowser = { nav.go("chat-media/$it") },
+                // A new entry (not single-top), so Back returns to this chat.
+                openChat = { target -> if (target != cid) nav.navigate(Routes.chat(target)) },
             ))
         }
         composable("chat-media/{cid}", arguments = listOf(navArgument("cid") { type = NavType.StringType })) { entry ->
@@ -187,13 +234,33 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
         composable("search?q={q}", arguments = listOf(navArgument("q") { type = NavType.StringType; defaultValue = "" })) { entry ->
             GlobalSearchScreen(entry.arguments?.getString("q").orEmpty(), onBack = { nav.popBackStack() }, openMessage = { cid, mid -> nav.go(Routes.chat(cid, mid)) })
         }
-        composable("status/{owner}", arguments = listOf(navArgument("owner") { type = NavType.StringType })) { entry ->
+        composable(
+            "status/{owner}", arguments = listOf(navArgument("owner") { type = NavType.StringType }),
+            enterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, popExitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+        ) { entry ->
             StatusViewerScreen(entry.arguments?.getString("owner").orEmpty(), onClose = { nav.popBackStack() }, openReply = { owner -> nav.popBackStack(); openPeer(owner) })
         }
-        composable("media/{mid}", arguments = listOf(navArgument("mid") { type = NavType.StringType })) { entry ->
+        composable(
+            "media/{mid}", arguments = listOf(navArgument("mid") { type = NavType.StringType }),
+            enterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, popExitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+        ) { entry ->
             MediaViewerScreen(entry.arguments?.getString("mid").orEmpty(), onBack = { nav.popBackStack() })
         }
-        composable(Routes.CALL) { CallScreen(onClose = { if (nav.currentBackStackEntry?.destination?.route == Routes.CALL) nav.popBackStack() }) }
+        composable(
+            Routes.CALL,
+            enterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, exitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+            popEnterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, popExitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
+        ) { entry ->
+            CallScreen(onClose = {
+                scope.launch {
+                    // Pop only once navigation has finished bringing this screen up: popping an entry that
+                    // is still being created (a call that ended before its screen appeared) can leave it
+                    // half-initialised, which crashes the next activity recreation.
+                    val state = entry.lifecycle.currentStateFlow.first { it == Lifecycle.State.DESTROYED || it.isAtLeast(Lifecycle.State.RESUMED) }
+                    if (state != Lifecycle.State.DESTROYED && nav.currentBackStackEntry?.id == entry.id) nav.popBackStack()
+                }
+            })
+        }
         composable("settings") { SettingsHomeScreen(settingsNav) }
         composable("settings/profile") { ProfileSettingsScreen(settingsNav) }
         composable("settings/privacy") { PrivacySettingsScreen(settingsNav) }

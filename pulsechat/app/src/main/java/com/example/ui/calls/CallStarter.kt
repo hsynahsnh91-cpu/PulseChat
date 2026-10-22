@@ -16,6 +16,8 @@ import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.ui.common.appContainer
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Returns a function that starts a real call after the needed runtime permissions are granted.
@@ -30,8 +32,13 @@ fun rememberCallStarter(onStarted: () -> Unit): (peerId: String, video: Boolean)
 
     fun launchCall(peerId: String, video: Boolean) {
         scope.launch {
-            if (container.callManager.startCall(peerId, video)) onStarted()
-            else Toast.makeText(context, R.string.call_could_not_start, Toast.LENGTH_LONG).show()
+            val started = container.callManager.startCall(peerId, video)
+            // Navigation and toasts must run on the main thread whatever dispatcher resumed us:
+            // navigating from another thread leaves a half-created back-stack entry behind.
+            withContext(Dispatchers.Main.immediate) {
+                if (started) onStarted()
+                else Toast.makeText(context, R.string.call_could_not_start, Toast.LENGTH_LONG).show()
+            }
         }
     }
 

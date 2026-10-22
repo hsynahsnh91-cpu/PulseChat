@@ -15,18 +15,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.ui.theme.Radii
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Event
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.TaskAlt
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -146,7 +147,7 @@ fun ScheduleMessageDialog(
     val error = ScheduledPolicy.validate(text, at, System.currentTimeMillis())
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Default.Schedule, contentDescription = null) },
+        icon = { Icon(Icons.Rounded.Schedule, contentDescription = null) },
         title = { Text(stringResource(if (editing) R.string.schedule_edit_title else R.string.schedule_title)) },
         text = {
             Column {
@@ -161,7 +162,7 @@ fun ScheduleMessageDialog(
                     }
                 }
                 Row(Modifier.fillMaxWidth().clickable { picking = true }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Event, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Rounded.Event, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(stringResource(R.string.schedule_send_at), style = MaterialTheme.typography.labelMedium)
@@ -225,7 +226,7 @@ fun ScheduledMessagesSheet(
                     val sending = m.state == ScheduledState.SENDING
                     val failed = m.state == ScheduledState.FAILED
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (failed) Icons.Default.ErrorOutline else Icons.Default.Schedule, contentDescription = null,
+                        Icon(if (failed) Icons.Rounded.ErrorOutline else Icons.Rounded.Schedule, contentDescription = null,
                             tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
@@ -242,10 +243,10 @@ fun ScheduledMessagesSheet(
                             )
                         }
                         IconButton(onClick = { onSendNow(m) }, enabled = !sending) {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(if (failed) R.string.action_retry else R.string.scheduled_send_now))
+                            Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(if (failed) R.string.action_retry else R.string.scheduled_send_now))
                         }
-                        IconButton(onClick = { onEdit(m) }, enabled = !sending) { Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.action_edit)) }
-                        IconButton(onClick = { onDelete(m) }, enabled = !sending) { Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete)) }
+                        IconButton(onClick = { onEdit(m) }, enabled = !sending) { Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.action_edit)) }
+                        IconButton(onClick = { onDelete(m) }, enabled = !sending) { Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.action_delete)) }
                     }
                     HorizontalDivider()
                 }
@@ -273,7 +274,7 @@ fun ReminderTimeDialog(title: String, onPick: (Long) -> Unit, onDismiss: () -> U
                     }
                 }
                 Row(Modifier.fillMaxWidth().clickable { custom = true }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Event, contentDescription = null)
+                    Icon(Icons.Rounded.Event, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.time_pick_custom))
                 }
@@ -313,10 +314,10 @@ fun TranslationCard(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 1.dp, color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f), modifier = modifier) {
+    Surface(shape = RoundedCornerShape(Radii.md), tonalElevation = 1.dp, color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f), modifier = modifier) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Translate, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Rounded.Translate, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(
                     when {
@@ -327,7 +328,7 @@ fun TranslationCard(
                     },
                     style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, stringResource(R.string.translate_hide), Modifier.size(16.dp)) }
+                IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) { Icon(Icons.Rounded.Close, stringResource(R.string.translate_hide), Modifier.size(16.dp)) }
             }
             when {
                 ui.loading -> CircularProgressIndicator(Modifier.padding(4.dp).size(18.dp), strokeWidth = 2.dp)
@@ -352,10 +353,10 @@ fun TranslationCard(
 
 @Composable
 fun TranscriptCard(ui: TranscriptUi, onRetry: () -> Unit, onToggle: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 1.dp, color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f), modifier = modifier) {
+    Surface(shape = RoundedCornerShape(Radii.md), tonalElevation = 1.dp, color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f), modifier = modifier) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.GraphicEq, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Rounded.GraphicEq, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.transcript_title), style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                 AiBadge()
@@ -422,23 +423,23 @@ data class SummaryUi(val busy: Boolean = false, val points: List<SummaryPointUi>
 fun NewSinceVisitBanner(count: Int, onSummarize: () -> Unit, onDismiss: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(LocalContext.current.resources.getQuantityString(R.plurals.new_since_visit, count, count), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = onSummarize) { Text(stringResource(R.string.ai_summarize_new)) }
-            IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.action_close)) }
+            IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, stringResource(R.string.action_close)) }
         }
     }
 }
 
 @Composable
 fun SummaryPanel(ui: SummaryUi, onJump: (String) -> Unit, onClose: () -> Unit) {
-    Surface(tonalElevation = 3.dp, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
+    Surface(tonalElevation = 3.dp, shape = RoundedCornerShape(topStart = Radii.lg, topEnd = Radii.lg)) {
         Column(Modifier.fillMaxWidth().padding(16.dp).heightIn(max = 320.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.ai_summary_since_visit), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 AiBadge()
-                IconButton(onClick = onClose) { Icon(Icons.Default.Close, stringResource(R.string.action_close)) }
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.action_close)) }
             }
             if (ui.busy) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -497,7 +498,7 @@ fun ActionSuggestionsSheet(initial: List<ActionCandidateUi>, onJump: (String) ->
                         Checkbox(checked = item.checked, onCheckedChange = { c -> rows[index] = item.copy(checked = c) }, enabled = item.at != null)
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(if (item.event) Icons.Default.Event else Icons.Default.TaskAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(if (item.event) Icons.Rounded.Event else Icons.Rounded.TaskAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(stringResource(if (item.event) R.string.ai_kind_event else R.string.ai_kind_task), style = MaterialTheme.typography.labelSmall)
                             }

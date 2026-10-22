@@ -22,11 +22,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -349,7 +349,7 @@ fun DiagnosticsScreen(nav: SettingsNav) {
                     copyToClipboard(context, buildReport(context, vm, network, sync.state, lastSync, health, server, lastCall, problems))
                     scope.launch { snackbar.showSnackbar(context.getString(R.string.diag_report_copied)) }
                 }) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.diag_copy_report))
                 }
@@ -428,9 +428,9 @@ private fun buildReport(
 @Composable
 private fun CheckRow(ok: Boolean?, title: String, detail: String, busy: Boolean = false, action: Pair<String, () -> Unit>? = null) {
     val (icon: ImageVector, tint: Color) = when (ok) {
-        true -> Icons.Default.CheckCircle to Color(0xFF16A34A)
-        false -> Icons.Default.WarningAmber to MaterialTheme.colorScheme.error
-        null -> Icons.Default.Info to MaterialTheme.colorScheme.onSurfaceVariant
+        true -> Icons.Rounded.CheckCircle to com.example.ui.theme.PulseTheme.colors.success
+        false -> Icons.Rounded.WarningAmber to MaterialTheme.colorScheme.error
+        null -> Icons.Rounded.Info to MaterialTheme.colorScheme.onSurfaceVariant
     }
     val stateLabel = stringResource(when (ok) { true -> R.string.diag_state_ok; false -> R.string.diag_state_attention; null -> R.string.diag_state_info })
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.Top) {

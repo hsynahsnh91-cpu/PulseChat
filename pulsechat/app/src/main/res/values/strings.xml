@@ -191,7 +191,6 @@
     <string name="auto_roaming">When roaming</string>
     <string name="auto_wifi">When connected on Wi-Fi</string>
     <string name="banner_backend_not_ready">Can\'t sync right now. Please try again later.</string>
-    <string name="banner_connecting">Connecting…</string>
     <string name="banner_offline">You\'re offline. Messages will be sent when you reconnect.</string>
     <string name="banner_offline_chat">Offline: new messages are queued and sent automatically.</string>
     <string name="banner_sync_error">Sync problem. Retrying…</string>
@@ -884,4 +883,18 @@
         <item quantity="one">%1$d failed</item>
         <item quantity="other">%1$d failed</item>
     </plurals>
+    <string name="action_previous">Previous</string>
+    <string name="contact_share_title">Share contact</string>
+    <string name="contact_share_search">Search by name or username</string>
+    <string name="contact_share_empty">No contacts yet. People you save or chat with appear here.</string>
+    <string name="contact_share_no_match">No contact matches your search.</string>
+    <string name="contact_message">Message</string>
+    <string name="contact_lookup_failed">Couldn\'t open this chat. Please try again.</string>
+    <string name="contact_not_on_pulsechat">This person couldn\'t be found on PulseChat.</string>
+    <string name="day_at_time">%1$s, %2$s</string>
+    <string name="time_just_now">Just now</string>
+    <string name="status_quote">Status · %1$s</string>
+    <string name="status_reply_hint">Reply…</string>
+    <string name="status_reply_sent">Reply sent</string>
+    <string name="status_viewed_by_count">Viewed by %1$d</string>
 </resources>

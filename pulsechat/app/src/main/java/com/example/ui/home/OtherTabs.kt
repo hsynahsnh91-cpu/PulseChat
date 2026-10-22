@@ -21,18 +21,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallMade
-import androidx.compose.material.icons.filled.CallMissed
-import androidx.compose.material.icons.filled.CallReceived
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.GroupAdd
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.outlined.Call
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,7 +45,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +65,10 @@ import com.example.ui.common.EmptyState
 import com.example.ui.common.Formatters
 import com.example.ui.common.SectionHeader
 import com.example.ui.components.UserAvatar
+import com.example.ui.theme.Spacing
+import androidx.compose.material.icons.automirrored.rounded.CallMissed
+import androidx.compose.material.icons.automirrored.rounded.CallMade
+import androidx.compose.material.icons.automirrored.rounded.CallReceived
 
 // ---------------------------------------------------------------------- Updates
 
@@ -76,7 +80,7 @@ fun UpdatesTab(
     onAddText: () -> Unit,
     onOpen: (String) -> Unit,
     onRetry: (String) -> Unit,
-    onPrivacy: () -> Unit,
+    myViews: Int,
     contentPadding: PaddingValues,
 ) {
     val context = LocalContext.current
@@ -89,11 +93,11 @@ fun UpdatesTab(
             ) {
                 Box {
                     StatusRing(hasUnviewed = false, active = ui.mine.isNotEmpty()) {
-                        UserAvatar(me?.displayName ?: "", avatarUrl = me?.avatarUrl, size = 50.dp, colorHex = me?.avatarColorHex ?: "#4F46E5")
+                        UserAvatar(me?.displayName ?: "", avatarUrl = me?.avatarUrl, size = 50.dp, colorHex = me?.avatarColorHex)
                     }
                     if (ui.mine.isEmpty()) {
                         Box(Modifier.size(20.dp).align(Alignment.BottomEnd).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Rounded.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
                         }
                     }
                 }
@@ -104,7 +108,7 @@ fun UpdatesTab(
                     val failed = ui.mine.firstOrNull { it.uploadState == StatusItem.UPLOAD_FAILED }
                     when {
                         failed != null -> TextButton(onClick = { onRetry(failed.statusId) }, contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(stringResource(R.string.updates_failed_retry), color = MaterialTheme.colorScheme.error)
                         }
@@ -114,16 +118,34 @@ fun UpdatesTab(
                         else -> Text(Formatters.chatListTime(context, ui.mine.last().createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                IconButton(onClick = onPrivacy) { Icon(Icons.Outlined.Lock, contentDescription = stringResource(R.string.privacy_status)) }
+                if (ui.mine.isNotEmpty()) MyStatusViews(myViews)
             }
         }
         if (ui.recent.isEmpty() && ui.viewed.isEmpty()) {
-            item(key = "empty") { EmptyState(Icons.Outlined.PhotoCamera, stringResource(R.string.updates_empty_title), stringResource(R.string.updates_empty_body)) }
+            item(key = "empty") { EmptyState(Icons.Rounded.PhotoCamera, stringResource(R.string.updates_empty_title), stringResource(R.string.updates_empty_body), avoidFab = true) }
         }
         if (ui.recent.isNotEmpty()) item(key = "recent_h") { SectionHeader(stringResource(R.string.updates_recent)) }
         items(ui.recent, key = { "r_" + it.ownerId }) { owner -> StatusOwnerRow(owner) { onOpen(owner.ownerId) } }
         if (ui.viewed.isNotEmpty()) item(key = "viewed_h") { SectionHeader(stringResource(R.string.updates_viewed)) }
         items(ui.viewed, key = { "v_" + it.ownerId }) { owner -> StatusOwnerRow(owner) { onOpen(owner.ownerId) } }
+    }
+}
+
+/**
+ * Number of people who have seen my status. Deliberately not tappable here: who viewed it, and when,
+ * is shown inside my status.
+ */
+@Composable
+private fun MyStatusViews(count: Int) {
+    val label = pluralStringResource(R.plurals.status_views, count, count)
+    Row(
+        // Read as one item ("3 views"); the tag sits outside the cleared semantics so tests can find it.
+        Modifier.padding(start = Spacing.sm).testTag("my_status_views").clearAndSetSemantics { contentDescription = label },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Visibility, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(Spacing.xs))
+        Text(count.toString(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -164,13 +186,13 @@ fun GroupsTab(groups: List<Conversation>, onOpen: (String) -> Unit, onNewGroup: 
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(50.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.GroupAdd, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
+                    Icon(Icons.Rounded.GroupAdd, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
                 }
                 Spacer(Modifier.width(14.dp))
                 Text(stringResource(R.string.new_group), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
         }
-        if (groups.isEmpty()) item(key = "empty") { EmptyState(Icons.Default.Groups, stringResource(R.string.groups_empty_title), stringResource(R.string.groups_empty_body)) }
+        if (groups.isEmpty()) item(key = "empty") { EmptyState(Icons.Rounded.Groups, stringResource(R.string.groups_empty_title), stringResource(R.string.groups_empty_body), avoidFab = true) }
         items(groups, key = { it.conversationId }) { g ->
             Row(
                 Modifier.fillMaxWidth().clickable { onOpen(g.conversationId) }.heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -178,7 +200,7 @@ fun GroupsTab(groups: List<Conversation>, onOpen: (String) -> Unit, onNewGroup: 
             ) {
                 if (g.avatarUrl != null) UserAvatar(g.title, avatarUrl = g.avatarUrl, size = 50.dp)
                 else Box(Modifier.size(50.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Icon(Icons.Rounded.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
@@ -199,7 +221,7 @@ fun CallsTab(calls: List<CallRecord>, me: String, onCall: (peerId: String, video
     val context = LocalContext.current
     var deleting by remember { mutableStateOf<CallRecord?>(null) }
     if (calls.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(contentPadding)) { EmptyState(Icons.Outlined.Call, stringResource(R.string.calls_empty_title), stringResource(R.string.calls_empty_body)) }
+        Box(Modifier.fillMaxSize().padding(contentPadding)) { EmptyState(Icons.Rounded.Call, stringResource(R.string.calls_empty_title), stringResource(R.string.calls_empty_body), avoidFab = true) }
         return
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
@@ -221,7 +243,7 @@ fun CallsTab(calls: List<CallRecord>, me: String, onCall: (peerId: String, video
                         color = if (missed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            when { missed -> Icons.Default.CallMissed; outgoing -> Icons.Default.CallMade; else -> Icons.Default.CallReceived },
+                            when { missed -> Icons.AutoMirrored.Rounded.CallMissed; outgoing -> Icons.AutoMirrored.Rounded.CallMade; else -> Icons.AutoMirrored.Rounded.CallReceived },
                             contentDescription = stringResource(when { missed -> R.string.call_missed; outgoing -> R.string.call_outgoing; else -> R.string.call_incoming }),
                             tint = if (missed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp),
                         )
@@ -241,7 +263,7 @@ fun CallsTab(calls: List<CallRecord>, me: String, onCall: (peerId: String, video
                     }
                 }
                 IconButton(onClick = { onCall(peerId, call.isVideo) }) {
-                    Icon(if (call.isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                    Icon(if (call.isVideo) Icons.Rounded.Videocam else Icons.Rounded.Call,
                         contentDescription = stringResource(if (call.isVideo) R.string.action_video_call else R.string.action_voice_call),
                         tint = MaterialTheme.colorScheme.primary)
                 }

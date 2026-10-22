@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar" />
+    <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar">
+        <!-- Shown before the first Compose frame and as the launch splash background, so a dark
+             device does not flash white when the app starts. -->
+        <item name="android:windowBackground">@color/pulse_window_background</item>
+    </style>
 </resources>

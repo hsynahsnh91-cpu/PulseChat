@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,12 +19,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,6 +38,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +73,13 @@ import com.example.domain.GroupError
 import com.example.domain.model.MessageStatus
 import com.example.domain.model.MessageType
 import com.example.ui.theme.PulseTheme
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.ColumnScope
+import com.example.ui.theme.Spacing
+import com.example.ui.theme.Radii
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 
 // ---------------------------------------------------------------------- DI helpers
 
@@ -92,8 +101,10 @@ inline fun <reified VM : ViewModel> containerFactory(crossinline create: (AppCon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackTopBar(title: String, onBack: () -> Unit, subtitle: String? = null, actions: @Composable () -> Unit = {}) {
+fun BackTopBar(title: String, onBack: () -> Unit, subtitle: String? = null, containerColor: Color = Color.Unspecified, actions: @Composable () -> Unit = {}) {
     TopAppBar(
+        colors = if (containerColor.isSpecified) TopAppBarDefaults.topAppBarColors(containerColor = containerColor, scrolledContainerColor = containerColor)
+            else TopAppBarDefaults.topAppBarColors(),
         title = {
             Column {
                 Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
@@ -101,26 +112,34 @@ fun BackTopBar(title: String, onBack: () -> Unit, subtitle: String? = null, acti
             }
         },
         navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back)) }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.action_back)) }
         },
         actions = { actions() },
     )
 }
 
 @Composable
-fun EmptyState(icon: ImageVector, title: String, message: String? = null, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
+fun EmptyState(
+    icon: ImageVector, title: String, message: String? = null, modifier: Modifier = Modifier,
+    /** On screens with a floating action button: keeps the text clear of the button's column (both sides, for RTL). */
+    avoidFab: Boolean = false,
+    action: (@Composable () -> Unit)? = null,
+) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
     Column(
-        modifier = modifier.fillMaxWidth().padding(32.dp),
+        modifier = Modifier.widthIn(max = Spacing.contentMaxWidth)
+            .padding(horizontal = if (avoidFab) 76.dp else Spacing.xxxl, vertical = Spacing.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         Box(
-            modifier = Modifier.size(88.dp).clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+            modifier = Modifier.size(72.dp).clip(RoundedCornerShape(Radii.xl)).background(MaterialTheme.colorScheme.secondaryContainer),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp)) }
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+        ) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(36.dp)) }
+        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         if (message != null) Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         action?.invoke()
+    }
     }
 }
 
@@ -132,9 +151,9 @@ fun LoadingBox(modifier: Modifier = Modifier) {
 @Composable
 fun Banner(text: String, icon: ImageVector, container: Color, content: Color, modifier: Modifier = Modifier, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
     Surface(color = container, modifier = modifier.fillMaxWidth()) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.heightIn(min = 40.dp).padding(horizontal = Spacing.lg, vertical = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(Spacing.md))
             Text(text, color = content, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
             if (actionLabel != null && onAction != null) TextButton(onClick = onAction) { Text(actionLabel, color = content, fontWeight = FontWeight.Bold) }
         }
@@ -184,21 +203,49 @@ fun ConfirmDialog(
 fun SectionHeader(text: String, modifier: Modifier = Modifier) {
     Text(
         text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold,
-        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 6.dp),
+        modifier = modifier.padding(start = Spacing.screenEdge, end = Spacing.screenEdge, top = Spacing.xl, bottom = Spacing.sm),
+    )
+}
+
+/**
+ * Rounded card holding related rows (settings, details), with an optional header above it. Rows inside
+ * have no dividers; groups are separated by space.
+ */
+@Composable
+fun SettingsGroup(title: String? = null, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier.fillMaxWidth()) {
+        if (title != null) SectionHeader(title, Modifier.padding(start = Spacing.lg)) else Spacer(Modifier.height(Spacing.md))
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.lg).clip(RoundedCornerShape(Radii.lg))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow),
+            content = content,
+        )
+    }
+}
+
+/** Explanation under a [SettingsGroup], aligned with the text of its rows. */
+@Composable
+fun SettingsNote(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.fillMaxWidth().padding(start = Spacing.xxxl, end = Spacing.xxxl, top = Spacing.sm),
     )
 }
 
 @Composable
-fun SettingsItem(icon: ImageVector?, title: String, subtitle: String? = null, enabled: Boolean = true, titleColor: Color = Color.Unspecified, trailing: (@Composable () -> Unit)? = null, onClick: (() -> Unit)?) {
+fun SettingsItem(
+    icon: ImageVector?, title: String, subtitle: String? = null, enabled: Boolean = true, titleColor: Color = Color.Unspecified,
+    trailing: (@Composable () -> Unit)? = null, modifier: Modifier = Modifier, onClick: (() -> Unit)?,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+        modifier = modifier.fillMaxWidth().heightIn(min = 56.dp)
             .let { if (onClick != null && enabled) it.clickable(onClick = onClick) else it }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = Spacing.screenEdge, vertical = Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(20.dp))
+            Spacer(Modifier.width(Spacing.lg))
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = if (!enabled) MaterialTheme.colorScheme.outline else titleColor)
@@ -213,17 +260,18 @@ fun SwitchItem(icon: ImageVector?, title: String, subtitle: String? = null, chec
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
             .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = Spacing.screenEdge, vertical = Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(20.dp))
+            Spacer(Modifier.width(Spacing.lg))
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        Spacer(Modifier.width(Spacing.md))
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
@@ -257,17 +305,19 @@ fun <T> ChoiceDialog(title: String, options: List<Pair<T, String>>, selected: T?
 // ---------------------------------------------------------------------- chat bits
 
 @Composable
-fun DeliveryTicks(status: MessageStatus, modifier: Modifier = Modifier, size: Dp = 16.dp, showRead: Boolean = true) {
+fun DeliveryTicks(status: MessageStatus, modifier: Modifier = Modifier, size: Dp = 16.dp, showRead: Boolean = true, tint: Color = Color.Unspecified) {
     val c = PulseTheme.colors
-    val (icon, tint, desc) = when (status) {
-        MessageStatus.PENDING -> Triple(Icons.Default.Schedule, c.metaText, R.string.status_pending)
-        MessageStatus.SENDING -> Triple(Icons.Default.Schedule, c.metaText, R.string.status_sending)
-        MessageStatus.SENT -> Triple(Icons.Default.Check, c.metaText, R.string.status_sent)
-        MessageStatus.DELIVERED -> Triple(Icons.Default.DoneAll, c.metaText, R.string.status_delivered)
-        MessageStatus.READ -> if (showRead) Triple(Icons.Default.DoneAll, c.readTick, R.string.status_read) else Triple(Icons.Default.DoneAll, c.metaText, R.string.status_delivered)
-        MessageStatus.FAILED -> Triple(Icons.Default.ErrorOutline, MaterialTheme.colorScheme.error, R.string.status_failed)
+    // Not-yet-read ticks use the surrounding secondary text colour (bubble or list), read ticks the accent.
+    val meta = if (tint.isSpecified) tint else c.metaText
+    val (icon, color, desc) = when (status) {
+        MessageStatus.PENDING -> Triple(Icons.Rounded.Schedule, meta, R.string.status_pending)
+        MessageStatus.SENDING -> Triple(Icons.Rounded.Schedule, meta, R.string.status_sending)
+        MessageStatus.SENT -> Triple(Icons.Rounded.Check, meta, R.string.status_sent)
+        MessageStatus.DELIVERED -> Triple(Icons.Rounded.DoneAll, meta, R.string.status_delivered)
+        MessageStatus.READ -> if (showRead) Triple(Icons.Rounded.DoneAll, c.readTick, R.string.status_read) else Triple(Icons.Rounded.DoneAll, meta, R.string.status_delivered)
+        MessageStatus.FAILED -> Triple(Icons.Rounded.ErrorOutline, MaterialTheme.colorScheme.error, R.string.status_failed)
     }
-    Icon(icon, contentDescription = stringResource(desc), tint = tint, modifier = modifier.size(size))
+    Icon(icon, contentDescription = stringResource(desc), tint = color, modifier = modifier.size(size))
 }
 
 @Composable
@@ -289,7 +339,7 @@ fun typeLabel(type: MessageType): String? = when (type) {
 fun previewLine(type: MessageType?, text: String?, deleted: Boolean): String {
     if (deleted) return stringResource(R.string.message_deleted)
     val label = type?.let { typeLabel(it) }
-    val body = text.orEmpty()
+    val body = isolateIfForeign(text.orEmpty(), LocalLayoutDirection.current == LayoutDirection.Rtl)
     return when {
         label == null -> body
         type == MessageType.SYSTEM -> label
@@ -301,12 +351,12 @@ fun previewLine(type: MessageType?, text: String?, deleted: Boolean): String {
 @Composable
 fun AiBadge(modifier: Modifier = Modifier) {
     Row(
-        modifier.clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)).padding(horizontal = 6.dp, vertical = 2.dp),
+        modifier.clip(RoundedCornerShape(Radii.xs)).background(MaterialTheme.colorScheme.tertiaryContainer).padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(12.dp))
+        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(12.dp))
         Spacer(Modifier.width(3.dp))
-        Text(stringResource(R.string.ai_label), fontSize = 10.sp, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.ai_label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -315,7 +365,7 @@ fun AiBadge(modifier: Modifier = Modifier) {
 fun AiConsentDialog(onAccept: () -> Unit, onDecline: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDecline,
-        icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+        icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
         title = { Text(stringResource(R.string.ai_consent_title)) },
         text = { Text(stringResource(R.string.ai_consent_body)) },
         confirmButton = { TextButton(onClick = onAccept) { Text(stringResource(R.string.ai_consent_accept), fontWeight = FontWeight.Bold) } },
@@ -404,4 +454,32 @@ fun groupErrorText(context: Context, errors: List<GroupError>): String = errors.
             GroupError.TOO_MANY_MEMBERS -> R.string.group_error_too_many
         }
     )
+}
+
+/**
+ * Wraps [text] in a Unicode first-strong isolate when its direction differs from the layout's (an
+ * English message previewed in the Arabic UI, or the reverse). The row keeps the UI's alignment while
+ * the text keeps its own order and punctuation. Text in the UI's direction is returned unchanged.
+ */
+fun isolateIfForeign(text: String, rtlLayout: Boolean): String {
+    val rtlText = firstStrongIsRtl(text) ?: return text
+    return if (rtlText != rtlLayout) "\u2068$text\u2069" else text
+}
+
+/** Keeps left-to-right tokens such as "@username" or phone numbers in order inside the Arabic UI. */
+fun ltrIsolate(text: String, rtlLayout: Boolean): String = if (rtlLayout && text.isNotEmpty()) "\u2066$text\u2069" else text
+
+private fun firstStrongIsRtl(text: String): Boolean? {
+    // By code point: surrogate halves (emoji) have bidi class L as single chars, which would make a
+    // message starting with an emoji look left-to-right.
+    var i = 0
+    while (i < text.length) {
+        val cp = text.codePointAt(i)
+        when (Character.getDirectionality(cp)) {
+            Character.DIRECTIONALITY_LEFT_TO_RIGHT -> return false
+            Character.DIRECTIONALITY_RIGHT_TO_LEFT, Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC -> return true
+        }
+        i += Character.charCount(cp)
+    }
+    return null
 }

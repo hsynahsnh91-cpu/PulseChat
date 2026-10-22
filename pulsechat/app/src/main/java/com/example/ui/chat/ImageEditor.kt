@@ -30,14 +30,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.BlurOn
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Crop
-import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Crop
+import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -92,6 +92,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+import com.example.ui.common.LightSystemBarIcons
 
 private enum class EditTool { CROP, DRAW, TEXT, ARROW, BLUR }
 
@@ -104,7 +105,7 @@ private sealed class EditOp {
     data class Crop(val before: ImageEditMath.Box) : EditOp() // undo record for crop changes
 }
 
-private val PALETTE = listOf(Color.White, Color.Black, Color(0xFFEF4444), Color(0xFFF59E0B), Color(0xFF22C55E), Color(0xFF3B82F6), Color(0xFFA855F7))
+private val PALETTE = com.example.ui.theme.DrawingPalette.Colors
 
 /**
  * Photo editor shown before sending: crop, draw, text, arrows and privacy blur. The blur replaces
@@ -142,15 +143,16 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
         Column(Modifier.fillMaxSize().background(Color.Black)) {
+            LightSystemBarIcons()
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.action_cancel), tint = Color.White) }
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, stringResource(R.string.action_cancel), tint = Color.White) }
                 Text(stringResource(R.string.editor_title), color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 IconButton(onClick = {
                     when (val last = ops.removeLastOrNull()) {
                         is EditOp.Crop -> crop = last.before
                         else -> Unit
                     }
-                }, enabled = ops.isNotEmpty()) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo), tint = if (ops.isNotEmpty()) Color.White else Color.Gray) }
+                }, enabled = ops.isNotEmpty()) { Icon(Icons.AutoMirrored.Rounded.Undo, stringResource(R.string.editor_undo), tint = if (ops.isNotEmpty()) Color.White else Color.Gray) }
                 IconButton(onClick = {
                     val b = preview ?: return@IconButton
                     if (ops.isEmpty() && crop == ImageEditMath.FULL) { onDone(source); return@IconButton }
@@ -167,7 +169,7 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
                         saving = false
                         if (uri != null) onDone(uri) else loadFailed = true
                     }
-                }, enabled = preview != null && !saving) { Icon(Icons.Default.Check, stringResource(R.string.action_done), tint = Color.White) }
+                }, enabled = preview != null && !saving) { Icon(Icons.Rounded.Check, stringResource(R.string.action_done), tint = Color.White) }
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 val img = preview
@@ -263,11 +265,11 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
                 if (tool == EditTool.BLUR) Text(stringResource(R.string.editor_blur_hint), color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
                 if (tool == EditTool.TEXT) Text(stringResource(R.string.editor_text_hint), color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    ToolButton(Icons.Default.Crop, stringResource(R.string.editor_crop), tool == EditTool.CROP) { tool = EditTool.CROP }
-                    ToolButton(Icons.Default.Brush, stringResource(R.string.editor_draw), tool == EditTool.DRAW) { tool = EditTool.DRAW }
-                    ToolButton(Icons.Default.TextFields, stringResource(R.string.editor_text), tool == EditTool.TEXT) { tool = EditTool.TEXT }
-                    ToolButton(Icons.AutoMirrored.Filled.ArrowForward, stringResource(R.string.editor_arrow), tool == EditTool.ARROW) { tool = EditTool.ARROW }
-                    ToolButton(Icons.Default.BlurOn, stringResource(R.string.editor_blur), tool == EditTool.BLUR) { tool = EditTool.BLUR }
+                    ToolButton(Icons.Rounded.Crop, stringResource(R.string.editor_crop), tool == EditTool.CROP) { tool = EditTool.CROP }
+                    ToolButton(Icons.Rounded.Brush, stringResource(R.string.editor_draw), tool == EditTool.DRAW) { tool = EditTool.DRAW }
+                    ToolButton(Icons.Rounded.TextFields, stringResource(R.string.editor_text), tool == EditTool.TEXT) { tool = EditTool.TEXT }
+                    ToolButton(Icons.AutoMirrored.Rounded.ArrowForward, stringResource(R.string.editor_arrow), tool == EditTool.ARROW) { tool = EditTool.ARROW }
+                    ToolButton(Icons.Rounded.BlurOn, stringResource(R.string.editor_blur), tool == EditTool.BLUR) { tool = EditTool.BLUR }
                 }
             }
         }

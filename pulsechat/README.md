@@ -231,3 +231,7 @@ security config (`src/debug`). Release builds always use the real backend with c
 * The call-audio changes are verified by builds, unit tests and emulator tests only. Echo behaviour
   depends on the phone's hardware and must be confirmed with the two-device plan in
   [docs/CALL_AUDIO.md](docs/CALL_AUDIO.md).
+
+## Design
+
+Colours, spacing, type, motion and inset rules ("Graphite Titanium"): [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md).

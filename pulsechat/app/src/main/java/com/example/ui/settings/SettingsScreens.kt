@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,35 +22,33 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.NetworkCheck
-import androidx.compose.material.icons.filled.KeyboardReturn
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Reply
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.NetworkCheck
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -70,11 +69,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -95,8 +102,9 @@ import com.example.ui.common.ChoiceDialog
 import com.example.ui.common.ConfirmDialog
 import com.example.ui.common.EmptyState
 import com.example.ui.common.Formatters
-import com.example.ui.common.SectionHeader
+import com.example.ui.common.SettingsGroup
 import com.example.ui.common.SettingsItem
+import com.example.ui.common.SettingsNote
 import com.example.ui.common.SwitchItem
 import com.example.ui.common.containerFactory
 import com.example.ui.components.AutoReplySettingsDialog
@@ -104,6 +112,16 @@ import com.example.ui.components.UserAvatar
 import com.example.ui.security.PinSetupDialog
 import com.example.ui.security.PinVerifyDialog
 import com.example.util.LocaleHelper
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import com.example.ui.theme.Spacing
+import androidx.compose.material.icons.automirrored.rounded.KeyboardReturn
+import androidx.compose.material.icons.automirrored.rounded.Reply
 
 @Composable
 private fun settingsVm(): SettingsViewModel = viewModel(factory = containerFactory { SettingsViewModel(it) })
@@ -112,8 +130,20 @@ private fun settingsVm(): SettingsViewModel = viewModel(factory = containerFacto
 private fun SettingsScaffold(title: String, onBack: () -> Unit, vm: SettingsViewModel, content: @Composable () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
-    Scaffold(topBar = { BackTopBar(title, onBack) }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) { content() }
+    // The list scrolls behind the transparent navigation bar (one bottom inset, at the end of the
+    // content) and stays a readable width on tablets.
+    Scaffold(
+        topBar = { BackTopBar(title, onBack, containerColor = MaterialTheme.colorScheme.background) },
+        snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) },
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier.widthIn(max = Spacing.contentMaxWidth).fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(bottom = Spacing.lg).navigationBarsPadding(),
+            ) { content() }
+        }
     }
 }
 
@@ -135,26 +165,29 @@ fun SettingsHomeScreen(nav: SettingsNav) {
     val user by vm.user.collectAsState()
     var logout by remember { mutableStateOf(false) }
     SettingsScaffold(stringResource(R.string.settings_title), nav.back, vm) {
-        Row(Modifier.fillMaxWidth().clickable { nav.open("settings/profile") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 64.dp, colorHex = user?.avatarColorHex ?: "#4F46E5")
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(user?.displayName ?: "", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text(user?.statusMessage?.ifBlank { null } ?: stringResource(R.string.profile_about_empty), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                Text("@${user?.username.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        SettingsGroup {
+            Row(Modifier.fillMaxWidth().clickable { nav.open("settings/profile") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 64.dp, colorHex = user?.avatarColorHex)
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(user?.displayName ?: "", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text(user?.statusMessage?.ifBlank { null } ?: stringResource(R.string.profile_about_empty), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    Text("@${user?.username.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
             }
         }
-        HorizontalDivider()
-        SettingsItem(Icons.Default.Lock, stringResource(R.string.settings_privacy), stringResource(R.string.settings_privacy_sub)) { nav.open("settings/privacy") }
-        SettingsItem(Icons.Default.Palette, stringResource(R.string.settings_chats), stringResource(R.string.settings_chats_sub)) { nav.open("settings/chats") }
-        SettingsItem(Icons.Default.Notifications, stringResource(R.string.settings_notifications), stringResource(R.string.settings_notifications_sub)) { nav.open("settings/notifications") }
-        SettingsItem(Icons.Default.Storage, stringResource(R.string.settings_storage), stringResource(R.string.settings_storage_sub)) { nav.open("settings/storage") }
-        SettingsItem(Icons.Default.AutoAwesome, stringResource(R.string.settings_ai), stringResource(R.string.settings_ai_sub)) { nav.open("settings/ai") }
-        SettingsItem(Icons.Default.NetworkCheck, stringResource(R.string.diag_title), stringResource(R.string.diag_sub)) { nav.open("settings/diagnostics") }
-        SettingsItem(Icons.Default.Info, stringResource(R.string.settings_about)) { nav.open("settings/about") }
-        HorizontalDivider()
-        SettingsItem(Icons.Default.SwapHoriz, stringResource(R.string.settings_switch_account), stringResource(R.string.settings_switch_account_sub)) { logout = true }
-        SettingsItem(Icons.AutoMirrored.Filled.Logout, stringResource(R.string.settings_logout), titleColor = MaterialTheme.colorScheme.error) { logout = true }
+        SettingsGroup {
+            SettingsItem(Icons.Rounded.Lock, stringResource(R.string.settings_privacy), stringResource(R.string.settings_privacy_sub)) { nav.open("settings/privacy") }
+            SettingsItem(Icons.Rounded.Palette, stringResource(R.string.settings_chats), stringResource(R.string.settings_chats_sub)) { nav.open("settings/chats") }
+            SettingsItem(Icons.Rounded.Notifications, stringResource(R.string.settings_notifications), stringResource(R.string.settings_notifications_sub)) { nav.open("settings/notifications") }
+            SettingsItem(Icons.Rounded.Storage, stringResource(R.string.settings_storage), stringResource(R.string.settings_storage_sub)) { nav.open("settings/storage") }
+            SettingsItem(Icons.Rounded.AutoAwesome, stringResource(R.string.settings_ai), stringResource(R.string.settings_ai_sub)) { nav.open("settings/ai") }
+            SettingsItem(Icons.Rounded.Info, stringResource(R.string.settings_about), modifier = Modifier.testTag("settings_about")) { nav.open("settings/about") }
+        }
+        SettingsGroup {
+            SettingsItem(Icons.Rounded.SwapHoriz, stringResource(R.string.settings_switch_account), stringResource(R.string.settings_switch_account_sub)) { logout = true }
+            SettingsItem(Icons.AutoMirrored.Rounded.Logout, stringResource(R.string.settings_logout), titleColor = MaterialTheme.colorScheme.error) { logout = true }
+        }
     }
     if (logout) ConfirmDialog(stringResource(R.string.settings_logout_title), stringResource(R.string.settings_logout_body), stringResource(R.string.settings_logout),
         onConfirm = { logout = false; vm.signOut() }, onDismiss = { logout = false }, destructive = true)
@@ -172,26 +205,27 @@ fun ProfileSettingsScreen(nav: SettingsNav) {
     SettingsScaffold(stringResource(R.string.settings_profile), nav.back, vm) {
         Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             Box {
-                UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 128.dp, colorHex = user?.avatarColorHex ?: "#4F46E5")
+                UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 128.dp, colorHex = user?.avatarColorHex)
                 IconButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     modifier = Modifier.align(Alignment.BottomEnd)) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = stringResource(R.string.profile_change_photo), tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Rounded.CameraAlt, contentDescription = stringResource(R.string.profile_change_photo), tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (user?.avatarUrl != null) SettingsItem(Icons.Default.Delete, stringResource(R.string.profile_remove_photo)) { vm.removePhoto() }
-        SettingsItem(Icons.Default.Person, stringResource(R.string.profile_name), user?.displayName, trailing = { Icon(Icons.Default.Edit, null) }) {
-            draft = user?.displayName.orEmpty(); editing = "name"
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = Spacing.xxxl).clip(CircleShape))
+        SettingsGroup {
+            if (user?.avatarUrl != null) SettingsItem(Icons.Rounded.Delete, stringResource(R.string.profile_remove_photo)) { vm.removePhoto() }
+            SettingsItem(Icons.Rounded.Person, stringResource(R.string.profile_name), user?.displayName, trailing = { Icon(Icons.Rounded.Edit, null) }) {
+                draft = user?.displayName.orEmpty(); editing = "name"
+            }
+            SettingsItem(Icons.Rounded.Info, stringResource(R.string.profile_about), user?.statusMessage?.ifBlank { null } ?: stringResource(R.string.profile_about_empty),
+                trailing = { Icon(Icons.Rounded.Edit, null) }) { draft = user?.statusMessage.orEmpty(); editing = "about" }
+            SettingsItem(null, stringResource(R.string.profile_username), "@${user?.username.orEmpty()}",
+                trailing = { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.action_copy)) }) { copyToClipboard(context, "@${user?.username.orEmpty()}") }
+            SettingsItem(null, stringResource(R.string.profile_id), user?.uniqueId10,
+                trailing = { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.action_copy)) }) { copyToClipboard(context, user?.uniqueId10.orEmpty()) }
         }
-        SettingsItem(Icons.Default.Info, stringResource(R.string.profile_about), user?.statusMessage?.ifBlank { null } ?: stringResource(R.string.profile_about_empty),
-            trailing = { Icon(Icons.Default.Edit, null) }) { draft = user?.statusMessage.orEmpty(); editing = "about" }
-        SettingsItem(null, stringResource(R.string.profile_username), "@${user?.username.orEmpty()}",
-            trailing = { Icon(Icons.Default.ContentCopy, stringResource(R.string.action_copy)) }) { copyToClipboard(context, "@${user?.username.orEmpty()}") }
-        SettingsItem(null, stringResource(R.string.profile_id), user?.uniqueId10,
-            trailing = { Icon(Icons.Default.ContentCopy, stringResource(R.string.action_copy)) }) { copyToClipboard(context, user?.uniqueId10.orEmpty()) }
-        Text(stringResource(R.string.profile_share_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(16.dp))
+        SettingsNote(stringResource(R.string.profile_share_hint))
     }
     editing?.let { field ->
         AlertDialog(
@@ -215,42 +249,44 @@ fun PrivacySettingsScreen(nav: SettingsNav) {
     val biometricAvailable = remember { vm.biometricAvailable() }
     val options = listOf(Visibility.EVERYONE, Visibility.CONTACTS, Visibility.NOBODY)
     SettingsScaffold(stringResource(R.string.settings_privacy), nav.back, vm) {
-        SectionHeader(stringResource(R.string.privacy_who_can_see))
-        SettingsItem(null, stringResource(R.string.privacy_last_seen), visibilityLabel(s.lastSeenVisibility)) { dialog = "lastSeen" }
-        SettingsItem(null, stringResource(R.string.privacy_photo), visibilityLabel(s.photoVisibility)) { dialog = "photo" }
-        SettingsItem(null, stringResource(R.string.privacy_about), visibilityLabel(s.aboutVisibility)) { dialog = "about" }
-        SettingsItem(null, stringResource(R.string.privacy_status), stringResource(when (s.statusAudienceMode) {
-            StatusPolicy.AudienceMode.MY_CONTACTS -> R.string.status_audience_contacts
-            StatusPolicy.AudienceMode.CONTACTS_EXCEPT -> R.string.status_audience_except
-            StatusPolicy.AudienceMode.ONLY_SHARE_WITH -> R.string.status_audience_only
-        })) { dialog = "status" }
-        Text(stringResource(R.string.privacy_reciprocity_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp))
-        SectionHeader(stringResource(R.string.privacy_messaging))
-        SwitchItem(Icons.Default.Visibility, stringResource(R.string.privacy_read_receipts), stringResource(R.string.privacy_read_receipts_sub), s.readReceipts, onChange = vm::setReadReceipts)
-        SettingsItem(Icons.Default.Timer, stringResource(R.string.privacy_default_timer), Formatters.disappearingLabel(context, s.defaultDisappearingSeconds)) { dialog = "timer" }
-        SettingsItem(Icons.Default.Block, stringResource(R.string.privacy_blocked), context.resources.getQuantityString(R.plurals.blocked_count, blocked.size, blocked.size)) {
-            nav.open("settings/blocked")
+        SettingsGroup(stringResource(R.string.privacy_who_can_see)) {
+            SettingsItem(null, stringResource(R.string.privacy_last_seen), visibilityLabel(s.lastSeenVisibility)) { dialog = "lastSeen" }
+            SettingsItem(null, stringResource(R.string.privacy_photo), visibilityLabel(s.photoVisibility)) { dialog = "photo" }
+            SettingsItem(null, stringResource(R.string.privacy_about), visibilityLabel(s.aboutVisibility)) { dialog = "about" }
+            SettingsItem(null, stringResource(R.string.privacy_status), stringResource(when (s.statusAudienceMode) {
+                StatusPolicy.AudienceMode.MY_CONTACTS -> R.string.status_audience_contacts
+                StatusPolicy.AudienceMode.CONTACTS_EXCEPT -> R.string.status_audience_except
+                StatusPolicy.AudienceMode.ONLY_SHARE_WITH -> R.string.status_audience_only
+            })) { dialog = "status" }
         }
-        SectionHeader(stringResource(R.string.privacy_security))
-        SwitchItem(Icons.Default.Lock, stringResource(R.string.app_lock), stringResource(R.string.app_lock_sub), s.appLockEnabled) { on ->
-            dialog = when {
-                on -> "pinSetup"
-                s.appLockHasPin -> "pinDisable"
-                else -> { vm.disableAppLock(); null }
+        SettingsNote(stringResource(R.string.privacy_reciprocity_note))
+        SettingsGroup(stringResource(R.string.privacy_messaging)) {
+            SwitchItem(Icons.Rounded.Visibility, stringResource(R.string.privacy_read_receipts), stringResource(R.string.privacy_read_receipts_sub), s.readReceipts, onChange = vm::setReadReceipts)
+            SettingsItem(Icons.Rounded.Timer, stringResource(R.string.privacy_default_timer), Formatters.disappearingLabel(context, s.defaultDisappearingSeconds)) { dialog = "timer" }
+            SettingsItem(Icons.Rounded.Block, stringResource(R.string.privacy_blocked), context.resources.getQuantityString(R.plurals.blocked_count, blocked.size, blocked.size)) {
+                nav.open("settings/blocked")
             }
         }
-        if (s.appLockEnabled) {
-            SettingsItem(null, stringResource(R.string.app_lock_timeout), lockTimeoutLabel(s.appLockTimeoutMs)) { dialog = "lockTimeout" }
-            if (biometricAvailable) {
-                SwitchItem(Icons.Default.Fingerprint, stringResource(R.string.app_lock_biometric_switch), stringResource(R.string.app_lock_biometric_sub),
-                    s.appLockBiometric, onChange = vm::setAppLockBiometric)
+        SettingsGroup(stringResource(R.string.privacy_security)) {
+            SwitchItem(Icons.Rounded.Lock, stringResource(R.string.app_lock), stringResource(R.string.app_lock_sub), s.appLockEnabled) { on ->
+                dialog = when {
+                    on -> "pinSetup"
+                    s.appLockHasPin -> "pinDisable"
+                    else -> { vm.disableAppLock(); null }
+                }
             }
-            SettingsItem(null, stringResource(if (s.appLockHasPin) R.string.app_lock_change_pin else R.string.app_lock_set_pin_title)) {
-                dialog = if (s.appLockHasPin) "pinChangeVerify" else "pinChange"
+            if (s.appLockEnabled) {
+                SettingsItem(null, stringResource(R.string.app_lock_timeout), lockTimeoutLabel(s.appLockTimeoutMs)) { dialog = "lockTimeout" }
+                if (biometricAvailable) {
+                    SwitchItem(Icons.Rounded.Fingerprint, stringResource(R.string.app_lock_biometric_switch), stringResource(R.string.app_lock_biometric_sub),
+                        s.appLockBiometric, onChange = vm::setAppLockBiometric)
+                }
+                SettingsItem(null, stringResource(if (s.appLockHasPin) R.string.app_lock_change_pin else R.string.app_lock_set_pin_title)) {
+                    dialog = if (s.appLockHasPin) "pinChangeVerify" else "pinChange"
+                }
             }
+            SettingsItem(Icons.Rounded.Security, stringResource(R.string.privacy_encryption_title), stringResource(R.string.privacy_encryption_body), onClick = null)
         }
-        SettingsItem(Icons.Default.Security, stringResource(R.string.privacy_encryption_title), stringResource(R.string.privacy_encryption_body), onClick = null)
     }
     when (dialog) {
         "lastSeen" -> ChoiceDialog(stringResource(R.string.privacy_last_seen), options.map { it to visibilityLabel(it) }, s.lastSeenVisibility,
@@ -279,18 +315,22 @@ fun StatusPrivacyScreen(nav: SettingsNav) {
     val s by vm.settings.collectAsState()
     val contacts by vm.contacts.collectAsState()
     SettingsScaffold(stringResource(R.string.privacy_status), nav.back, vm) {
-        SectionHeader(stringResource(R.string.status_privacy_who))
-        listOf(
-            StatusPolicy.AudienceMode.MY_CONTACTS to R.string.status_audience_contacts,
-            StatusPolicy.AudienceMode.CONTACTS_EXCEPT to R.string.status_audience_except,
-            StatusPolicy.AudienceMode.ONLY_SHARE_WITH to R.string.status_audience_only,
-        ).forEach { (mode, label) ->
-            com.example.ui.common.RadioRow(stringResource(label), s.statusAudienceMode == mode, onSelect = { vm.setStatusAudience(mode, s.statusAudienceList) })
+        SettingsGroup(stringResource(R.string.status_privacy_who)) {
+            Column(Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs)) {
+                listOf(
+                    StatusPolicy.AudienceMode.MY_CONTACTS to R.string.status_audience_contacts,
+                    StatusPolicy.AudienceMode.CONTACTS_EXCEPT to R.string.status_audience_except,
+                    StatusPolicy.AudienceMode.ONLY_SHARE_WITH to R.string.status_audience_only,
+                ).forEach { (mode, label) ->
+                    com.example.ui.common.RadioRow(stringResource(label), s.statusAudienceMode == mode, onSelect = { vm.setStatusAudience(mode, s.statusAudienceList) })
+                }
+            }
         }
-        if (s.statusAudienceMode != StatusPolicy.AudienceMode.MY_CONTACTS) {
-            SectionHeader(stringResource(if (s.statusAudienceMode == StatusPolicy.AudienceMode.CONTACTS_EXCEPT) R.string.status_privacy_hide_from else R.string.status_privacy_share_with))
+        if (s.statusAudienceMode != StatusPolicy.AudienceMode.MY_CONTACTS) SettingsGroup(
+            stringResource(if (s.statusAudienceMode == StatusPolicy.AudienceMode.CONTACTS_EXCEPT) R.string.status_privacy_hide_from else R.string.status_privacy_share_with),
+        ) {
             if (contacts.isEmpty()) {
-                Text(stringResource(R.string.contacts_empty_title), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                Text(stringResource(R.string.contacts_empty_title), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
             }
             contacts.forEach { contact ->
                 val checked = contact.userId in s.statusAudienceList
@@ -309,8 +349,7 @@ fun StatusPrivacyScreen(nav: SettingsNav) {
                 }
             }
         }
-        Text(stringResource(R.string.status_audience_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(16.dp))
+        SettingsNote(stringResource(R.string.status_audience_note))
     }
 }
 
@@ -360,8 +399,8 @@ fun BlockedUsersScreen(nav: SettingsNav) {
     val vm = settingsVm()
     val blocked by vm.blockedUsers.collectAsState()
     SettingsScaffold(stringResource(R.string.privacy_blocked), nav.back, vm) {
-        if (blocked.isEmpty()) EmptyState(Icons.Default.Block, stringResource(R.string.blocked_empty_title), stringResource(R.string.blocked_empty_body))
-        blocked.forEach { u ->
+        if (blocked.isEmpty()) EmptyState(Icons.Rounded.Block, stringResource(R.string.blocked_empty_title), stringResource(R.string.blocked_empty_body))
+        else SettingsGroup { blocked.forEach { u ->
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 UserAvatar(u.displayName, avatarUrl = u.avatarUrl, size = 44.dp, colorHex = u.avatarColorHex)
                 Spacer(Modifier.width(12.dp))
@@ -371,8 +410,8 @@ fun BlockedUsersScreen(nav: SettingsNav) {
                 }
                 TextButton(onClick = { vm.unblock(u.userId) }) { Text(stringResource(R.string.action_unblock)) }
             }
-        }
-        Text(stringResource(R.string.blocked_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+        } }
+        SettingsNote(stringResource(R.string.blocked_note))
     }
 }
 
@@ -383,16 +422,17 @@ fun ChatSettingsScreen(nav: SettingsNav) {
     val s by vm.settings.collectAsState()
     var dialog by remember { mutableStateOf<String?>(null) }
     SettingsScaffold(stringResource(R.string.settings_chats), nav.back, vm) {
-        SectionHeader(stringResource(R.string.settings_display))
-        SettingsItem(Icons.Default.DarkMode, stringResource(R.string.settings_theme), themeLabel(s.themeMode)) { dialog = "theme" }
-        SettingsItem(Icons.Default.Language, stringResource(R.string.settings_language), languageLabel(s.language)) { dialog = "language" }
-        SectionHeader(stringResource(R.string.settings_chats))
-        SwitchItem(Icons.Default.KeyboardReturn, stringResource(R.string.settings_enter_send), stringResource(R.string.settings_enter_send_sub), s.enterToSend, onChange = vm::setEnterToSend)
+        SettingsGroup(stringResource(R.string.settings_display)) {
+            SettingsItem(Icons.Rounded.DarkMode, stringResource(R.string.settings_theme), themeLabel(s.themeMode)) { dialog = "theme" }
+            SettingsItem(Icons.Rounded.Language, stringResource(R.string.settings_language), languageLabel(s.language)) { dialog = "language" }
+        }
         val translations = com.example.ui.common.appContainer().translations
         val target = s.translationTarget.ifBlank { translations.defaultTarget(s.language.tag ?: java.util.Locale.getDefault().language) }
-        SettingsItem(Icons.Default.Translate, stringResource(R.string.settings_translation_language), translations.displayName(target)) { dialog = "translation" }
-        Text(stringResource(R.string.settings_translation_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        SettingsGroup(stringResource(R.string.settings_chats)) {
+            SwitchItem(Icons.AutoMirrored.Rounded.KeyboardReturn, stringResource(R.string.settings_enter_send), stringResource(R.string.settings_enter_send_sub), s.enterToSend, onChange = vm::setEnterToSend)
+            SettingsItem(Icons.Rounded.Translate, stringResource(R.string.settings_translation_language), translations.displayName(target)) { dialog = "translation" }
+        }
+        SettingsNote(stringResource(R.string.settings_translation_note))
         if (dialog == "translation") {
             com.example.ui.chat.LanguagePickerDialog(
                 translations.supportedLanguages().map { it to translations.displayName(it) }, target,
@@ -428,16 +468,18 @@ fun NotificationSettingsScreen(nav: SettingsNav) {
     val context = LocalContext.current
     val s by vm.settings.collectAsState()
     SettingsScaffold(stringResource(R.string.settings_notifications), nav.back, vm) {
-        SwitchItem(null, stringResource(R.string.notif_messages), null, s.messageNotifications, onChange = vm::setMessageNotifications)
-        SwitchItem(null, stringResource(R.string.notif_groups), null, s.groupNotifications, onChange = vm::setGroupNotifications)
-        SwitchItem(null, stringResource(R.string.notif_calls), null, s.callNotifications, onChange = vm::setCallNotifications)
-        SwitchItem(null, stringResource(R.string.notif_previews), stringResource(R.string.notif_previews_sub), s.notificationPreviews, onChange = vm::setNotificationPreviews)
-        SettingsItem(null, stringResource(R.string.notif_system_settings), stringResource(R.string.notif_system_settings_sub)) {
-            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-            else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + context.packageName))
-            runCatching { context.startActivity(intent) }
+        SettingsGroup {
+            SwitchItem(null, stringResource(R.string.notif_messages), null, s.messageNotifications, onChange = vm::setMessageNotifications)
+            SwitchItem(null, stringResource(R.string.notif_groups), null, s.groupNotifications, onChange = vm::setGroupNotifications)
+            SwitchItem(null, stringResource(R.string.notif_calls), null, s.callNotifications, onChange = vm::setCallNotifications)
+            SwitchItem(null, stringResource(R.string.notif_previews), stringResource(R.string.notif_previews_sub), s.notificationPreviews, onChange = vm::setNotificationPreviews)
+            SettingsItem(null, stringResource(R.string.notif_system_settings), stringResource(R.string.notif_system_settings_sub)) {
+                val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + context.packageName))
+                runCatching { context.startActivity(intent) }
+            }
         }
-        Text(stringResource(R.string.notif_push_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+        SettingsNote(stringResource(R.string.notif_push_note))
     }
 }
 
@@ -453,20 +495,25 @@ fun StorageSettingsScreen(nav: SettingsNav) {
     var autoDialog by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { vm.refreshStorage() }
     SettingsScaffold(stringResource(R.string.settings_storage), nav.back, vm) {
-        SectionHeader(stringResource(R.string.storage_usage))
-        Text(stringResource(R.string.storage_used_free, MediaLimits.humanSize(total), MediaLimits.humanSize(free)), modifier = Modifier.padding(horizontal = 16.dp))
-        byType.forEach { t -> Text("• ${typeName(t.type)}: ${t.files} · ${MediaLimits.humanSize(t.bytes)}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)) }
-        SectionHeader(stringResource(R.string.storage_by_chat))
-        if (byChat.isEmpty()) Text(stringResource(R.string.storage_empty), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
-        byChat.forEach { row ->
-            SettingsItem(null, (if (row.isGroup) row.title else row.peerName ?: row.title).orEmpty().ifBlank { stringResource(R.string.unknown_user) },
-                "${row.files} · ${MediaLimits.humanSize(row.bytes)}", trailing = { Icon(Icons.Default.Delete, stringResource(R.string.storage_clear_media)) }) { clearing = row.conversationId }
+        SettingsGroup(stringResource(R.string.storage_usage)) {
+            Column(Modifier.padding(vertical = Spacing.md)) {
+                Text(stringResource(R.string.storage_used_free, MediaLimits.humanSize(total), MediaLimits.humanSize(free)), modifier = Modifier.padding(horizontal = 16.dp))
+                byType.forEach { t -> Text("• ${typeName(t.type)}: ${t.files} · ${MediaLimits.humanSize(t.bytes)}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)) }
+            }
         }
-        SectionHeader(stringResource(R.string.storage_auto_download))
-        SettingsItem(null, stringResource(R.string.auto_wifi), typesLabel(s.autoDownload.wifi)) { autoDialog = "wifi" }
-        SettingsItem(null, stringResource(R.string.auto_cellular), typesLabel(s.autoDownload.cellular)) { autoDialog = "cellular" }
-        SettingsItem(null, stringResource(R.string.auto_roaming), typesLabel(s.autoDownload.roaming)) { autoDialog = "roaming" }
-        Text(stringResource(R.string.auto_download_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+        SettingsGroup(stringResource(R.string.storage_by_chat)) {
+            if (byChat.isEmpty()) Text(stringResource(R.string.storage_empty), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+            byChat.forEach { row ->
+                SettingsItem(null, (if (row.isGroup) row.title else row.peerName ?: row.title).orEmpty().ifBlank { stringResource(R.string.unknown_user) },
+                    "${row.files} · ${MediaLimits.humanSize(row.bytes)}", trailing = { Icon(Icons.Rounded.Delete, stringResource(R.string.storage_clear_media)) }) { clearing = row.conversationId }
+            }
+        }
+        SettingsGroup(stringResource(R.string.storage_auto_download)) {
+            SettingsItem(null, stringResource(R.string.auto_wifi), typesLabel(s.autoDownload.wifi)) { autoDialog = "wifi" }
+            SettingsItem(null, stringResource(R.string.auto_cellular), typesLabel(s.autoDownload.cellular)) { autoDialog = "cellular" }
+            SettingsItem(null, stringResource(R.string.auto_roaming), typesLabel(s.autoDownload.roaming)) { autoDialog = "roaming" }
+        }
+        SettingsNote(stringResource(R.string.auto_download_note))
     }
     clearing?.let { cid ->
         ConfirmDialog(stringResource(R.string.storage_clear_media), stringResource(R.string.storage_clear_body), stringResource(R.string.action_clear),
@@ -521,10 +568,12 @@ fun AiSettingsScreen(nav: SettingsNav) {
     val s by vm.settings.collectAsState()
     var autoReplyOpen by remember { mutableStateOf(false) }
     SettingsScaffold(stringResource(R.string.settings_ai), nav.back, vm) {
-        Text(stringResource(R.string.ai_settings_intro), modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
-        SwitchItem(Icons.Default.AutoAwesome, stringResource(R.string.ai_consent_switch), stringResource(R.string.ai_consent_switch_sub), s.aiConsent, onChange = vm::setAiConsent)
-        SettingsItem(Icons.Default.Reply, stringResource(R.string.auto_reply_title), stringResource(R.string.auto_reply_sub)) { autoReplyOpen = true }
-        Text(stringResource(R.string.ai_settings_privacy), modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.ai_settings_intro), modifier = Modifier.padding(start = Spacing.xxxl, end = Spacing.xxxl, top = Spacing.lg), style = MaterialTheme.typography.bodyMedium)
+        SettingsGroup {
+            SwitchItem(Icons.Rounded.AutoAwesome, stringResource(R.string.ai_consent_switch), stringResource(R.string.ai_consent_switch_sub), s.aiConsent, onChange = vm::setAiConsent)
+            SettingsItem(Icons.AutoMirrored.Rounded.Reply, stringResource(R.string.auto_reply_title), stringResource(R.string.auto_reply_sub)) { autoReplyOpen = true }
+        }
+        SettingsNote(stringResource(R.string.ai_settings_privacy))
     }
     if (autoReplyOpen) AutoReplySettingsDialog(vm.autoReply, aiAllowed = s.aiConsent, onDismiss = { autoReplyOpen = false })
 }
@@ -534,28 +583,37 @@ fun AboutScreen(nav: SettingsNav) {
     val vm = settingsVm()
     SettingsScaffold(stringResource(R.string.settings_about), nav.back, vm) {
         Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.Forum, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp))
+            Icon(Icons.Rounded.Forum, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp))
             Spacer(Modifier.height(8.dp))
             Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            // Diagnostics are not listed in Settings; support can still open them with a long press on
+            // the version (also offered to TalkBack as the long-press action).
+            val haptic = LocalHapticFeedback.current
+            val openDiagnostics by rememberUpdatedState { nav.open("settings/diagnostics") }
             Text(stringResource(R.string.about_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("about_version")
+                    .pointerInput(Unit) {
+                        detectTapGestures(onLongPress = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); openDiagnostics() })
+                    }
+                    .semantics { onLongClick { openDiagnostics(); true } }
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.sm))
             Spacer(Modifier.height(12.dp))
             Text(stringResource(R.string.about_tagline), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 32.dp))
         }
-        SectionHeader(stringResource(R.string.about_features_title))
-        listOf(
-            Icons.Default.Forum to R.string.about_feature_messaging,
-            Icons.Default.PhotoLibrary to R.string.about_feature_media,
-            Icons.Default.Groups to R.string.about_feature_groups,
-            Icons.Default.AutoStories to R.string.about_feature_status,
-            Icons.Default.Call to R.string.about_feature_calls,
-            Icons.Default.Timer to R.string.about_feature_disappearing,
-            Icons.Default.AutoAwesome to R.string.about_feature_assistant,
-            Icons.Default.Lock to R.string.about_feature_lock,
-            Icons.Default.Visibility to R.string.about_feature_privacy,
-            Icons.Default.Language to R.string.about_feature_languages,
-        ).forEach { (icon, text) -> SettingsItem(icon, stringResource(text), onClick = null) }
+        SettingsGroup(stringResource(R.string.about_features_title)) { listOf(
+            Icons.Rounded.Forum to R.string.about_feature_messaging,
+            Icons.Rounded.PhotoLibrary to R.string.about_feature_media,
+            Icons.Rounded.Groups to R.string.about_feature_groups,
+            Icons.Rounded.AutoStories to R.string.about_feature_status,
+            Icons.Rounded.Call to R.string.about_feature_calls,
+            Icons.Rounded.Timer to R.string.about_feature_disappearing,
+            Icons.Rounded.AutoAwesome to R.string.about_feature_assistant,
+            Icons.Rounded.Lock to R.string.about_feature_lock,
+            Icons.Rounded.Visibility to R.string.about_feature_privacy,
+            Icons.Rounded.Language to R.string.about_feature_languages,
+        ).forEach { (icon, text) -> SettingsItem(icon, stringResource(text), onClick = null) } }
         Text(stringResource(R.string.about_footer), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(24.dp))
     }

@@ -21,28 +21,30 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.PersonRemove
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Report
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.PersonRemove
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Report
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -86,6 +88,9 @@ import com.example.ui.common.ChoiceDialog
 import com.example.ui.common.ConfirmDialog
 import com.example.ui.common.Formatters
 import com.example.ui.common.SectionHeader
+import com.example.ui.common.SettingsGroup
+import com.example.ui.theme.Radii
+import com.example.ui.theme.Spacing
 import com.example.ui.common.SettingsItem
 import com.example.ui.common.SwitchItem
 import com.example.ui.common.containerFactory
@@ -137,20 +142,27 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
     val peerBlocked = !c.isGroup && c.peerId in blocked
     val title = if (c.isGroup) c.title else contact?.customNickname?.takeIf { it.isNotBlank() } ?: peer?.displayName ?: stringResource(R.string.unknown_user)
 
-    Scaffold(topBar = { BackTopBar(stringResource(if (c.isGroup) R.string.group_info else R.string.contact_info), nav.back) }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    // Grouped look: rounded cards on the page background, like Settings.
+    val groupColor = MaterialTheme.colorScheme.surfaceContainerLow
+    val sortedMembers = members.sortedWith(compareBy<User>({ it.userId != me }, { it.userId !in roster.admins }, { it.displayName.lowercase() }))
+    val canAddMembers = c.isGroup && isAdmin && !c.isLeft
+    Scaffold(
+        topBar = { BackTopBar(stringResource(if (c.isGroup) R.string.group_info else R.string.contact_info), nav.back, containerColor = MaterialTheme.colorScheme.background) },
+        snackbarHost = { SnackbarHost(snackbar) }, containerColor = MaterialTheme.colorScheme.background,
+    ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box {
                         if (c.isGroup && c.avatarUrl == null) {
                             Box(Modifier.size(112.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(56.dp))
+                                Icon(Icons.Rounded.Groups, contentDescription = null, modifier = Modifier.size(56.dp))
                             }
-                        } else UserAvatar(title, avatarUrl = if (c.isGroup) c.avatarUrl else peer?.avatarUrl, size = 112.dp, colorHex = peer?.avatarColorHex ?: "#4F46E5")
+                        } else UserAvatar(title, avatarUrl = if (c.isGroup) c.avatarUrl else peer?.avatarUrl, size = 112.dp, colorHex = peer?.avatarColorHex)
                         if (canEdit) {
                             Box(Modifier.size(36.dp).align(Alignment.BottomEnd).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
                                 .clickable { editName = c.title; editDescription = c.description.orEmpty(); newPhoto = null; dialog = "editGroup" }, contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.group_edit), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.group_edit), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -166,8 +178,8 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                     }
                     if (!c.isGroup && c.peerId != null && !peerBlocked && !c.isLocalOnly) {
                         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            TextButton(onClick = { startCall(c.peerId!!, false) }) { Icon(Icons.Default.Call, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.action_voice_call)) }
-                            TextButton(onClick = { startCall(c.peerId!!, true) }) { Icon(Icons.Default.Videocam, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.action_video_call)) }
+                            TextButton(onClick = { startCall(c.peerId!!, false) }) { Icon(Icons.Rounded.Call, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.action_voice_call)) }
+                            TextButton(onClick = { startCall(c.peerId!!, true) }) { Icon(Icons.Rounded.Videocam, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.action_video_call)) }
                         }
                     }
                 }
@@ -175,59 +187,68 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
             item {
                 val about = if (c.isGroup) c.description else peer?.statusMessage
                 if (!about.isNullOrBlank()) {
-                    SectionHeader(stringResource(if (c.isGroup) R.string.group_description else R.string.profile_about))
-                    Text(about, modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyLarge)
+                    SettingsGroup(stringResource(if (c.isGroup) R.string.group_description else R.string.profile_about)) {
+                        Text(about, modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
             }
             if (media.isNotEmpty()) item {
-                SectionHeader(stringResource(R.string.info_media, media.size))
-                LazyRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SectionHeader(stringResource(R.string.info_media, media.size), Modifier.padding(start = Spacing.lg))
+                LazyRow(contentPadding = PaddingValues(horizontal = Spacing.lg), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     items(media.take(30), key = { it.messageId }) { m ->
-                        Box(Modifier.size(84.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant).clickable {
+                        Box(Modifier.size(84.dp).clip(RoundedCornerShape(Radii.md)).background(MaterialTheme.colorScheme.surfaceVariant).clickable {
                             if (m.type == MessageType.IMAGE || m.type == MessageType.VIDEO) nav.openMedia(m.messageId) else nav.openChat(conversationId)
                         }, contentAlignment = Alignment.Center) {
                             val local = m.localMediaPath?.takeIf { File(it).exists() }
                             when {
                                 m.type == MessageType.IMAGE && local != null -> AsyncImage(File(local), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                                m.type == MessageType.VIDEO -> Icon(Icons.Default.PlayArrow, null)
-                                m.type == MessageType.AUDIO -> Icon(Icons.Default.Mic, null)
-                                else -> Icon(Icons.Default.Description, null)
+                                m.type == MessageType.VIDEO -> Icon(Icons.Rounded.PlayArrow, null)
+                                m.type == MessageType.AUDIO -> Icon(Icons.Rounded.Mic, null)
+                                else -> Icon(Icons.Rounded.Description, null)
                             }
                         }
                     }
                 }
             }
-            item {
-                SectionHeader(stringResource(R.string.info_settings))
+            item { SettingsGroup(stringResource(R.string.info_settings)) {
                 if (!c.isLocalOnly && !c.isLeft) {
-                    SettingsItem(Icons.Default.Notifications, stringResource(R.string.info_mute), subtitle = stringResource(if (c.isMuted()) R.string.muted else R.string.info_not_muted)) {
+                    SettingsItem(Icons.Rounded.Notifications, stringResource(R.string.info_mute), subtitle = stringResource(if (c.isMuted()) R.string.muted else R.string.info_not_muted)) {
                         if (c.isMuted()) vm.setMuted(0L) else dialog = "mute"
                     }
                     val canChangeTimer = !c.isGroup || canEdit
-                    SettingsItem(Icons.Default.Timer, stringResource(R.string.disappearing_title), subtitle = Formatters.disappearingLabel(context, c.disappearingSeconds),
+                    SettingsItem(Icons.Rounded.Timer, stringResource(R.string.disappearing_title), subtitle = Formatters.disappearingLabel(context, c.disappearingSeconds),
                         enabled = canChangeTimer) { dialog = "disappearing" }
                 }
                 if (c.isGroup && isAdmin && !c.isLeft) {
-                    SettingsItem(Icons.Default.Settings, stringResource(R.string.group_settings), subtitle = stringResource(R.string.group_settings_subtitle)) { dialog = "permissions" }
+                    SettingsItem(Icons.Rounded.Settings, stringResource(R.string.group_settings), subtitle = stringResource(R.string.group_settings_subtitle)) { dialog = "permissions" }
                 }
                 if (!c.isGroup && c.peerId != null && !c.isLocalOnly) {
-                    if (contact == null) SettingsItem(Icons.Default.PersonAdd, stringResource(R.string.contact_save)) { nicknameDraft = peer?.displayName.orEmpty(); dialog = "nickname" }
+                    if (contact == null) SettingsItem(Icons.Rounded.PersonAdd, stringResource(R.string.contact_save)) { nicknameDraft = peer?.displayName.orEmpty(); dialog = "nickname" }
                     else {
-                        SettingsItem(Icons.Default.Edit, stringResource(R.string.contact_edit_nickname), subtitle = contact?.customNickname) {
+                        SettingsItem(Icons.Rounded.Edit, stringResource(R.string.contact_edit_nickname), subtitle = contact?.customNickname) {
                             nicknameDraft = contact?.customNickname ?: peer?.displayName.orEmpty(); dialog = "nickname"
                         }
-                        SettingsItem(Icons.Default.PersonRemove, stringResource(R.string.contact_remove)) { dialog = "removeContact" }
+                        SettingsItem(Icons.Rounded.PersonRemove, stringResource(R.string.contact_remove)) { dialog = "removeContact" }
                     }
                 }
-            }
+            } }
             if (c.isGroup) {
                 item {
-                    SectionHeader(stringResource(R.string.group_members_count, members.size))
-                    if (isAdmin && !c.isLeft) SettingsItem(Icons.Default.PersonAdd, stringResource(R.string.group_add_members)) { nav.addMembers(conversationId) }
+                    SectionHeader(stringResource(R.string.group_members_count, members.size), Modifier.padding(start = Spacing.lg))
+                    if (canAddMembers) {
+                        val bottom = if (sortedMembers.isEmpty()) Radii.lg else 0.dp
+                        Box(Modifier.padding(horizontal = Spacing.lg).clip(RoundedCornerShape(Radii.lg, Radii.lg, bottom, bottom)).background(groupColor)) {
+                            SettingsItem(Icons.Rounded.PersonAdd, stringResource(R.string.group_add_members)) { nav.addMembers(conversationId) }
+                        }
+                    }
                 }
-                items(members.sortedWith(compareBy<User>({ it.userId != me }, { it.userId !in roster.admins }, { it.displayName.lowercase() })), key = { it.userId }) { u ->
+                itemsIndexed(sortedMembers, key = { _, u -> u.userId }) { i, u ->
+                    // The member rows continue the rounded card started by the header row.
+                    val top = if (i == 0 && !canAddMembers) Radii.lg else 0.dp
+                    val bottom = if (i == sortedMembers.lastIndex) Radii.lg else 0.dp
                     Row(
-                        Modifier.fillMaxWidth().clickable(enabled = u.userId != me) { memberSheet = u }.heightIn(min = 60.dp).padding(horizontal = 16.dp, vertical = 6.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.lg).clip(RoundedCornerShape(top, top, bottom, bottom)).background(groupColor)
+                            .clickable(enabled = u.userId != me) { memberSheet = u }.heightIn(min = 60.dp).padding(horizontal = 16.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         UserAvatar(u.displayName, avatarUrl = u.avatarUrl, size = 42.dp, colorHex = u.avatarColorHex)
@@ -237,22 +258,22 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                             if (u.statusMessage.isNotBlank()) Text(u.statusMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
                         if (u.userId in roster.admins) Text(stringResource(R.string.group_admin), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 6.dp, vertical = 2.dp))
+                            modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 8.dp, vertical = 2.dp))
                     }
                 }
             }
-            item {
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            item { SettingsGroup(modifier = Modifier.padding(top = Spacing.sm)) {
                 val danger = MaterialTheme.colorScheme.error
-                SettingsItem(Icons.Default.DeleteSweep, stringResource(R.string.action_clear_chat), titleColor = danger) { dialog = "clear" }
+                SettingsItem(Icons.Rounded.DeleteSweep, stringResource(R.string.action_clear_chat), titleColor = danger) { dialog = "clear" }
                 if (!c.isGroup && c.peerId != null && !c.isLocalOnly) {
-                    SettingsItem(Icons.Default.Block, stringResource(if (peerBlocked) R.string.action_unblock else R.string.action_block), titleColor = danger) {
+                    SettingsItem(Icons.Rounded.Block, stringResource(if (peerBlocked) R.string.action_unblock else R.string.action_block), titleColor = danger) {
                         if (peerBlocked) vm.unblock() else dialog = "block"
                     }
                 }
-                if (!c.isLocalOnly) SettingsItem(Icons.Default.Report, stringResource(R.string.action_report), titleColor = danger) { dialog = "report" }
-                if (c.isGroup && !c.isLeft && !c.isLocalOnly) SettingsItem(Icons.AutoMirrored.Filled.ExitToApp, stringResource(R.string.group_exit), titleColor = danger) { dialog = "exit" }
-                if (!c.isGroup || c.isLeft || c.isLocalOnly) SettingsItem(Icons.Default.Delete, stringResource(R.string.action_delete_chat), titleColor = danger) { dialog = "delete" }
+                if (!c.isLocalOnly) SettingsItem(Icons.Rounded.Report, stringResource(R.string.action_report), titleColor = danger) { dialog = "report" }
+                if (c.isGroup && !c.isLeft && !c.isLocalOnly) SettingsItem(Icons.AutoMirrored.Rounded.ExitToApp, stringResource(R.string.group_exit), titleColor = danger) { dialog = "exit" }
+                if (!c.isGroup || c.isLeft || c.isLocalOnly) SettingsItem(Icons.Rounded.Delete, stringResource(R.string.action_delete_chat), titleColor = danger) { dialog = "delete" }
+                }
                 Spacer(Modifier.height(32.dp))
             }
         }
@@ -308,7 +329,7 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
             text = {
                 Column {
                     TextButton(onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                        Icon(Icons.Default.CameraAlt, null); Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Rounded.CameraAlt, null); Spacer(Modifier.width(6.dp))
                         Text(stringResource(if (newPhoto == null) R.string.group_change_photo else R.string.group_photo_selected))
                     }
                     OutlinedTextField(value = editName, onValueChange = { editName = it.take(GroupPolicy.MAX_NAME) }, singleLine = true, label = { Text(stringResource(R.string.group_name)) })
@@ -329,9 +350,9 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                     memberSheet = null
                     scope.launch { nav.openChat(vm.openDirect(u.userId)) }
                 }
-                if (GroupPolicy.canPromote(roster, me, u.userId)) SettingsItem(Icons.Default.AdminPanelSettings, stringResource(R.string.member_make_admin)) { memberSheet = null; vm.setAdmin(u.userId, true) }
-                if (GroupPolicy.canDemote(roster, me, u.userId)) SettingsItem(Icons.Default.AdminPanelSettings, stringResource(R.string.member_dismiss_admin)) { memberSheet = null; vm.setAdmin(u.userId, false) }
-                if (GroupPolicy.canRemove(roster, me, u.userId)) SettingsItem(Icons.Default.PersonRemove, stringResource(R.string.member_remove, u.displayName), titleColor = MaterialTheme.colorScheme.error) {
+                if (GroupPolicy.canPromote(roster, me, u.userId)) SettingsItem(Icons.Rounded.AdminPanelSettings, stringResource(R.string.member_make_admin)) { memberSheet = null; vm.setAdmin(u.userId, true) }
+                if (GroupPolicy.canDemote(roster, me, u.userId)) SettingsItem(Icons.Rounded.AdminPanelSettings, stringResource(R.string.member_dismiss_admin)) { memberSheet = null; vm.setAdmin(u.userId, false) }
+                if (GroupPolicy.canRemove(roster, me, u.userId)) SettingsItem(Icons.Rounded.PersonRemove, stringResource(R.string.member_remove, u.displayName), titleColor = MaterialTheme.colorScheme.error) {
                     memberSheet = null; vm.removeMember(u.userId)
                 }
             }

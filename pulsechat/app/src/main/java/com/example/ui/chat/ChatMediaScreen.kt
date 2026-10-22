@@ -26,13 +26,13 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -121,7 +121,7 @@ fun ChatMediaScreen(conversationId: String, onBack: () -> Unit, openMedia: (Stri
                 0 -> media.let { list ->
                     when {
                         list == null -> LoadingBox()
-                        list.isEmpty() -> EmptyState(Icons.Default.Image, stringResource(R.string.media_empty_media))
+                        list.isEmpty() -> EmptyState(Icons.Rounded.Image, stringResource(R.string.media_empty_media))
                         else -> LazyVerticalGrid(GridCells.Adaptive(110.dp), contentPadding = PaddingValues(2.dp),
                             horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             items(list, key = { it.messageId }) { m ->
@@ -135,8 +135,8 @@ fun ChatMediaScreen(conversationId: String, onBack: () -> Unit, openMedia: (Stri
                                     // Only files already on the device: browsing never downloads media behind the user's back.
                                     val model: File? = m.localMediaPath?.let { File(it) }?.takeIf { it.exists() && m.type == MessageType.IMAGE }
                                     if (model != null) AsyncImage(model = model, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                                    else Icon(if (m.type == MessageType.VIDEO) Icons.Default.PlayCircle else Icons.Default.Download, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (m.type == MessageType.VIDEO) Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+                                    else Icon(if (m.type == MessageType.VIDEO) Icons.Rounded.PlayCircle else Icons.Rounded.Download, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (m.type == MessageType.VIDEO) Icon(Icons.Rounded.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
                                 }
                             }
                         }
@@ -145,11 +145,11 @@ fun ChatMediaScreen(conversationId: String, onBack: () -> Unit, openMedia: (Stri
                 1 -> docs.let { list ->
                     when {
                         list == null -> LoadingBox()
-                        list.isEmpty() -> EmptyState(Icons.Default.Description, stringResource(R.string.media_empty_docs))
+                        list.isEmpty() -> EmptyState(Icons.Rounded.Description, stringResource(R.string.media_empty_docs))
                         else -> LazyColumn {
                             items(list, key = { it.messageId }) { m ->
                                 MediaRow(
-                                    icon = Icons.Default.Description,
+                                    icon = Icons.Rounded.Description,
                                     title = m.fileName ?: stringResource(R.string.preview_document),
                                     subtitle = listOfNotNull(m.fileSize, Formatters.dateTime(context, m.createdAt)).joinToString(" · "),
                                     onClick = {
@@ -166,11 +166,11 @@ fun ChatMediaScreen(conversationId: String, onBack: () -> Unit, openMedia: (Stri
                 2 -> links.let { list ->
                     when {
                         list == null -> LoadingBox()
-                        list.isEmpty() -> EmptyState(Icons.Default.Link, stringResource(R.string.media_empty_links))
+                        list.isEmpty() -> EmptyState(Icons.Rounded.Link, stringResource(R.string.media_empty_links))
                         else -> LazyColumn {
                             items(list, key = { it.message.messageId + "|" + it.link.url }) { row ->
                                 MediaRow(
-                                    icon = Icons.Default.Link,
+                                    icon = Icons.Rounded.Link,
                                     title = row.link.host,
                                     subtitle = row.link.url,
                                     trailingText = Formatters.chatListTime(context, row.message.createdAt),
@@ -187,11 +187,11 @@ fun ChatMediaScreen(conversationId: String, onBack: () -> Unit, openMedia: (Stri
                 else -> voice.let { list ->
                     when {
                         list == null -> LoadingBox()
-                        list.isEmpty() -> EmptyState(Icons.Default.Mic, stringResource(R.string.media_empty_voice))
+                        list.isEmpty() -> EmptyState(Icons.Rounded.Mic, stringResource(R.string.media_empty_voice))
                         else -> LazyColumn {
                             items(list, key = { it.messageId }) { m ->
                                 MediaRow(
-                                    icon = Icons.Default.Mic,
+                                    icon = Icons.Rounded.Mic,
                                     title = stringResource(R.string.preview_voice) + " · " + DurationFormat.clock(m.mediaDurationSeconds * 1000L),
                                     subtitle = Formatters.dateTime(context, m.createdAt),
                                     onClick = { showInChat(m.messageId) },
@@ -227,7 +227,7 @@ private fun MediaRow(
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         trailingText?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        IconButton(onClick = onShowInChat) { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.media_show_in_chat)) }
+        IconButton(onClick = onShowInChat) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = stringResource(R.string.media_show_in_chat)) }
     }
     HorizontalDivider()
 }
