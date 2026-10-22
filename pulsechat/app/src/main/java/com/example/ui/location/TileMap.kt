@@ -2,11 +2,13 @@ package com.example.ui.location
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,7 +19,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,19 +29,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
+import coil.request.SuccessResult
+import androidx.core.graphics.drawable.toBitmap
 import com.example.BuildConfig
 import com.example.R
 import com.example.domain.MapMath
@@ -99,16 +107,28 @@ fun TileMap(
             val centerX = pointX - pan.x
             val centerY = pointY - pan.y
             val tiles = remember(centerX, centerY, width, height, zoom) { MapMath.visibleTiles(centerX, centerY, width, height, zoom) }
-            val tileSize: Dp = MapMath.TILE_SIZE.dp
-            tiles.forEach { tile ->
-                key(tile.zoom, tile.x, tile.y) {
-                    AsyncImage(
-                        model = remember(tile.zoom, tile.wrappedX, tile.y) {
-                            ImageRequest.Builder(context).data(MapTiles.url(tile)).setHeader("User-Agent", MapTiles.USER_AGENT).build()
-                        },
-                        contentDescription = null,
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier.offset { IntOffset(tile.left.dp.roundToPx(), tile.top.dp.roundToPx()) }.size(tileSize),
+            // Tiles are fetched one by one (Coil: memory + disk cache honouring the server's cache
+            // headers) and drawn on one canvas at exact positions, partly outside the map's bounds.
+            val loaded = remember { mutableStateMapOf<String, ImageBitmap>() }
+            val shown = tiles.map { MapTiles.url(it) }
+            shown.forEach { url ->
+                key(url) {
+                    LaunchedEffect(url) {
+                        if (loaded[url] != null) return@LaunchedEffect
+                        val request = ImageRequest.Builder(context).data(url).setHeader("User-Agent", MapTiles.USER_AGENT).allowHardware(false).build()
+                        val bitmap = (context.imageLoader.execute(request) as? SuccessResult)?.drawable?.toBitmap()
+                        if (bitmap != null) loaded[url] = bitmap.asImageBitmap()
+                    }
+                }
+            }
+            LaunchedEffect(shown) { loaded.keys.filter { it !in shown }.forEach { loaded.remove(it) } }
+            Canvas(Modifier.fillMaxSize()) {
+                val side = MapMath.TILE_SIZE.dp.roundToPx()
+                tiles.forEach { tile ->
+                    val image = loaded[MapTiles.url(tile)] ?: return@forEach
+                    drawImage(
+                        image, dstOffset = IntOffset(tile.left.dp.roundToPx(), tile.top.dp.roundToPx()), dstSize = IntSize(side, side),
+                        filterQuality = FilterQuality.Low,
                     )
                 }
             }

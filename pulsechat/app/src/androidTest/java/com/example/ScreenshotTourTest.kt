@@ -301,7 +301,9 @@ class ScreenshotTourTest : EmulatorE2ETest() {
                 shot("${v.id}-9b-edit-history")
                 Espresso.pressBack()
                 settle()
-                tap("live_location_bubble")
+                // The bubble is part of its message row (one item for TalkBack), so it is found in the unmerged tree.
+                shell("cmd statusbar collapse")
+                compose.onNodeWithTag("live_location_bubble", useUnmergedTree = true).performClick()
                 compose.waitUntil(10_000) { exists("live_location_screen") }
                 settle(4_000) // map tiles
                 shot("${v.id}-10-live-map")
