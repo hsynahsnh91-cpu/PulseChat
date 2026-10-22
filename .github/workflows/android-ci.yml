@@ -505,12 +505,16 @@ jobs:
 
       - name: Instrumented tests on Android emulator (API 34)
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          # The emulated phone keeps its microphone and speaker (VoiceIsolationLoopbackTest records
+          # through the call audio pipeline); the host side is a silent backend, so no sound device is needed.
+          QEMU_AUDIO_DRV: none
         with:
           api-level: 34
           target: google_apis
           arch: x86_64
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none -camera-front none
           working-directory: pulsechat
           script: |
             bash -c 'set -o pipefail; gradle --no-daemon --console=plain connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.firebaseEmulatorHost=10.0.2.2 -Pandroid.testInstrumentationRunnerArguments.webPeer=webpeer 2>&1 | tee "$LOG_DIR/4-connected.log"; rc=$?; adb logcat -d "*:E" | tail -400 > "$LOG_DIR/logcat.txt"; adb pull /data/local/tmp/pulsechat-screens "$LOG_DIR/screens" > /dev/null 2>&1; adb logcat -d -v time -s PulseTour:V PulseNav:V PulseCallDiag:V CallManager:V AndroidRuntime:E | tail -400 > "$LOG_DIR/logcat-tour.txt"; exit $rc'

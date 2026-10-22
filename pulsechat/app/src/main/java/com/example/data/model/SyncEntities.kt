@@ -114,3 +114,6 @@ data class StorageRow(
 )
 
 data class MediaTypeCount(val type: MessageType, val files: Int, val bytes: Long)
+
+/** A media file a message keeps on this phone. */
+data class LocalMediaRow(val type: MessageType, val localMediaPath: String)

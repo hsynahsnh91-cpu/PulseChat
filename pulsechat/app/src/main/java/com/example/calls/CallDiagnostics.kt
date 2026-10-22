@@ -25,6 +25,13 @@ data class CallSummary(
     val warnings: Int,
     val duplicateAudio: Boolean,
     val echoReturnLossEnhancementDb: Double?,
+    /** "on", "off" or "unavailable" (this phone's media engine has no processing hook). */
+    val voiceIsolation: String = "-",
+    /** Share of the call in which background noise between words was lowered. */
+    val quietPercent: Int? = null,
+    /** Automatic quality: number of changes and the lowest video step used. */
+    val qualityChanges: Int = 0,
+    val lowestVideo: String? = null,
 )
 
 /**
@@ -50,6 +57,9 @@ class CallDiagnostics(private val prefs: AppPreferences, private val debugBuild:
     private var lastErle: Double? = null
     private var duplicateAudio = false
     private var config: AudioProcessingConfig? = null
+    private var voiceIsolation = "-"
+    private var qualityChanges = 0
+    private var lowestVideo: VideoTier? = null
 
     val recent: List<String> get() = synchronized(events) { events.toList() }
 
@@ -71,6 +81,7 @@ class CallDiagnostics(private val prefs: AppPreferences, private val debugBuild:
 
     fun beginCall(callId: String, video: Boolean, direction: String) {
         reconnects = 0; warnings = 0; rttSum = 0; rttCount = 0; maxLoss = null; lastErle = null; duplicateAudio = false; config = null
+        voiceIsolation = "-"; qualityChanges = 0; lowestVideo = null
         event("call ${callId.take(14)} begin: direction=$direction video=$video")
     }
 
@@ -84,6 +95,19 @@ class CallDiagnostics(private val prefs: AppPreferences, private val debugBuild:
     }
 
     fun onReconnecting() { reconnects++; event("reconnecting (#$reconnects)") }
+
+    /** The voice-isolation stage for this call (after the echo canceller and noise suppressor). */
+    fun onVoiceIsolation(active: Boolean, available: Boolean) {
+        voiceIsolation = when { !available -> "unavailable"; active -> "on"; else -> "off" }
+        event("voice isolation: $voiceIsolation")
+    }
+
+    /** Automatic quality picked a new video/voice step (or its first one). */
+    fun onQuality(state: QualityState, first: Boolean, video: Boolean) {
+        if (!first) qualityChanges++
+        if (video && (lowestVideo == null || state.video.ordinal > lowestVideo!!.ordinal)) lowestVideo = state.video
+        event("quality: ${if (video) "video ${state.video.label}, " else ""}voice ${state.audio.maxKbps} kbps (${state.reason})")
+    }
 
     fun onStats(s: CallStatsSnapshot) {
         s.rttMs?.let { rttSum += it; rttCount++ }
@@ -102,14 +126,20 @@ class CallDiagnostics(private val prefs: AppPreferences, private val debugBuild:
         append("audioStreams in=${s.inboundAudioStreams} out=${s.outboundAudioStreams}")
     }
 
-    fun endCall(video: Boolean, finalState: String, durationSec: Int, route: AudioRoute?) {
+    fun endCall(video: Boolean, finalState: String, durationSec: Int, route: AudioRoute?, voice: VoiceGate.Stats? = null) {
         val c = config
         val summary = CallSummary(
             endedAt = System.currentTimeMillis(), video = video, finalState = finalState, durationSec = durationSec,
             echoCanceller = if (c == null) "-" else if (c.hardwareAec) "phone" else "webrtc", autoGain = c?.autoGain ?: false,
             route = route?.name, avgRttMs = if (rttCount > 0) (rttSum / rttCount).toInt() else null, maxLossPercent = maxLoss,
             reconnects = reconnects, warnings = warnings, duplicateAudio = duplicateAudio, echoReturnLossEnhancementDb = lastErle,
+            voiceIsolation = voiceIsolation, quietPercent = voice?.takeIf { it.frames > 0 }?.attenuatedPercent,
+            qualityChanges = qualityChanges, lowestVideo = if (video) lowestVideo?.label else null,
         )
+        voice?.let { v ->
+            event("voice isolation stats: frames=${v.frames} speech=${v.speechPercent}% lowered=${v.attenuatedPercent}% " +
+                "floor=${"%.0f".format(Locale.US, v.noiseFloorDb)}dBFS depth=${"%.0f".format(Locale.US, v.depthDb)}dB")
+        }
         event("call end: state=$finalState duration=${durationSec}s reconnects=$reconnects warnings=$warnings")
         _last.value = summary
         prefs.lastCallSummary = encode(summary)
@@ -120,6 +150,7 @@ class CallDiagnostics(private val prefs: AppPreferences, private val debugBuild:
         put("echo", s.echoCanceller); put("agc", s.autoGain); put("route", s.route ?: ""); put("rtt", s.avgRttMs ?: -1)
         put("loss", s.maxLossPercent ?: -1.0); put("reconnects", s.reconnects); put("warnings", s.warnings)
         put("duplicate", s.duplicateAudio); put("erle", s.echoReturnLossEnhancementDb ?: -999.0)
+        put("isolation", s.voiceIsolation); put("quiet", s.quietPercent ?: -1); put("qualityChanges", s.qualityChanges); put("lowestVideo", s.lowestVideo ?: "")
     }.toString()
 
     private fun load(): CallSummary? {
@@ -132,6 +163,8 @@ class CallDiagnostics(private val prefs: AppPreferences, private val debugBuild:
                 avgRttMs = o.optInt("rtt", -1).takeIf { it >= 0 }, maxLossPercent = o.optDouble("loss", -1.0).takeIf { it >= 0 },
                 reconnects = o.optInt("reconnects"), warnings = o.optInt("warnings"), duplicateAudio = o.optBoolean("duplicate"),
                 echoReturnLossEnhancementDb = o.optDouble("erle", -999.0).takeIf { it > -999.0 },
+                voiceIsolation = o.optString("isolation", "-").ifBlank { "-" }, quietPercent = o.optInt("quiet", -1).takeIf { it >= 0 },
+                qualityChanges = o.optInt("qualityChanges"), lowestVideo = o.optString("lowestVideo").ifBlank { null },
             )
         }.getOrNull()
     }

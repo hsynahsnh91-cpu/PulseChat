@@ -1023,4 +1023,52 @@
     <string name="locked_chats_note">لا تُفتح هذه المحادثات إلا ببصمتك أو قفل الشاشة، ولا تظهر رسائلها في الإشعارات أو البحث. لا يشفّر القفل بياناتها على هذا الهاتف.</string>
     <string name="locked_chats_empty">لا توجد محادثات مقفلة</string>
     <string name="reminder_locked_chat">تذكير في محادثة مقفلة</string>
+    <!-- Calls: voice isolation and automatic quality (Settings › Diagnostics, call details) -->
+    <string name="diag_voice_isolation">عزل الصوت</string>
+    <string name="diag_voice_isolation_sub">يخفض ضوضاء الخلفية بين الكلمات أثناء المكالمات، بعد إلغاء الصدى وكبح الضوضاء. لا يقطع الكلام أبداً. مفعّل افتراضياً.</string>
+    <string name="diag_call_isolation_on">عزل الصوت: مفعّل · خُفّضت الخلفية خلال %1$d%% من المكالمة</string>
+    <string name="diag_call_isolation_on_short">عزل الصوت: مفعّل</string>
+    <string name="diag_call_isolation_off">عزل الصوت: متوقف</string>
+    <string name="diag_call_isolation_unavailable">عزل الصوت: غير متاح على هذا الهاتف</string>
+    <string name="diag_call_quality_auto">الجودة التلقائية: %1$d تغييرات · أدنى جودة فيديو %2$s</string>
+    <string name="call_details_quality_video">الإرسال: فيديو %1$s · صوت %2$d كيلوبت/ث · المتاح %3$s كيلوبت/ث</string>
+    <string name="call_details_quality_voice">الإرسال: صوت %1$d كيلوبت/ث · المتاح %2$s كيلوبت/ث</string>
+
+    <!-- Video editor (trim and cover before sending) -->
+    <string name="video_edit_open">تعديل الفيديو</string>
+    <string name="video_edit_title">تعديل الفيديو</string>
+    <string name="video_edit_trim">القص</string>
+    <string name="video_edit_trim_range">بداية المقطع ونهايته</string>
+    <string name="video_edit_cover">الغلاف</string>
+    <string name="video_edit_cover_slider">لقطة الغلاف</string>
+    <string name="video_edit_cover_hint">يظهر الغلاف في الدردشة قبل تشغيل الفيديو.</string>
+    <string name="video_edit_range">من %1$s إلى %2$s</string>
+    <string name="video_edit_length">المدة %1$s · نحو %2$s</string>
+    <string name="video_edit_too_large">أكبر من أن يُرسل (الحد %1$s). قصِّر المقطع.</string>
+    <string name="video_edit_keyframe_note">يبدأ المقطع من أقرب إطار رئيسي قبله، لذا قد يبدأ قبل النقطة المختارة بقليل.</string>
+    <string name="video_edit_preparing">جارٍ تجهيز الفيديو… %1$d%%</string>
+    <string name="video_edit_failed">تعذّر فتح هذا الفيديو للتعديل.</string>
+    <string name="video_edit_trim_failed">تعذّر قص هذا الفيديو على هذا الهاتف. ما زال بإمكانك إرساله كاملاً مع الغلاف الذي اخترته.</string>
+    <string name="video_edited_trimmed">قُصّ إلى %1$s · تم اختيار الغلاف</string>
+    <string name="video_edited_cover">تم اختيار الغلاف · %1$s</string>
+    <string name="video_too_large_hint">أكبر من أن يُرسل كما هو (الحد %1$s). اضغط على المقص لتقصيره.</string>
+
+    <!-- Storage management -->
+    <string name="storage_counting">جارٍ الحساب…</string>
+    <string name="storage_app_total">يستخدم PulseChat مساحة %1$s على هذا الهاتف</string>
+    <string name="storage_device_free">%1$s متاحة من %2$s</string>
+    <string name="storage_nothing">لا شيء محفوظ بعد.</string>
+    <string name="storage_category_count">%1$s · %2$d</string>
+    <string name="storage_cat_voice">الرسائل الصوتية</string>
+    <string name="storage_cat_statuses">تحديثات الحالة</string>
+    <string name="storage_cat_unused">ملفات غير مستخدمة</string>
+    <string name="storage_cat_temporary">ملفات مؤقتة</string>
+    <string name="storage_cat_app_data">الرسائل والإعدادات</string>
+    <string name="storage_temp_title">الملفات المؤقتة</string>
+    <string name="storage_temp_size">يمكن مسحها</string>
+    <string name="storage_temp_body">معاينات الصور، ونسخ الوسائط المفتوحة من الدردشات، والتسجيلات وتعديلات الفيديو غير المكتملة، والملفات التي لم تعد أي رسالة تستخدمها. مسحها لا يحذف دردشاتك ولا الوسائط التي فيها أبداً.</string>
+    <string name="storage_temp_clear">مسح الملفات المؤقتة</string>
+    <string name="storage_temp_clear_title">مسح الملفات المؤقتة؟</string>
+    <string name="storage_temp_clear_body">تُحمَّل المعاينات من جديد عند الحاجة. تبقى رسائلك وصورك ومقاطع الفيديو والملفات.</string>
+    <string name="storage_temp_cleared">تم تحرير %1$s</string>
 </resources>

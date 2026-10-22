@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.TextFields
@@ -38,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -109,16 +111,24 @@ fun StatusTextComposer(onDismiss: () -> Unit, onPost: (text: String, background:
 
 /** Preview with caption before posting a photo/video status or sending media in chat. */
 @Composable
-fun MediaCaptionDialog(uri: Uri, isVideo: Boolean, title: String, onDismiss: () -> Unit, onEdit: (() -> Unit)? = null, onSend: (caption: String) -> Unit) {
+fun MediaCaptionDialog(
+    uri: Uri, isVideo: Boolean, title: String, onDismiss: () -> Unit, onEdit: (() -> Unit)? = null,
+    /** Shown above the caption: what the video editor did, or why the video can't be sent as it is. */
+    note: String? = null, noteIsWarning: Boolean = false, sendEnabled: Boolean = true,
+    onSend: (caption: String) -> Unit,
+) {
     var caption by rememberSaveable { mutableStateOf("") }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding().imePadding().testTag("media_caption")) {
             LightSystemBarIcons()
             Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_close), tint = Color.White) }
                 Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                if (onEdit != null && !isVideo) {
-                    IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.editor_open), tint = Color.White) }
+                if (onEdit != null) {
+                    IconButton(onClick = onEdit, modifier = Modifier.testTag("media_edit")) {
+                        if (isVideo) Icon(Icons.Rounded.ContentCut, contentDescription = stringResource(R.string.video_edit_open), tint = Color.White)
+                        else Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.editor_open), tint = Color.White)
+                    }
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -128,6 +138,10 @@ fun MediaCaptionDialog(uri: Uri, isVideo: Boolean, title: String, onDismiss: () 
                     AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 }
             }
+            if (note != null) {
+                Text(note, color = if (noteIsWarning) Color(0xFFFFB4A9) else Color.White, style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("media_note"))
+            }
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = caption, onValueChange = { caption = it.take(1024) }, placeholder = { Text(stringResource(R.string.caption_hint)) },
@@ -136,8 +150,12 @@ fun MediaCaptionDialog(uri: Uri, isVideo: Boolean, title: String, onDismiss: () 
                         focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color.White, unfocusedBorderColor = Color.Gray,
                     ),
                 )
-                FloatingActionButton(onClick = { onSend(caption.trim()) }, modifier = Modifier.padding(start = 12.dp)) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.action_send))
+                FloatingActionButton(
+                    onClick = { if (sendEnabled) onSend(caption.trim()) },
+                    containerColor = if (sendEnabled) MaterialTheme.colorScheme.primaryContainer else Color.DarkGray,
+                    modifier = Modifier.padding(start = 12.dp).testTag("media_send"),
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.action_send), tint = if (sendEnabled) MaterialTheme.colorScheme.onPrimaryContainer else Color.Gray)
                 }
             }
         }

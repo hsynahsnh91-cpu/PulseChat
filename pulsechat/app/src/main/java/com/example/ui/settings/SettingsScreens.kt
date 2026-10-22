@@ -180,7 +180,7 @@ fun SettingsHomeScreen(nav: SettingsNav) {
             SettingsItem(Icons.Rounded.Lock, stringResource(R.string.settings_privacy), stringResource(R.string.settings_privacy_sub)) { nav.open("settings/privacy") }
             SettingsItem(Icons.Rounded.Palette, stringResource(R.string.settings_chats), stringResource(R.string.settings_chats_sub)) { nav.open("settings/chats") }
             SettingsItem(Icons.Rounded.Notifications, stringResource(R.string.settings_notifications), stringResource(R.string.settings_notifications_sub)) { nav.open("settings/notifications") }
-            SettingsItem(Icons.Rounded.Storage, stringResource(R.string.settings_storage), stringResource(R.string.settings_storage_sub)) { nav.open("settings/storage") }
+            SettingsItem(Icons.Rounded.Storage, stringResource(R.string.settings_storage), stringResource(R.string.settings_storage_sub), modifier = Modifier.testTag("settings_storage")) { nav.open("settings/storage") }
             SettingsItem(Icons.Rounded.AutoAwesome, stringResource(R.string.settings_ai), stringResource(R.string.settings_ai_sub)) { nav.open("settings/ai") }
             SettingsItem(Icons.Rounded.Info, stringResource(R.string.settings_about), modifier = Modifier.testTag("settings_about")) { nav.open("settings/about") }
         }
@@ -488,18 +488,18 @@ fun StorageSettingsScreen(nav: SettingsNav) {
     val vm = settingsVm()
     val s by vm.settings.collectAsState()
     val byChat by vm.storageByChat.collectAsState()
-    val byType by vm.storageByType.collectAsState()
-    val total by vm.totalMediaBytes.collectAsState()
-    val free by vm.freeBytes.collectAsState()
+    val report by vm.storageReport.collectAsState()
+    val clearingTemporary by vm.clearingTemporary.collectAsState()
     var clearing by remember { mutableStateOf<String?>(null) }
+    var confirmTemporary by remember { mutableStateOf(false) }
     var autoDialog by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { vm.refreshStorage() }
     SettingsScaffold(stringResource(R.string.settings_storage), nav.back, vm) {
         SettingsGroup(stringResource(R.string.storage_usage)) {
-            Column(Modifier.padding(vertical = Spacing.md)) {
-                Text(stringResource(R.string.storage_used_free, MediaLimits.humanSize(total), MediaLimits.humanSize(free)), modifier = Modifier.padding(horizontal = 16.dp))
-                byType.forEach { t -> Text("• ${typeName(t.type)}: ${t.files} · ${MediaLimits.humanSize(t.bytes)}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)) }
-            }
+            StorageSummary(report)
+        }
+        SettingsGroup(stringResource(R.string.storage_temp_title)) {
+            TemporaryFilesCard(report, clearingTemporary, onClear = { confirmTemporary = true })
         }
         SettingsGroup(stringResource(R.string.storage_by_chat)) {
             if (byChat.isEmpty()) Text(stringResource(R.string.storage_empty), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
@@ -518,6 +518,10 @@ fun StorageSettingsScreen(nav: SettingsNav) {
     clearing?.let { cid ->
         ConfirmDialog(stringResource(R.string.storage_clear_media), stringResource(R.string.storage_clear_body), stringResource(R.string.action_clear),
             onConfirm = { clearing = null; vm.clearMedia(cid) }, onDismiss = { clearing = null }, destructive = true)
+    }
+    if (confirmTemporary) {
+        ConfirmDialog(stringResource(R.string.storage_temp_clear_title), stringResource(R.string.storage_temp_clear_body), stringResource(R.string.action_clear),
+            onConfirm = { confirmTemporary = false; vm.clearTemporaryFiles() }, onDismiss = { confirmTemporary = false })
     }
     autoDialog?.let { network ->
         val current = when (network) { "wifi" -> s.autoDownload.wifi; "cellular" -> s.autoDownload.cellular; else -> s.autoDownload.roaming }

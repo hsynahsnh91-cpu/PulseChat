@@ -14,6 +14,7 @@ import com.example.data.model.Message
 import com.example.data.model.Receipt
 import com.example.data.model.User
 import com.example.data.prefs.AppSettings
+import com.example.data.repository.VideoCover
 import com.example.data.repository.AiError
 import com.example.data.repository.AiException
 import com.example.data.repository.AiRepository
@@ -324,10 +325,10 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
         launchSafely { repo.sendText(conversationId, text, reply, mentions) }
     }
 
-    fun sendMedia(uri: Uri, type: MessageType, caption: String) {
+    fun sendMedia(uri: Uri, type: MessageType, caption: String, cover: VideoCover? = null) {
         val reply = replyTo.value
         replyTo.value = null
-        launchSafely { repo.sendMediaUri(conversationId, uri, type, caption, reply) }
+        launchSafely { repo.sendMediaUri(conversationId, uri, type, caption, reply, cover) }
     }
 
     fun sendContact(name: String, phone: String) = launchSafely { repo.sendContact(conversationId, name, phone) }

@@ -41,6 +41,8 @@ data class AppSettings(
     val callEchoMode: EchoCancellerMode = EchoCancellerMode.AUTO,
     val callAutoGain: Boolean = false,
     val callShowDetails: Boolean = false,
+    /** Voice isolation on the outgoing call audio (automatic; can only be turned off in Diagnostics). */
+    val callVoiceIsolation: Boolean = true,
     // In-chat translation: BCP-47 tag of the target language ("" = the app language)
     val translationTarget: String = "",
 )
@@ -94,6 +96,7 @@ class AppPreferences(context: Context) {
             callEchoMode = runCatching { EchoCancellerMode.valueOf(prefs.getString("call_echo_mode", d.callEchoMode.name)!!) }.getOrDefault(d.callEchoMode),
             callAutoGain = prefs.getBoolean("call_auto_gain", d.callAutoGain),
             callShowDetails = prefs.getBoolean("call_show_details", d.callShowDetails),
+            callVoiceIsolation = prefs.getBoolean("call_voice_isolation", d.callVoiceIsolation),
             translationTarget = prefs.getString("translation_target", "") ?: "",
         )
     }
@@ -157,6 +160,7 @@ class AppPreferences(context: Context) {
     fun setCallEchoMode(mode: EchoCancellerMode) = edit { putString("call_echo_mode", mode.name) }
     fun setCallAutoGain(value: Boolean) = edit { putBoolean("call_auto_gain", value) }
     fun setCallShowDetails(value: Boolean) = edit { putBoolean("call_show_details", value) }
+    fun setCallVoiceIsolation(value: Boolean) = edit { putBoolean("call_voice_isolation", value) }
     fun setTranslationTarget(tag: String) = edit { putString("translation_target", tag) }
 
     /** Summary of the last call for Settings › Diagnostics (JSON, no personal data). */

@@ -71,6 +71,19 @@ configuration). Transcription, summaries and tasks need **Firebase AI Logic** en
 until then the app explains that the AI service isn't available. App Check enforcement is recommended
 for AI Logic in production.
 
+## Calls, video editing and storage (Room schema v6)
+
+| Feature | Where | How it works |
+|---|---|---|
+| Noise isolation | Every call, automatically | The phone's noise suppressor when it has one, otherwise WebRTC's (exactly one), plus PulseChat's voice-isolation step inside WebRTC's audio processing, *after* echo cancellation: it measures the background that is left and lowers it between words - little in a quiet room, up to 15 dB in a noisy one. Never amplifies, never mutes. |
+| Quiet between words, speech never cut | Every call, automatically | The same step detects speech per 2.5 ms with 10 ms of lookahead: the level opens before the first syllable, a 300 ms hold keeps word endings and short pauses, gain changes are smooth ramps. |
+| Automatic and adaptive call quality | Every call, automatically (no setting) | First video/voice quality from the network the phone is actually on (Wi-Fi, mobile data, metered, link estimate); then every 2 s from the call's real numbers (bandwidth estimate, reported packet loss, round-trip time): video steps 720p → 540p → 360p → 180p → paused, voice 40 → 12 kbps, down fast, up slowly after a quiet period. Only encoder limits change (no renegotiation, no camera restart), voice has network priority, and if the other side's video stops arriving their photo replaces a frozen frame. Mobile data never sends 720p. |
+| Video editor | Video preview before sending › scissors | Trim start and end on a filmstrip, choose the cover frame. The cut copies the original frames (no re-encoding: quick, no quality loss) and starts on the keyframe at or before the chosen start (shown in the editor). The estimated size is checked against what can be sent, so a long video can be shortened until it fits. The cover travels with the message (small JPEG, ≤ 48 KB), so the chat shows it before the video is downloaded; unedited videos get a cover from near their start. |
+| Storage management | Settings › Storage and data | What PulseChat keeps on the phone: photos, videos, voice messages, documents, status updates, unused files, temporary files, messages and settings, and the free space; per chat with "Clear media". *Clear temporary files* removes image previews, cached media copies, unfinished captures and video edits, and files no message uses - never a file a message still uses, a capture from the last minutes, or the messages. |
+
+Voice isolation can be turned off for troubleshooting in Settings › Diagnostics (long press on the
+version in About); quality details appear there and in the call-details overlay.
+
 ## Firebase setup (required)
 
 The app is configured for Firebase project `gen-lang-client-0426516505` and the named Firestore

@@ -1,7 +1,9 @@
 package com.example.ui.chat
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import android.util.Base64
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -515,12 +517,22 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
             if (local != null) AsyncImage(model = File(local), contentDescription = m.content.ifBlank { stringResource(R.string.preview_photo) }, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Icon(Icons.Rounded.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f), modifier = Modifier.size(56.dp))
         } else {
-            val thumb by produceState<Bitmap?>(null, local) {
-                value = if (local == null) null else withContext(Dispatchers.IO) {
-                    runCatching {
-                        val r = MediaMetadataRetriever()
-                        try { r.setDataSource(local); r.getFrameAtTime(0) } finally { r.release() }
-                    }.getOrNull()
+            // The cover chosen by the sender travels with the message, so it shows at once (even before
+            // the download); once the video is on this phone, the same frame is shown at full sharpness.
+            val thumb by produceState<Bitmap?>(null, local, m.mediaThumb, m.mediaCoverMs) {
+                value = m.mediaThumb?.let { t ->
+                    withContext(Dispatchers.IO) { runCatching { Base64.decode(t, Base64.NO_WRAP).let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) } }.getOrNull() }
+                }
+                if (local != null) {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            val r = MediaMetadataRetriever()
+                            try {
+                                r.setDataSource(local)
+                                if (m.mediaCoverMs > 0) r.getFrameAtTime(m.mediaCoverMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST) else r.getFrameAtTime(0)
+                            } finally { r.release() }
+                        }.getOrNull()
+                    }?.let { value = it }
                 }
             }
             thumb?.let { androidx.compose.foundation.Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }

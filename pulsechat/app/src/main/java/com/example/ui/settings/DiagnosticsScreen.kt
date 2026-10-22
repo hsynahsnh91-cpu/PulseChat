@@ -181,6 +181,7 @@ class DiagnosticsViewModel(private val c: AppContainer) : ViewModel() {
     fun setEchoMode(mode: EchoCancellerMode) = c.prefs.setCallEchoMode(mode)
     fun setAutoGain(on: Boolean) = c.prefs.setCallAutoGain(on)
     fun setShowCallDetails(on: Boolean) = c.prefs.setCallShowDetails(on)
+    fun setVoiceIsolation(on: Boolean) = c.prefs.setCallVoiceIsolation(on)
 }
 
 private fun openAppNotificationSettings(context: Context) {
@@ -327,6 +328,7 @@ fun DiagnosticsScreen(nav: SettingsNav) {
             CheckRow(ok = null, title = stringResource(R.string.diag_echo_title), detail = stringResource(echoModeLabel(settings.callEchoMode)) + "\n" + stringResource(R.string.diag_echo_help),
                 action = stringResource(R.string.action_change) to { echoDialog = true })
             SwitchItem(null, stringResource(R.string.diag_auto_gain), stringResource(R.string.diag_auto_gain_sub), checked = settings.callAutoGain, onChange = vm::setAutoGain)
+            SwitchItem(null, stringResource(R.string.diag_voice_isolation), stringResource(R.string.diag_voice_isolation_sub), checked = settings.callVoiceIsolation, onChange = vm::setVoiceIsolation)
             SwitchItem(null, stringResource(R.string.diag_call_details), stringResource(R.string.diag_call_details_sub), checked = settings.callShowDetails, onChange = vm::setShowCallDetails)
             lastCall?.let { s ->
                 CheckRow(
@@ -384,6 +386,12 @@ private fun lastCallText(context: Context, s: CallSummary): String = buildString
     append(" · ").append(context.getString(R.string.diag_call_duration, s.durationSec))
     append("\n").append(context.getString(R.string.diag_call_quality, s.avgRttMs?.toString() ?: "–", s.maxLossPercent?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "–", s.reconnects))
     append("\n").append(context.getString(R.string.diag_call_echo, context.getString(if (s.echoCanceller == "phone") R.string.call_echo_phone else R.string.call_echo_app)))
+    when (s.voiceIsolation) {
+        "on" -> append("\n").append(if (s.quietPercent != null) context.getString(R.string.diag_call_isolation_on, s.quietPercent) else context.getString(R.string.diag_call_isolation_on_short))
+        "off" -> append("\n").append(context.getString(R.string.diag_call_isolation_off))
+        "unavailable" -> append("\n").append(context.getString(R.string.diag_call_isolation_unavailable))
+    }
+    if (s.video && s.lowestVideo != null) append("\n").append(context.getString(R.string.diag_call_quality_auto, s.qualityChanges, s.lowestVideo))
     if (s.duplicateAudio) append("\n").append(context.getString(R.string.diag_call_duplicate))
     if (s.warnings > 0) append("\n").append(context.getString(R.string.diag_call_warnings, s.warnings))
 }
@@ -420,7 +428,7 @@ private fun buildReport(
     appendLine("Notifications: enabled ${h.appEnabled}, permission ${h.permission}, blocked channels ${h.channelsBlocked}, push registered ${h.pushRegistered}, DND ${h.doNotDisturb}")
     appendLine("Exact alarms ${h.exactAlarms} · battery unrestricted ${h.batteryUnrestricted} · background restricted ${h.backgroundRestricted}")
     appendLine("Calls: mic ${h.micPermission}, camera ${h.cameraPermission}, echo ${vm.settings.value.callEchoMode}, agc ${vm.settings.value.callAutoGain}")
-    lastCall?.let { appendLine("Last call: ${it.finalState}, ${it.durationSec}s, video ${it.video}, echo ${it.echoCanceller}, route ${it.route}, rtt ${it.avgRttMs}, loss ${it.maxLossPercent}, reconnects ${it.reconnects}, warnings ${it.warnings}, duplicate audio ${it.duplicateAudio}") }
+    lastCall?.let { appendLine("Last call: ${it.finalState}, ${it.durationSec}s, video ${it.video}, echo ${it.echoCanceller}, route ${it.route}, rtt ${it.avgRttMs}, loss ${it.maxLossPercent}, reconnects ${it.reconnects}, warnings ${it.warnings}, duplicate audio ${it.duplicateAudio}, voice isolation ${it.voiceIsolation} (lowered ${it.quietPercent ?: "-"}%), quality changes ${it.qualityChanges}, lowest video ${it.lowestVideo ?: "-"}") }
     appendLine("Recent problems:")
     problems.take(20).forEach { appendLine("- ${Formatters.dateTime(context, it.at)} ${it.category}/${it.code}${it.detail?.let { d -> " ($d)" } ?: ""}") }
 }

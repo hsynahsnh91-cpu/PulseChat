@@ -197,6 +197,20 @@ describe("direct chats and messages", () => {
     await assertSucceeds(updateDoc(doc(db("alice"), `conversations/${DM}/messages/m2`), wipe));
   });
 
+  test("a video's cover travels with the message but must stay small", async () => {
+    await seedPeople();
+    await seedDm();
+    const media = (thumbBytes) => ({
+      url: "pulsemedia://md1", path: "pulsemedia://md1", mime: "video/mp4", size: 1000, name: "clip.mp4", durationMs: 3000, width: 640, height: 360,
+      waveform: null, coverMs: 1200, ...(thumbBytes === null ? {} : { thumb: Bytes.fromUint8Array(new Uint8Array(thumbBytes)) }),
+    });
+    const fs = db("alice");
+    await assertSucceeds(setDoc(doc(fs, `conversations/${DM}/messages/v1`), messageData("alice", { type: "VIDEO", text: "", media: media(30_000) })));
+    await assertSucceeds(setDoc(doc(fs, `conversations/${DM}/messages/v2`), messageData("alice", { type: "VIDEO", text: "", media: media(null) })));
+    await assertFails(setDoc(doc(fs, `conversations/${DM}/messages/v3`), messageData("alice", { type: "VIDEO", text: "", media: media(70_000) })));
+    await assertFails(setDoc(doc(fs, `conversations/${DM}/messages/v4`), messageData("alice", { type: "VIDEO", text: "", media: { ...media(null), thumb: "not bytes" } })));
+  });
+
   test("reactions and receipts: each participant controls only their own entry", async () => {
     await seedPeople();
     await seedDm();

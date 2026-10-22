@@ -390,3 +390,50 @@ indexes, functions or Storage rules.
 **Not verified:** fingerprint/PIN prompts on real phones (the CI emulator has no screen lock, so the
 check itself is simulated there), live location on real phones in the background for hours (battery,
 OEM background limits), and OpenStreetMap availability limits under heavy use.
+
+# Noise isolation, adaptive call quality, video editor and storage (October 2026)
+
+## Design decisions
+
+* **Noise isolation** (automatic): exactly one noise suppressor as before (the phone's when it has
+  one, otherwise WebRTC's), plus a new voice-isolation step that runs inside WebRTC's audio processing
+  as its capture post-processing (the `ExternalAudioProcessingFactory` hook of the WebRTC build already
+  in use - no new library, no native code of ours). It runs after the echo canceller, so it cannot
+  disturb echo cancellation, and only on our outgoing signal. It measures the residual background and
+  lowers it between words by 3–15 dB depending on how noisy the room is. Details: [CALL_AUDIO.md](CALL_AUDIO.md) §3a.
+* **Quiet between words without cutting speech**: speech detection per 2.5 ms block, 10 ms lookahead
+  (the level opens before the first syllable), 300 ms hold, smooth ramps; never amplifies or mutes.
+  It is speech-aware gating, not a machine-learning noise remover: noise *during* speech is handled by
+  the noise suppressor, as before.
+* **Automatic, adaptive quality** (invisible): first quality from the actual network, then every 2 s
+  from the call's own statistics (bandwidth estimate, reported loss, round-trip time); voice protected
+  first (network priority, video steps down before voice), video pauses rather than the call breaking
+  up, slow step-up with hysteresis. Only encoder limits of the existing senders change - no
+  renegotiation or camera restart, so a change never interrupts the call. No setting and no on-screen
+  indicator; the other side sees the caller's photo instead of a frozen frame when video stops arriving.
+  Details: [CALL_AUDIO.md](CALL_AUDIO.md) §3b.
+* **Video editor**: trim and cover before sending, with the platform's `MediaExtractor`/`MediaMuxer`
+  (no re-encoding, no new library). A cut starts on a keyframe; the editor snaps the start and says so.
+  The size estimate is checked against the sending limit (32 MB without Cloud Storage), so long videos
+  can be shortened until they fit. The cover (≤ 48 KB JPEG) travels in the message (`media.thumb`,
+  `media.coverMs`), so the other side sees it before downloading; the rules cap it at 64 KB.
+  Room v6 adds `messages.mediaThumb` and `messages.mediaCoverMs` (`MIGRATION_5_6`, columns only).
+* **Storage management**: Settings › Storage and data now shows what PulseChat keeps by kind (bar and
+  list), temporary and unused files, the app's own data and the free space; *Clear temporary files*
+  only deletes what can be rebuilt (image cache via the image loader, cached media copies, captures and
+  edits older than 10 minutes, media-folder files no message or status uses and older than an hour).
+
+## Deployment
+
+* Optional rules update: `firestore.rules` now caps the video cover at 64 KB. Without publishing it
+  everything works (covers are written either way); publishing it only tightens the limit.
+* Nothing else: no new collections, indexes, functions or Storage rules.
+
+## Verification
+
+To be completed with the CI results of this change.
+
+**Not verified (needs real phones or people):** how much background noise users actually hear removed
+on different phones and rooms, speech onsets with real voices, quality steps on real weak/changing
+networks (Wi-Fi to mobile data), and trimming of every phone camera's files (unusual containers are
+reported and can still be sent whole).

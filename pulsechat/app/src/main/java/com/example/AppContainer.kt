@@ -18,6 +18,7 @@ import com.example.data.repository.LiveLocationRepository
 import com.example.data.repository.DiagnosticsLog
 import com.example.data.repository.FolderRepository
 import com.example.data.repository.ReminderRepository
+import com.example.data.repository.StorageManager
 import com.example.data.repository.ScheduledMessageRepository
 import com.example.data.repository.TranslationRepository
 import com.example.data.repository.MediaRepository
@@ -73,6 +74,10 @@ class AppContainer(val app: Application) {
     }
 
     val media = MediaRepository(app, { storage }, { firestore }, prefs, { authRepository.currentUid })
+    /** Video editor: cuts without re-encoding, filmstrip frames and covers. */
+    val videoTrimmer get() = media.videoTrimmer
+    /** Settings › Storage: what PulseChat keeps on this phone, and clearing temporary files. */
+    val storageManager by lazy { StorageManager(app, db, media) }
     val authRepository: AuthRepository by lazy {
         AuthRepository(auth, firestore, db, prefs, FirebaseApp.getInstance().options.projectId ?: "pulsechat", appScope)
     }

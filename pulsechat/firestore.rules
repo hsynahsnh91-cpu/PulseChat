@@ -248,6 +248,8 @@ service cloud.firestore {
             && (m.type == 'SYSTEM' || after.type != 'group' || !after.get('onlyAdminsCanSend', false) || uid() in after.get('admins', []))
             && (after.type != 'direct' || (!hasBlocked(after.participants[0], uid()) && !hasBlocked(after.participants[1], uid())))
             && (!('poll' in m) || (m.poll.votes.size() == 0 && m.poll.options.size() >= 2 && m.poll.options.size() <= 12))
+            // A video's cover travels with the message as a small image.
+            && (!('media' in m) || !('thumb' in m.media) || (m.media.thumb is bytes && m.media.thumb.size() <= 65536))
             && (m.get('expiresAt', null) == null || m.expiresAt > request.time);
         }
 

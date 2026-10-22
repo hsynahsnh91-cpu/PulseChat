@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import android.net.Uri
+import android.util.Base64
 import android.util.Log
 import androidx.room.withTransaction
 import com.example.data.db.AppDatabase
@@ -26,6 +27,7 @@ import com.example.domain.MessageOrder
 import com.example.domain.MessagePolicy
 import com.example.domain.PresencePolicy
 import com.example.domain.TextTools
+import com.example.domain.VideoEditMath
 import com.example.domain.model.MessageStatus
 import com.example.domain.model.MessageType
 import com.example.domain.model.TransferState
@@ -63,6 +65,9 @@ enum class ChatError {
 }
 
 class ChatException(val error: ChatError) : Exception(error.name)
+
+/** The cover of a video message: its position (ms) and a small JPEG (Base64), from the video editor. */
+data class VideoCover(val coverMs: Long, val thumb: String?)
 
 /** Write side of messaging. Every mutation is applied to Room first, then committed to Firestore. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -307,7 +312,7 @@ class ChatRepository(
         pushMessage(m, conv)
     }
 
-    suspend fun sendMediaUri(cid: String, uri: Uri, type: MessageType, caption: String, replyTo: Message?) {
+    suspend fun sendMediaUri(cid: String, uri: Uri, type: MessageType, caption: String, replyTo: Message?, cover: VideoCover? = null) {
         val me = requireUid()
         val conv = requireWritable(cid, me)
         val local = try {
@@ -318,7 +323,7 @@ class ChatRepository(
             Log.w(TAG, "import failed", e)
             throw ChatException(ChatError.FILE_UNREADABLE)
         }
-        sendLocalMedia(conv, me, local, MediaRepository.typeForMime(local.mime).let { if (type == MessageType.DOCUMENT) MessageType.DOCUMENT else it }, caption, null, replyTo, forwarded = false)
+        sendLocalMedia(conv, me, local, MediaRepository.typeForMime(local.mime).let { if (type == MessageType.DOCUMENT) MessageType.DOCUMENT else it }, caption, null, replyTo, forwarded = false, cover = cover)
     }
 
     suspend fun sendVoice(cid: String, file: File, durationMs: Long, waveform: List<Int>, replyTo: Message?) {
@@ -330,8 +335,14 @@ class ChatRepository(
 
     private suspend fun sendLocalMedia(
         conv: Conversation, me: String, local: LocalMedia, type: MessageType, caption: String, waveform: String?,
-        replyTo: Message?, forwarded: Boolean,
+        replyTo: Message?, forwarded: Boolean, cover: VideoCover? = null,
     ) {
+        // Every video travels with a small cover (the one chosen in the editor, or a frame near the
+        // start), so the other side sees it in the chat before downloading the video.
+        val coverMs = if (type == MessageType.VIDEO) (cover?.coverMs ?: VideoEditMath.defaultCoverMs(local.durationMs)) else 0L
+        val thumb = if (type != MessageType.VIDEO) null else {
+            cover?.thumb ?: runCatching { media.videoCover(local.path, coverMs) }.getOrNull()?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+        }
         val now = nextCreatedAt(conv)
         val id = Ids.newMessageId()
         val ext = MediaRepository.extensionFor(local.mime, local.fileName)
@@ -344,6 +355,7 @@ class ChatRepository(
                 transferState = TransferState.UPLOADING, transferProgress = 0,
                 storagePath = "chat-media/${conv.conversationId}/$me/$id.$ext", isForwarded = forwarded,
                 expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
+                mediaThumb = thumb, mediaCoverMs = coverMs,
             ), replyTo
         )
         insertLocal(m, clearDraft = caption.isNotBlank())
@@ -671,7 +683,7 @@ class ChatRepository(
                     deletedForEveryone = true, content = "", mediaUrl = null, localMediaPath = null, reactions = "", isStarred = false,
                     replyToMessageId = null, replyToPreview = null, replyToSenderId = null, pollOptions = null, pollQuestion = null,
                     contactName = null, contactPhone = null, locationLat = null, locationLng = null, mentions = "", transferState = TransferState.NONE,
-                    editHistory = "", liveId = null, liveUntil = 0L,
+                    editHistory = "", liveId = null, liveUntil = 0L, mediaThumb = null, mediaCoverMs = 0L,
                 )
             )
             media.deleteLocal(listOf(m.localMediaPath))
@@ -745,7 +757,8 @@ class ChatRepository(
                         val copy = File(media.mediaDir, "fwd_${Ids.newId("m")}.${MediaRepository.extensionFor(src.mediaMimeType ?: "", src.fileName ?: "")}")
                         File(path).copyTo(copy, overwrite = true)
                         val local = LocalMedia(copy.absolutePath, src.mediaMimeType ?: "application/octet-stream", copy.length(), src.fileName ?: copy.name, src.mediaWidth, src.mediaHeight, src.mediaDurationSeconds * 1000L)
-                        sendLocalMedia(conv, me, local, src.type, src.content, src.waveform, null, forwarded = true)
+                        sendLocalMedia(conv, me, local, src.type, src.content, src.waveform, null, forwarded = true,
+                            cover = if (src.type == MessageType.VIDEO) VideoCover(src.mediaCoverMs, src.mediaThumb) else null)
                         sent++
                     } else if (src.mediaUrl != null) {
                         val m = src.copy(

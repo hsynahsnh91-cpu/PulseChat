@@ -968,4 +968,52 @@
     <string name="locked_chats_note">These chats open only with your fingerprint or screen lock, and their messages stay out of notifications and search. The lock doesn\'t encrypt their data on this phone.</string>
     <string name="locked_chats_empty">No locked chats</string>
     <string name="reminder_locked_chat">Reminder in a locked chat</string>
+    <!-- Calls: voice isolation and automatic quality (Settings › Diagnostics, call details) -->
+    <string name="diag_voice_isolation">Voice isolation</string>
+    <string name="diag_voice_isolation_sub">Lowers background noise between words during calls, after echo cancellation and noise suppression. Speech is never cut. On by default.</string>
+    <string name="diag_call_isolation_on">Voice isolation: on · background lowered during %1$d%% of the call</string>
+    <string name="diag_call_isolation_on_short">Voice isolation: on</string>
+    <string name="diag_call_isolation_off">Voice isolation: off</string>
+    <string name="diag_call_isolation_unavailable">Voice isolation: not available on this phone</string>
+    <string name="diag_call_quality_auto">Automatic quality: %1$d changes · lowest video %2$s</string>
+    <string name="call_details_quality_video">Sending: video %1$s · voice %2$d kbps · available %3$s kbps</string>
+    <string name="call_details_quality_voice">Sending: voice %1$d kbps · available %2$s kbps</string>
+
+    <!-- Video editor (trim and cover before sending) -->
+    <string name="video_edit_open">Edit video</string>
+    <string name="video_edit_title">Edit video</string>
+    <string name="video_edit_trim">Trim</string>
+    <string name="video_edit_trim_range">Start and end of the clip</string>
+    <string name="video_edit_cover">Cover</string>
+    <string name="video_edit_cover_slider">Cover frame</string>
+    <string name="video_edit_cover_hint">The cover is shown in the chat before the video is played.</string>
+    <string name="video_edit_range">%1$s – %2$s</string>
+    <string name="video_edit_length">Length %1$s · about %2$s</string>
+    <string name="video_edit_too_large">Too large to send (up to %1$s). Shorten the clip.</string>
+    <string name="video_edit_keyframe_note">The clip starts at the nearest earlier key frame, so it can begin slightly before the chosen point.</string>
+    <string name="video_edit_preparing">Preparing video… %1$d%%</string>
+    <string name="video_edit_failed">This video can\'t be opened for editing.</string>
+    <string name="video_edit_trim_failed">This video can\'t be trimmed on this phone. You can still send it whole with the cover you chose.</string>
+    <string name="video_edited_trimmed">Trimmed to %1$s · cover chosen</string>
+    <string name="video_edited_cover">Cover chosen · %1$s</string>
+    <string name="video_too_large_hint">Too large to send as it is (up to %1$s). Tap the scissors to shorten it.</string>
+
+    <!-- Storage management -->
+    <string name="storage_counting">Counting…</string>
+    <string name="storage_app_total">PulseChat uses %1$s on this phone</string>
+    <string name="storage_device_free">%1$s free of %2$s</string>
+    <string name="storage_nothing">Nothing stored yet.</string>
+    <string name="storage_category_count">%1$s · %2$d</string>
+    <string name="storage_cat_voice">Voice messages</string>
+    <string name="storage_cat_statuses">Status updates</string>
+    <string name="storage_cat_unused">Unused files</string>
+    <string name="storage_cat_temporary">Temporary files</string>
+    <string name="storage_cat_app_data">Messages and settings</string>
+    <string name="storage_temp_title">Temporary files</string>
+    <string name="storage_temp_size">Can be cleared</string>
+    <string name="storage_temp_body">Image previews, copies of media opened from chats, unfinished recordings and video edits, and files no message uses any more. Clearing them never deletes your chats or the media in them.</string>
+    <string name="storage_temp_clear">Clear temporary files</string>
+    <string name="storage_temp_clear_title">Clear temporary files?</string>
+    <string name="storage_temp_clear_body">Previews are loaded again when needed. Your messages, photos, videos and files stay.</string>
+    <string name="storage_temp_cleared">Freed %1$s</string>
 </resources>

@@ -13,6 +13,7 @@ import com.example.data.model.LockedChat
 import com.example.data.model.Contact
 import com.example.data.model.ContactRow
 import com.example.data.model.Conversation
+import com.example.data.model.LocalMediaRow
 import com.example.data.model.MediaTypeCount
 import com.example.data.model.Message
 import com.example.data.model.MessageSearchRow
@@ -299,6 +300,10 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND localMediaPath IS NOT NULL")
     suspend fun withLocalMedia(conversationId: String): List<Message>
 
+    /** Every media file a message keeps on this phone (Settings › Storage). */
+    @Query("SELECT type, localMediaPath FROM messages WHERE localMediaPath IS NOT NULL")
+    suspend fun localMediaFiles(): List<LocalMediaRow>
+
     // ---- v4: media & link browser, AI context, diagnostics
     @Query(
         "SELECT * FROM messages WHERE conversationId = :conversationId AND type IN (:types) AND deletedForMe = 0 " +
@@ -435,6 +440,9 @@ interface CallDao {
 
 @Dao
 interface StatusDao {
+    /** Media files of statuses kept on this phone (Settings › Storage). */
+    @Query("SELECT localMediaPath FROM statuses WHERE localMediaPath IS NOT NULL")
+    suspend fun localMediaPaths(): List<String>
     @Query("SELECT * FROM statuses WHERE expiresAt > :now ORDER BY createdAt ASC")
     fun observeActive(now: Long): Flow<List<StatusItem>>
 

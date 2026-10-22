@@ -88,6 +88,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -121,9 +122,12 @@ import com.example.data.model.ScheduledState
 import com.example.data.model.ScheduledMessage
 import com.example.data.model.Conversation
 import com.example.data.model.Message
+import com.example.data.repository.VideoCover
 import com.example.domain.DisappearingPolicy
+import com.example.domain.DurationFormat
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
+import com.example.domain.MediaLimits
 import com.example.domain.MessagePolicy
 import com.example.domain.NetworkKind
 import com.example.domain.TextTools
@@ -150,7 +154,9 @@ import com.example.ui.components.UserAvatar
 import com.example.ui.status.MediaCaptionDialog
 import com.example.ui.theme.PulseTheme
 import com.example.util.LocationHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -277,6 +283,10 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     var languagePickerFor by remember { mutableStateOf<Message?>(null) }
     var downloadPrompt by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
     var editImage by remember { mutableStateOf<Uri?>(null) }
+    // Video editor: the original picked video, and the editor's result (cut + cover) while captioning.
+    var editVideo by remember { mutableStateOf<Uri?>(null) }
+    var videoSource by remember { mutableStateOf<Uri?>(null) }
+    var editedVideo by remember { mutableStateOf<EditedVideo?>(null) }
     var editHistoryFor by remember { mutableStateOf<Message?>(null) }
     var lockConfirmOpen by remember { mutableStateOf(false) }
     var noScreenLockOpen by remember { mutableStateOf(false) }
@@ -768,10 +778,42 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
         }
     }
     pendingMedia?.let { (uri, video) ->
-        MediaCaptionDialog(uri, video, title, onDismiss = { pendingMedia = null }, onEdit = if (!video) ({ editImage = uri }) else null) { caption ->
-            pendingMedia = null
-            vm.sendMedia(uri, if (video) MessageType.VIDEO else MessageType.IMAGE, caption)
+        val maxVideoBytes = remember { container.media.effectiveMaxBytes(MessageType.VIDEO) }
+        // A video that is too large to send as it is can be shortened in the editor first.
+        val originalBytes by produceState(0L, uri, video) {
+            value = if (!video) 0L else withContext(Dispatchers.IO) { container.videoTrimmer.probe(uri).sizeBytes }
         }
+        val edited = editedVideo?.takeIf { it.uri == uri }
+        val tooLarge = video && edited == null && originalBytes > maxVideoBytes
+        val note = when {
+            edited != null -> stringResource(if (edited.trimmed) R.string.video_edited_trimmed else R.string.video_edited_cover, DurationFormat.clock(edited.durationMs))
+            tooLarge -> stringResource(R.string.video_too_large_hint, MediaLimits.humanSize(maxVideoBytes))
+            else -> null
+        }
+        MediaCaptionDialog(
+            uri, video, title,
+            onDismiss = { pendingMedia = null; editedVideo = null; videoSource = null },
+            onEdit = if (!video) ({ editImage = uri }) else ({ editVideo = videoSource ?: uri }),
+            note = note, noteIsWarning = tooLarge, sendEnabled = !tooLarge,
+        ) { caption ->
+            pendingMedia = null
+            val cover = edited?.let { e -> VideoCover(e.coverMs, e.cover?.let { b -> android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP) }) }
+            editedVideo = null
+            videoSource = null
+            vm.sendMedia(uri, if (video) MessageType.VIDEO else MessageType.IMAGE, caption, cover)
+        }
+    }
+    editVideo?.let { src ->
+        VideoEditorDialog(
+            source = src, maxBytes = container.media.effectiveMaxBytes(MessageType.VIDEO),
+            onDone = { result ->
+                editVideo = null
+                if (videoSource == null) videoSource = src
+                editedVideo = result
+                pendingMedia = result.uri to true
+            },
+            onDismiss = { editVideo = null },
+        )
     }
     pendingDocument?.let { uri ->
         ConfirmDialog(title = stringResource(R.string.document_send_title), text = uri.lastPathSegment, confirmLabel = stringResource(R.string.action_send),

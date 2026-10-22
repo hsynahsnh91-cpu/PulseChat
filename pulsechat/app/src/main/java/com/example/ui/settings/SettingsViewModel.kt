@@ -14,6 +14,8 @@ import com.example.data.prefs.AppSettings
 import com.example.data.prefs.ThemeMode
 import com.example.data.repository.ProfileUpdateException
 import com.example.domain.AutoDownloadSettings
+import com.example.domain.MediaLimits
+import com.example.domain.StorageReport
 import com.example.domain.StatusPolicy
 import com.example.domain.model.Visibility
 import com.example.ui.common.fieldErrorText
@@ -36,6 +38,9 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     val storageByType: StateFlow<List<MediaTypeCount>> = c.db.messageDao().observeStorageByType().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val totalMediaBytes = MutableStateFlow(0L)
     val freeBytes = MutableStateFlow(0L)
+    /** What PulseChat keeps on this phone (null while counting). */
+    val storageReport = MutableStateFlow<StorageReport?>(null)
+    val clearingTemporary = MutableStateFlow(false)
     val busy = MutableStateFlow(false)
     val autoReply = c.autoReply
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -44,6 +49,20 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     fun refreshStorage() = viewModelScope.launch {
         totalMediaBytes.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { c.media.totalLocalBytes() }
         freeBytes.value = c.media.freeBytes()
+        storageReport.value = runCatching { c.storageManager.scan() }.getOrElse { StorageReport.EMPTY }
+    }
+
+    /** Clears temporary and unused files, says how much was freed, then counts again. */
+    fun clearTemporaryFiles() = viewModelScope.launch {
+        if (clearingTemporary.value) return@launch
+        clearingTemporary.value = true
+        try {
+            val freed = runCatching { c.storageManager.clearTemporary() }.getOrDefault(0L)
+            _messages.tryEmit(c.app.getString(R.string.storage_temp_cleared, MediaLimits.humanSize(freed)))
+            storageReport.value = runCatching { c.storageManager.scan() }.getOrElse { StorageReport.EMPTY }
+        } finally {
+            clearingTemporary.value = false
+        }
     }
 
     private fun act(success: Int? = null, block: suspend () -> Unit) = viewModelScope.launch {

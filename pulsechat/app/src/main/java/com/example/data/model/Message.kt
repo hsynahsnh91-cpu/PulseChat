@@ -75,6 +75,11 @@ data class Message(
     /** Live location: the session shown by this LOCATION message and when it ends. */
     val liveId: String? = null,
     val liveUntil: Long = 0L,
+    // v6
+    /** Video cover chosen by the sender: a small JPEG (Base64) shown before the video is downloaded. */
+    val mediaThumb: String? = null,
+    /** Where the cover frame is in the video (ms), so the downloaded video shows the same frame. */
+    val mediaCoverMs: Long = 0L,
 ) {
     fun reactionMap(): Map<String, String> = parseStringMap(reactions)
     fun mentionList(): List<String> = mentions.split(",").map { it.trim() }.filter { it.isNotEmpty() }

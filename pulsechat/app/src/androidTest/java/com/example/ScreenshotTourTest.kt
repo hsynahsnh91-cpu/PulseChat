@@ -10,6 +10,12 @@ import android.graphics.Shader
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.activity.compose.setContent
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.filter
+import androidx.compose.ui.test.onChildren
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -29,6 +35,8 @@ import com.example.data.prefs.AppLanguage
 import com.example.data.prefs.ThemeMode
 import com.example.domain.model.MessageStatus
 import com.example.domain.model.MessageType
+import com.example.ui.chat.VideoEditorDialog
+import com.example.ui.theme.PulseChatTheme
 import com.example.util.LocaleHelper
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -174,7 +182,10 @@ class ScreenshotTourTest : EmulatorE2ETest() {
         c.chatRepository.sendText(cid, "Here is the updated spec: https://example.com/specs/pulsechat-redesign-v2 – the spacing scale, motion guidelines and the new palette are in section 3.", null, emptyList())
         c.chatRepository.sendText(cid, "Ref: PULSECHAT-REDESIGN-2026-10-21-0001-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", null, emptyList())
         c.chatRepository.sendMediaUri(cid, photo(), MessageType.IMAGE, "Moodboard", null)
-        await("Bob's messages sent", 90_000) { c.db.messageDao().observeRecent(cid, 0L, 20).first().count { it.isOnServer() } >= 4 }
+        // A video: its cover travels with the message, so the bubble shows it before any download.
+        runCatching { c.chatRepository.sendMediaUri(cid, TestMedia.sampleVideo(context), MessageType.VIDEO, "Studio walk-through", null) }
+            .onFailure { Log.e("PulseTour", "video message failed", it) }
+        await("Bob's messages sent", 120_000) { c.db.messageDao().observeRecent(cid, 0L, 20).first().count { it.isOnServer() } >= 5 }
         // A status update for Alice to view (its viewers list is shown later). Long enough text to stay
         // on screen while the tour opens the viewers list.
         val statusOk = runCatching {
@@ -356,6 +367,17 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             }.onFailure { Log.e("PulseTour", "chat lock shots failed", it) }
             runCatching { c.chatSettings.unlock(aiChat); c.chatSettings.closeLockedChats(); c.chatSettings.setMutedUntil(cid, 0L) }
             goHome()
+            runCatching {
+                // Storage: what PulseChat keeps on the phone, and the temporary files that can go.
+                tap("home_menu")
+                compose.onNodeWithTag("menu_settings").performClick()
+                settle()
+                compose.onNodeWithTag("settings_storage").performScrollTo().performClick()
+                compose.waitUntil(20_000) { exists("storage_summary") && compose.onAllNodesWithText(str(R.string.storage_counting)).fetchSemanticsNodes().isEmpty() }
+                settle()
+                shot("${v.id}-12-storage")
+            }.onFailure { Log.e("PulseTour", "storage shot failed", it) }
+            goHome()
         }
         live?.let { runCatching { c.liveLocation.stop(com.example.data.repository.LiveLocationRepository.StopReason.USER) } }
 
@@ -380,6 +402,27 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             }
             settle(3_000)
             goHome()
+        }
+
+        // Video editor (trim and cover) on the light phone and in dark Arabic. It is opened from the
+        // gallery in the app; here the same screen is shown directly with a real video, last, because it
+        // replaces the activity's content.
+        for (v in listOf(variants[0], variants[2])) {
+            apply(v)
+            runCatching {
+                val video = TestMedia.sampleVideo(context)
+                compose.activityRule.scenario.onActivity { activity ->
+                    activity.setContent { PulseChatTheme(if (v.dark) ThemeMode.DARK else ThemeMode.LIGHT) { VideoEditorDialog(video, 32L * 1024 * 1024, onDone = {}, onDismiss = {}) } }
+                }
+                compose.waitUntil(20_000) { exists("video_trim_range") }
+                val thumbs = compose.onNodeWithTag("video_trim_range").onChildren().filter(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
+                thumbs[0].performSemanticsAction(SemanticsActions.SetProgress) { it(1_500f) }
+                compose.onNodeWithTag("video_trim_range").onChildren().filter(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))[1]
+                    .performSemanticsAction(SemanticsActions.SetProgress) { it(4_600f) }
+                compose.onNodeWithTag("video_cover_slider").performSemanticsAction(SemanticsActions.SetProgress) { it(2_400f) }
+                settle(2_500) // filmstrip and cover frames
+                shot("${v.id}-13-video-editor")
+            }.onFailure { Log.e("PulseTour", "video editor shot failed", it) }
         }
         c.authRepository.signOut()
     }
