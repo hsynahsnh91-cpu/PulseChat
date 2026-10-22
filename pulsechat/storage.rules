@@ -38,7 +38,13 @@ service firebase.storage {
         && request.resource.contentType is string
         && request.resource.contentType.size() > 0
         && request.resource.contentType.size() <= 128
-        && (!conversationId.matches('^dm_.*') || isDirectParticipant(conversationId));
+        && (
+          (conversationId.matches('^dm_.*') && isDirectParticipant(conversationId))
+          || (!conversationId.matches('^dm_.*')
+              && request.resource.metadata != null
+              && 'participants' in request.resource.metadata
+              && hasUidInCsv(request.resource.metadata.participants))
+        );
       allow update: if false;
       allow delete: if isUser(senderId);
     }
@@ -54,12 +60,28 @@ service firebase.storage {
                   && 'contacts' in resource.metadata
                   && hasUidInCsv(resource.metadata.contacts))
             ));
-      allow create: if isUser(userId)
+      allow create, update: if isUser(userId)
         && request.resource.size > 0
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
-      allow update: if false;
       allow delete: if isUser(userId);
+    }
+
+    match /group-photos/{conversationId}/{fileName} {
+      allow read: if resource.metadata != null
+        && 'participants' in resource.metadata
+        && hasUidInCsv(resource.metadata.participants);
+      allow create, update: if signedIn()
+        && request.resource.size > 0
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.metadata != null
+        && 'participants' in request.resource.metadata
+        && hasUidInCsv(request.resource.metadata.participants);
+      allow delete: if signedIn()
+        && resource.metadata != null
+        && 'participants' in resource.metadata
+        && hasUidInCsv(resource.metadata.participants);
     }
 
     match /group-photos/{conversationId}/{userId}/{fileName} {
@@ -67,11 +89,10 @@ service firebase.storage {
         || (resource.metadata != null
             && 'participants' in resource.metadata
             && hasUidInCsv(resource.metadata.participants));
-      allow create: if isUser(userId)
+      allow create, update: if isUser(userId)
         && request.resource.size > 0
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
-      allow update: if false;
       allow delete: if isUser(userId);
     }
 

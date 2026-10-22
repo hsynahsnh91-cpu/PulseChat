@@ -385,9 +385,19 @@ service cloud.firestore {
                     && request.resource.data.poll.votes[uid()] < resource.data.poll.options.size()));
         }
 
+        // Allows an idempotent retry of a new-message write by its author when a write stream
+        // drops after server commit before the client receives the acknowledgement.
+        function retryCreateByAuthor() {
+          return resource.data.senderId == uid()
+            && resource.data.editedAt == null
+            && resource.data.deletedForEveryone == false
+            && mchanged().hasOnly(['createdAt', 'updatedAt'])
+            && validNewMessage();
+        }
+
         allow read: if isParticipantNow(cid);
         allow create: if signedIn() && validNewMessage();
-        allow update: if isParticipantNow(cid) && (editByAuthor() || deleteForEveryone() || reactionUpdate() || voteUpdate());
+        allow update: if isParticipantNow(cid) && (retryCreateByAuthor() || editByAuthor() || deleteForEveryone() || reactionUpdate() || voteUpdate());
         // Expired disappearing messages may be cleaned up by participants (TTL also removes them).
         allow delete: if isParticipantNow(cid) && resource.data.get('expiresAt', null) != null && resource.data.expiresAt < request.time;
       }
@@ -520,8 +530,16 @@ service cloud.firestore {
         return (sc == null || sc in ['chat', 'group', 'status', 'profile'])
           && (cid == null || (cid is string && cid.size() > 0 && cid.size() <= 128))
           && (sid == null || (sid is string && sid.size() > 0 && sid.size() <= 128))
-          && (sc != 'chat' || (cid is string && cid.size() > 0))
-          && (sc != 'group' || (cid is string && cid.size() > 0))
+          && (sc != 'chat' || (
+               cid is string && cid.size() > 0 && (
+                 (cid.matches('^dm_.*') && (cid.matches('^dm_' + uid() + '_.*') || cid.matches('^dm_.*_' + uid() + '$')))
+                 || (exists(convPath(cid)) && uid() in get(convPath(cid)).data.participants)
+               )
+             ))
+          && (sc != 'group' || (
+               cid is string && cid.size() > 0
+               && (!exists(convPath(cid)) || uid() in get(convPath(cid)).data.participants)
+             ))
           && (sc != 'status' || (sid is string && sid.size() > 0))
           && (resource == null || (
                sc == resource.data.get('scope', null)

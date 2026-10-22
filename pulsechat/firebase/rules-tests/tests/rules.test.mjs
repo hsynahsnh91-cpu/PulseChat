@@ -502,12 +502,12 @@ describe("built-in media store (used when Cloud Storage is unavailable)", () => 
     // 4. Profile photo media: contacts visibility & blocking enforced
     await assertSucceeds(setDoc(doc(alice, "media/mdProfilePhoto000001"), meta("alice", { scope: "profile" })));
     await assertSucceeds(setDoc(doc(alice, "media/mdProfilePhoto000001/chunks/0"), chunk("alice")));
-    await assertSucceeds(getDoc(doc(bob, "media/mdProfilePhoto000001")));
-    await assertSucceeds(getDoc(doc(bob, "media/mdProfilePhoto000001/chunks/0")));
+    await assertSucceeds(getDoc(doc(db("bob"), "media/mdProfilePhoto000001")));
+    await assertSucceeds(getDoc(doc(db("bob"), "media/mdProfilePhoto000001/chunks/0")));
     await assertFails(getDoc(doc(carol, "media/mdProfilePhoto000001")));
     await seed(async (fs) => setDoc(doc(fs, "users/alice/blocked/bob"), { blockedAt: Timestamp.now() }));
-    await assertFails(getDoc(doc(bob, "media/mdProfilePhoto000001")));
-    await assertFails(getDoc(doc(bob, "media/mdProfilePhoto000001/chunks/0")));
+    await assertFails(getDoc(doc(db("bob"), "media/mdProfilePhoto000001")));
+    await assertFails(getDoc(doc(db("bob"), "media/mdProfilePhoto000001/chunks/0")));
   });
 });
 
@@ -775,11 +775,12 @@ describe("device linking and linked-device revocation", () => {
     // While session is still pending and unexpired, deleting its pairing code alone is denied
     await assertFails(deleteDoc(doc(anonFs, `devicePairingCodes/${cancelCodeHash}`)));
 
-    // Cancelling the session and deleting its pairing code in a cleanup batch succeeds
+    // Cancelling the session (with secretProof) and deleting its pairing code in a cleanup batch succeeds
     const cancelBatch = writeBatch(anonFs);
     cancelBatch.update(doc(anonFs, `devicePairings/${sessCancel}`), {
       status: "cancelled",
       updatedAt: serverTimestamp(),
+      secretProof: SECRET,
     });
     cancelBatch.delete(doc(anonFs, `devicePairingCodes/${cancelCodeHash}`));
     await assertSucceeds(cancelBatch.commit());
