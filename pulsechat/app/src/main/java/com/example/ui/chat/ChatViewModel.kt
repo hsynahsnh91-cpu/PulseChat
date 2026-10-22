@@ -109,6 +109,13 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
     val liveSession: StateFlow<LiveLocationRepository.Session?> = c.liveLocation.active
 
     fun observeLive(m: Message): Flow<LiveLocationView?> = m.liveId?.let { c.liveLocation.observe(m.conversationId, it) } ?: flowOf(null)
+    /** ID of the live location this phone shares now (only that one has a Stop button). */
+    val activeLiveId: StateFlow<String?> = c.liveLocation.active.map { it?.liveId }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Stops [m]'s session only if it is the one this phone is sharing. */
+    fun stopLiveLocation(m: Message) {
+        if (c.liveLocation.active.value?.liveId == m.liveId) stopLiveLocation()
+    }
     fun serverNow(): Long = c.serverClock.now()
     private val limit = MutableStateFlow(PAGE)
     val messages: StateFlow<List<Message>> = limit.flatMapLatest { repo.observeMessages(conversationId, it) }

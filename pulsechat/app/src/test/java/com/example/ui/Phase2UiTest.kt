@@ -30,6 +30,7 @@ import com.example.ui.location.LiveLocationBubble
 import com.example.ui.location.LiveLocationSupport
 import com.example.ui.security.ChatLockGate
 import com.example.ui.theme.PulseChatTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -155,7 +156,9 @@ class Phase2UiTest {
     )
 
     private fun showBubble(view: LiveLocationView?, mine: Boolean, onStop: () -> Unit = {}) {
-        val support = LiveLocationSupport(observe = { flowOf(view) }, now = { now }, onOpen = {}, onStop = { onStop() })
+        // This phone shares session "s1" when the message is mine.
+        val support = LiveLocationSupport(observe = { flowOf(view) }, now = { now }, onOpen = {}, onStop = { onStop() },
+            activeLiveId = MutableStateFlow(if (mine) "s1" else null))
         compose.setContent {
             PulseChatTheme {
                 LiveLocationBubble(liveMessage(mine), mine = mine, support = support, metaColor = Color.Gray, map = { _, _, _, modifier -> Box(modifier) })

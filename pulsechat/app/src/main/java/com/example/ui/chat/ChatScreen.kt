@@ -573,7 +573,8 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         live = LiveLocationSupport(
                             observe = vm::observeLive, now = vm::serverNow,
                             onOpen = { m -> m.liveId?.let { nav.openLiveLocation(m.conversationId, it) } },
-                            onStop = { vm.stopLiveLocation() },
+                            onStop = { m -> vm.stopLiveLocation(m) },
+                            activeLiveId = vm.activeLiveId,
                         ),
                     )
                 }

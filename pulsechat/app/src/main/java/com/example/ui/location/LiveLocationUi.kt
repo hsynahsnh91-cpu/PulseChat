@@ -73,6 +73,8 @@ import com.example.ui.theme.Radii
 import com.example.ui.theme.Spacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 
 /** What message bubbles need to show live locations (absent in previews and tests: the start point is shown). */
@@ -81,9 +83,12 @@ class LiveLocationSupport(
     val now: () -> Long,
     val onOpen: (Message) -> Unit,
     val onStop: (Message) -> Unit,
+    /** The session this phone is sharing now: only that one can be stopped from here. */
+    val activeLiveId: StateFlow<String?> = MutableStateFlow(null),
 )
 
 private val STALE_GREY = Color(0xFF8A8F98)
+private val NO_ACTIVE_SESSION: StateFlow<String?> = MutableStateFlow(null)
 
 /** Current time, refreshed while shown (relative times like "updated 2 minutes ago" stay right). */
 @Composable
@@ -138,6 +143,7 @@ fun LiveLocationBubble(
     val view by flow.collectAsState(initial = null)
     val now = tickingNow(support?.now ?: { System.currentTimeMillis() })
     val phase = phaseOf(view, message.liveUntil, now)
+    val activeLiveId by (support?.activeLiveId ?: NO_ACTIVE_SESSION).collectAsState()
     val lat = view?.lat ?: message.locationLat
     val lng = view?.lng ?: message.locationLng
     Column(Modifier.widthIn(min = 230.dp, max = 300.dp).testTag("live_location_bubble")) {
@@ -162,7 +168,7 @@ fun LiveLocationBubble(
                 Text(liveStatusLine(view, message.liveUntil, now), style = MaterialTheme.typography.labelSmall, color = metaColor, modifier = Modifier.testTag("live_status"))
             }
         }
-        if (mine && support != null && phase != Phase.ENDED) {
+        if (mine && support != null && phase != Phase.ENDED && activeLiveId == message.liveId) {
             TextButton(onClick = { support.onStop(message) }, modifier = Modifier.testTag("live_stop")) {
                 Text(stringResource(R.string.live_stop), color = MaterialTheme.colorScheme.error)
             }
