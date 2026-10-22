@@ -19,11 +19,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -74,7 +74,7 @@ fun StarredScreen(onBack: () -> Unit, openMessage: (conversationId: String, mess
     Scaffold(topBar = { BackTopBar(stringResource(R.string.starred_messages), onBack) }) { padding ->
         val list = starred
         if (list != null && list.isEmpty()) {
-            EmptyState(Icons.Default.StarBorder, stringResource(R.string.starred_empty_title), stringResource(R.string.starred_empty_body), Modifier.padding(padding))
+            EmptyState(Icons.Rounded.StarBorder, stringResource(R.string.starred_empty_title), stringResource(R.string.starred_empty_body), Modifier.padding(padding))
         }
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             items(list.orEmpty(), key = { it.message.messageId }) { row: StarredRow ->
@@ -85,7 +85,7 @@ fun StarredScreen(onBack: () -> Unit, openMessage: (conversationId: String, mess
                         .heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Rounded.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         val sender = if (m.senderId == me) stringResource(R.string.you) else row.senderName ?: stringResource(R.string.unknown_user)
@@ -94,7 +94,7 @@ fun StarredScreen(onBack: () -> Unit, openMessage: (conversationId: String, mess
                         Text(Formatters.dateTime(context, m.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = { scope.launch { container.chatRepository.setStarred(listOf(m.messageId), false) } }) {
-                        Icon(Icons.Default.StarBorder, contentDescription = stringResource(R.string.action_unstar))
+                        Icon(Icons.Rounded.StarBorder, contentDescription = stringResource(R.string.action_unstar))
                     }
                 }
             }
@@ -109,10 +109,10 @@ fun ArchivedScreen(onBack: () -> Unit, openChat: (String) -> Unit) {
     val selection by vm.selection.collectAsState()
     Scaffold(topBar = {
         BackTopBar(stringResource(R.string.archived_chats), onBack, subtitle = if (selection.isNotEmpty()) stringResource(R.string.selected_count, selection.size) else null) {
-            if (selection.isNotEmpty()) IconButton(onClick = { vm.archiveSelected(false) }) { Icon(Icons.Default.Unarchive, stringResource(R.string.action_unarchive)) }
+            if (selection.isNotEmpty()) IconButton(onClick = { vm.archiveSelected(false) }) { Icon(Icons.Rounded.Unarchive, stringResource(R.string.action_unarchive)) }
         }
     }) { padding ->
-        if (archived.isEmpty()) EmptyState(Icons.Default.Archive, stringResource(R.string.archived_empty_title), stringResource(R.string.archived_empty_body), Modifier.padding(padding))
+        if (archived.isEmpty()) EmptyState(Icons.Rounded.Archive, stringResource(R.string.archived_empty_title), stringResource(R.string.archived_empty_body), Modifier.padding(padding))
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item { Text(stringResource(R.string.archived_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
             items(archived, key = { it.conversation.conversationId }) { row ->
@@ -144,7 +144,7 @@ fun GlobalSearchScreen(initialQuery: String, onBack: () -> Unit, openMessage: (S
     Scaffold(topBar = { BackTopBar(stringResource(R.string.search_messages), onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             OutlinedTextField(
-                value = query, onValueChange = { query = it }, singleLine = true, leadingIcon = { Icon(Icons.Default.Search, null) },
+                value = query, onValueChange = { query = it }, singleLine = true, leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 placeholder = { Text(stringResource(R.string.search_hint)) }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -152,7 +152,7 @@ fun GlobalSearchScreen(initialQuery: String, onBack: () -> Unit, openMessage: (S
                 SearchFilter.entries.forEach { f -> FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(stringResource(f.label)) }) }
             }
             if (results.isEmpty() && (query.isNotBlank() || filter != SearchFilter.ALL)) {
-                EmptyState(Icons.Default.Search, stringResource(R.string.empty_search_title), stringResource(R.string.empty_search_body))
+                EmptyState(Icons.Rounded.Search, stringResource(R.string.empty_search_title), stringResource(R.string.empty_search_body))
             }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(results, key = { it.message.messageId }) { row ->

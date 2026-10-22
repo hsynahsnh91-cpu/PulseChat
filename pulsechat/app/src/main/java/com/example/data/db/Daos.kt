@@ -231,6 +231,9 @@ interface MessageDao {
     @Query("SELECT MIN(createdAt) FROM messages WHERE conversationId = :conversationId")
     suspend fun oldestCreatedAt(conversationId: String): Long?
 
+    @Query("SELECT MAX(createdAt) FROM messages WHERE conversationId = :conversationId")
+    suspend fun newestCreatedAt(conversationId: String): Long?
+
     @Query("SELECT MAX(createdAt) FROM messages WHERE conversationId = :conversationId AND senderId != :me AND status != 'PENDING'")
     suspend fun latestIncomingAt(conversationId: String, me: String): Long?
 
@@ -332,6 +335,22 @@ interface ContactDao {
             "ORDER BY COALESCE(c.customNickname, u.displayName) COLLATE NOCASE"
     )
     fun observeContacts(owner: String): Flow<List<ContactRow>>
+
+    /**
+     * People that can be shared as a contact card: saved contacts plus the people of my one-to-one
+     * chats, without blocked people and without anyone lacking a username.
+     */
+    @Query(
+        "SELECT u.userId AS userId, u.displayName AS displayName, u.username AS username, u.uniqueId10 AS uniqueId10, " +
+            "u.avatarUrl AS avatarUrl, u.avatarColorHex AS avatarColorHex, u.statusMessage AS statusMessage, ct.customNickname AS customNickname " +
+            "FROM users u LEFT JOIN contacts ct ON ct.targetUserId = u.userId AND ct.ownerUserId = :owner " +
+            "WHERE u.userId != :owner AND u.username != '' AND u.isAiAssistant = 0 " +
+            "AND u.userId NOT IN (SELECT b.blockedUserId FROM blocked_users b WHERE b.ownerUserId = :owner) " +
+            "AND (ct.targetUserId IS NOT NULL OR u.userId IN (SELECT c.peerId FROM conversations c WHERE c.isGroup = 0 AND c.isLocalOnly = 0 " +
+            "AND c.peerId IS NOT NULL AND (',' || c.participantIds || ',') LIKE ('%,' || :owner || ',%'))) " +
+            "ORDER BY COALESCE(ct.customNickname, u.displayName) COLLATE NOCASE"
+    )
+    fun observeShareable(owner: String): Flow<List<ContactRow>>
 
     @Query("SELECT targetUserId FROM contacts WHERE ownerUserId = :owner")
     suspend fun contactIds(owner: String): List<String>
@@ -435,6 +454,10 @@ interface StatusDao {
             "WHERE v.statusId = :statusId ORDER BY v.viewedAt DESC"
     )
     fun observeViews(statusId: String): Flow<List<StatusViewRow>>
+
+    /** People who have seen at least one of these status updates (each person counted once). */
+    @Query("SELECT COUNT(DISTINCT viewerId) FROM status_views WHERE statusId IN (:statusIds)")
+    fun observeViewerCount(statusIds: List<String>): Flow<Int>
 }
 
 /** One-time re-keying of a legacy device-local account to its new Firebase Auth UID. */

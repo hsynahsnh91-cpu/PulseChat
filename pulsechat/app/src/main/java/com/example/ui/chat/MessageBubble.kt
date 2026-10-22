@@ -30,21 +30,21 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Poll
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Poll
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -121,11 +121,13 @@ import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.unit.min
 import com.example.ui.common.rememberLocalFile
 import com.example.ui.theme.Spacing
+import com.example.ui.theme.LocalLiteMode
 import com.example.ui.theme.Radii
 import com.example.ui.theme.MessageTextStyle
 import com.example.ui.theme.EmojiOnlyTextStyle
 import com.example.ui.common.isolateIfForeign
-import androidx.compose.material.icons.automirrored.filled.Shortcut
+import com.example.ui.common.ltrIsolate
+import androidx.compose.material.icons.automirrored.rounded.Shortcut
 
 class BubbleCallbacks(
     val onClick: (Message) -> Unit,
@@ -144,6 +146,8 @@ class BubbleCallbacks(
     val onVoiceSpeed: () -> Unit,
     val onVote: (Message, Int) -> Unit,
     val onReactions: (Message) -> Unit,
+    /** Opens a chat with the PulseChat user of a shared contact card. */
+    val onMessageContact: (Message) -> Unit = {},
 )
 
 private val REACTION_SHAPE = RoundedCornerShape(50)
@@ -198,7 +202,7 @@ fun MessageRow(
             .padding(horizontal = Spacing.sm, vertical = if (item.groupedWithOlder) 1.dp else 3.dp),
     ) {
         if (animatedDrag != 0f) {
-            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = pulse.metaText,
+            Icon(Icons.AutoMirrored.Rounded.Reply, contentDescription = null, tint = pulse.metaText,
                 modifier = Modifier.align(Alignment.CenterStart).padding(start = Spacing.sm).size(22.dp)
                     .graphicsLayer { alpha = (kotlin.math.abs(animatedDrag) / 140f).coerceIn(0f, 1f) })
         }
@@ -228,7 +232,7 @@ fun MessageRow(
                 }
                 if (mine && m.status == MessageStatus.FAILED) {
                     TextButton(onClick = { callbacks.onRetry(m) }) {
-                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(Spacing.xs))
                         Text(stringResource(when (m.failureReason) {
                             "denied" -> R.string.message_not_allowed_retry
@@ -283,10 +287,11 @@ private fun Bubble(
     val shape = if (item.groupedWithOlder) RoundedCornerShape(big) else if (mine)
         RoundedCornerShape(topStart = big, topEnd = tail, bottomStart = big, bottomEnd = big)
     else RoundedCornerShape(topStart = tail, topEnd = big, bottomStart = big, bottomEnd = big)
-    val light = !PulseTheme.colors.isDark
+    // Light theme: a hairline shadow separates white bubbles from the light background. Dark theme, and
+    // older or low-memory phones (where every shadow costs scrolling smoothness): none.
+    val shadow = !PulseTheme.colors.isDark && !LocalLiteMode.current
     CompositionLocalProvider(LocalBubbleColors provides colors) {
-        // Light theme: a hairline shadow separates white bubbles from the light background. Dark theme: none.
-        Surface(shape = shape, color = colors.container, contentColor = colors.content, shadowElevation = if (light) 0.5.dp else 0.dp) {
+        Surface(shape = shape, color = colors.container, contentColor = colors.content, shadowElevation = if (shadow) 0.5.dp else 0.dp) {
             Column(Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)) {
                 if (item.showSender) {
                     val name = names[m.senderId] ?: stringResource(R.string.unknown_user)
@@ -297,7 +302,7 @@ private fun Bubble(
                 if (m.type == MessageType.AI_RESPONSE) { AiBadge(); Spacer(Modifier.height(Spacing.xs)) }
                 if (m.isForwarded && !m.deletedForEveryone) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Filled.Shortcut, contentDescription = null, tint = colors.meta, modifier = Modifier.size(14.dp))
+                        Icon(Icons.AutoMirrored.Rounded.Shortcut, contentDescription = null, tint = colors.meta, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(3.dp))
                         Text(stringResource(R.string.forwarded), style = MaterialTheme.typography.labelSmall, fontStyle = FontStyle.Italic, color = colors.meta)
                     }
@@ -313,7 +318,7 @@ private fun Bubble(
                 val footer: @Composable () -> Unit = { Footer(m, mine, hideTicks || isAi, showReadReceipts) }
                 if (m.deletedForEveryone) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Block, contentDescription = null, tint = colors.meta, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.Block, contentDescription = null, tint = colors.meta, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(if (mine) R.string.message_deleted_by_you else R.string.message_deleted), fontStyle = FontStyle.Italic,
                             color = colors.meta, style = MessageTextStyle)
@@ -417,8 +422,8 @@ private fun Footer(m: Message, mine: Boolean, hideTicks: Boolean, showReadReceip
     val context = LocalContext.current
     val meta = LocalBubbleColors.current.meta.takeIf { it.isSpecified } ?: PulseTheme.colors.metaText
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (m.expiresAt > 0) Icon(Icons.Default.Timer, contentDescription = stringResource(R.string.disappearing_title), tint = meta, modifier = Modifier.size(12.dp).padding(end = 2.dp))
-        if (m.isStarred) Icon(Icons.Default.Star, contentDescription = stringResource(R.string.starred), tint = meta, modifier = Modifier.size(12.dp).padding(end = 2.dp))
+        if (m.expiresAt > 0) Icon(Icons.Rounded.Timer, contentDescription = stringResource(R.string.disappearing_title), tint = meta, modifier = Modifier.size(12.dp).padding(end = 2.dp))
+        if (m.isStarred) Icon(Icons.Rounded.Star, contentDescription = stringResource(R.string.starred), tint = meta, modifier = Modifier.size(12.dp).padding(end = 2.dp))
         if (m.editedAt > 0 && !m.deletedForEveryone) Text(stringResource(R.string.edited) + " ", style = MaterialTheme.typography.labelSmall, color = meta, fontStyle = FontStyle.Italic)
         Text(Formatters.time(context, m.createdAt), style = MaterialTheme.typography.labelSmall, color = meta, maxLines = 1)
         if (mine && !hideTicks && !m.deletedForEveryone) {
@@ -459,11 +464,11 @@ private fun TransferOverlay(m: Message, mine: Boolean, callbacks: BubbleCallback
             m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING -> Box(contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(progress = { m.transferProgress / 100f }, modifier = Modifier.size(48.dp), color = Color.White, trackColor = Color.White.copy(alpha = 0.3f))
                 Box(Modifier.size(40.dp).clip(CircleShape).clickable { callbacks.onCancel(m) }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel), tint = Color.White)
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_cancel), tint = Color.White)
                 }
             }
-            mine && m.status == MessageStatus.FAILED && m.mediaUrl == null -> RoundAction(Icons.Default.Refresh, stringResource(R.string.action_retry)) { callbacks.onRetry(m) }
-            !local && m.mediaUrl != null -> RoundAction(Icons.Default.Download, stringResource(R.string.action_download) + " · " + MediaLimits.humanSize(m.mediaSizeBytes)) { callbacks.onDownload(m) }
+            mine && m.status == MessageStatus.FAILED && m.mediaUrl == null -> RoundAction(Icons.Rounded.Refresh, stringResource(R.string.action_retry)) { callbacks.onRetry(m) }
+            !local && m.mediaUrl != null -> RoundAction(Icons.Rounded.Download, stringResource(R.string.action_download) + " · " + MediaLimits.humanSize(m.mediaSizeBytes)) { callbacks.onDownload(m) }
         }
     }
 }
@@ -471,7 +476,7 @@ private fun TransferOverlay(m: Message, mine: Boolean, callbacks: BubbleCallback
 @Composable
 private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     Row(
-        Modifier.clip(RoundedCornerShape(24.dp)).background(Color.Black.copy(alpha = 0.55f)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+        Modifier.clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
@@ -485,13 +490,13 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
     val local = rememberLocalFile(m.localMediaPath)
     val ratio = if (m.mediaWidth > 0 && m.mediaHeight > 0) (m.mediaWidth.toFloat() / m.mediaHeight).coerceIn(0.6f, 1.7f) else 1f
     Box(
-        Modifier.widthIn(min = 180.dp, max = 280.dp).aspectRatio(ratio).clip(RoundedCornerShape(10.dp)).background(PulseTheme.colors.mediaPlaceholder)
+        Modifier.widthIn(min = 180.dp, max = 280.dp).aspectRatio(ratio).clip(RoundedCornerShape(Radii.sm)).background(PulseTheme.colors.mediaPlaceholder)
             .clickable(enabled = local != null || m.type == MessageType.VIDEO && m.mediaUrl != null) { callbacks.onOpenMedia(m) },
         contentAlignment = Alignment.Center,
     ) {
         if (m.type == MessageType.IMAGE) {
             if (local != null) AsyncImage(model = File(local), contentDescription = m.content.ifBlank { stringResource(R.string.preview_photo) }, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            else Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f), modifier = Modifier.size(56.dp))
+            else Icon(Icons.Rounded.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f), modifier = Modifier.size(56.dp))
         } else {
             val thumb by produceState<Bitmap?>(null, local) {
                 value = if (local == null) null else withContext(Dispatchers.IO) {
@@ -504,12 +509,12 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
             thumb?.let { androidx.compose.foundation.Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
             if (m.transferState != TransferState.UPLOADING && m.transferState != TransferState.DOWNLOADING && (local != null || m.mediaUrl != null)) {
                 Box(Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.action_play), tint = Color.White, modifier = Modifier.size(32.dp))
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.action_play), tint = Color.White, modifier = Modifier.size(32.dp))
                 }
             }
             if (m.mediaDurationSeconds > 0) {
                 Text(DurationFormat.clock(m.mediaDurationSeconds * 1000L), color = Color.White, style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp))
+                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape).padding(horizontal = 6.dp))
             }
         }
         if (m.type == MessageType.IMAGE || local == null) TransferOverlay(m, mine, callbacks)
@@ -530,16 +535,16 @@ private fun VoiceMessage(m: Message, mine: Boolean, voiceState: State<VoicePlaye
             when {
                 m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING -> {
                     CircularProgressIndicator(progress = { m.transferProgress / 100f }, modifier = Modifier.size(36.dp))
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel), modifier = Modifier.size(18.dp).clickable { callbacks.onCancel(m) })
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_cancel), modifier = Modifier.size(18.dp).clickable { callbacks.onCancel(m) })
                 }
                 mine && m.status == MessageStatus.FAILED && m.mediaUrl == null ->
-                    Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_retry), modifier = Modifier.size(32.dp).clickable { callbacks.onRetry(m) })
+                    Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.action_retry), modifier = Modifier.size(32.dp).clickable { callbacks.onRetry(m) })
                 current && voice.preparing -> CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
                 available -> Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).clickable { callbacks.onToggleVoice(m) }, contentAlignment = Alignment.Center) {
-                    Icon(if (current && voice.playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    Icon(if (current && voice.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = stringResource(if (current && voice.playing) R.string.action_pause else R.string.action_play), tint = MaterialTheme.colorScheme.onPrimary)
                 }
-                else -> Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = bubbleMeta)
+                else -> Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = bubbleMeta)
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -552,7 +557,7 @@ private fun VoiceMessage(m: Message, mine: Boolean, voiceState: State<VoicePlaye
             ) {
                 bars.forEachIndexed { i, level ->
                     val played = (i.toFloat() / bars.size) < progress
-                    Box(Modifier.weight(1f).height((4 + level * 0.26f).dp).clip(RoundedCornerShape(2.dp))
+                    Box(Modifier.weight(1f).height((4 + level * 0.26f).dp).clip(CircleShape)
                         .background(if (played) MaterialTheme.colorScheme.primary else bubbleMeta.copy(alpha = 0.45f)))
                 }
             }
@@ -562,7 +567,7 @@ private fun VoiceMessage(m: Message, mine: Boolean, voiceState: State<VoicePlaye
                     val speedLabel = stringResource(R.string.voice_speed)
                     Spacer(Modifier.width(8.dp))
                     Text("${if (voice.speed == 1f) "1" else voice.speed.toString().removeSuffix(".0")}×", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(bubbleMeta.copy(alpha = 0.2f)).clickable { callbacks.onVoiceSpeed() }
+                        modifier = Modifier.clip(CircleShape).background(bubbleMeta.copy(alpha = 0.2f)).clickable { callbacks.onVoiceSpeed() }
                             .padding(horizontal = 6.dp, vertical = 1.dp).semantics { contentDescription = speedLabel })
                 }
             }
@@ -575,11 +580,11 @@ private fun DocumentContent(m: Message, mine: Boolean, callbacks: BubbleCallback
     val bubbleMeta = bubbleMeta()
     val local = rememberLocalFile(m.localMediaPath) != null
     Row(
-        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(10.dp)).background(bubbleMeta.copy(alpha = 0.12f))
+        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(Radii.sm)).background(bubbleMeta.copy(alpha = 0.12f))
             .clickable { if (local) callbacks.onOpenDocument(m) else if (m.mediaUrl != null) callbacks.onDownload(m) }.padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+        Icon(Icons.Rounded.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(m.fileName ?: stringResource(R.string.preview_document), maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
@@ -591,10 +596,10 @@ private fun DocumentContent(m: Message, mine: Boolean, callbacks: BubbleCallback
         }
         when {
             m.transferState == TransferState.UPLOADING || m.transferState == TransferState.DOWNLOADING ->
-                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel), modifier = Modifier.size(24.dp).clickable { callbacks.onCancel(m) })
+                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_cancel), modifier = Modifier.size(24.dp).clickable { callbacks.onCancel(m) })
             mine && m.status == MessageStatus.FAILED && m.mediaUrl == null ->
-                Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_retry), modifier = Modifier.size(24.dp).clickable { callbacks.onRetry(m) })
-            !local && m.mediaUrl != null -> Icon(Icons.Default.Download, contentDescription = stringResource(R.string.action_download), modifier = Modifier.size(24.dp))
+                Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.action_retry), modifier = Modifier.size(24.dp).clickable { callbacks.onRetry(m) })
+            !local && m.mediaUrl != null -> Icon(Icons.Rounded.Download, contentDescription = stringResource(R.string.action_download), modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -603,10 +608,10 @@ private fun DocumentContent(m: Message, mine: Boolean, callbacks: BubbleCallback
 private fun LocationContent(m: Message, callbacks: BubbleCallbacks) {
     val bubbleMeta = bubbleMeta()
     Row(
-        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(10.dp)).background(bubbleMeta.copy(alpha = 0.12f)).clickable { callbacks.onOpenLocation(m) }.padding(10.dp),
+        Modifier.widthIn(min = 220.dp).clip(RoundedCornerShape(Radii.sm)).background(bubbleMeta.copy(alpha = 0.12f)).clickable { callbacks.onOpenLocation(m) }.padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp))
+        Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp))
         Spacer(Modifier.width(8.dp))
         Column {
             Text(stringResource(R.string.location_shared), fontWeight = FontWeight.Medium)
@@ -619,19 +624,24 @@ private fun LocationContent(m: Message, callbacks: BubbleCallbacks) {
 @Composable
 private fun ContactContent(m: Message, callbacks: BubbleCallbacks) {
     val bubbleMeta = bubbleMeta()
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    // Cards shared from PulseChat carry the person's @username and open a chat with them; older
+    // cards may carry a phone number, which can still be called.
+    val pulseUser = ContactSearch.isPulseHandle(m.contactPhone)
     Column(Modifier.widthIn(min = 220.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(Icons.Rounded.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
             Spacer(Modifier.width(10.dp))
             Column {
                 Text(m.contactName ?: m.content, fontWeight = FontWeight.SemiBold)
-                if (!m.contactPhone.isNullOrBlank()) Text(m.contactPhone, style = MaterialTheme.typography.labelMedium, color = bubbleMeta)
+                if (!m.contactPhone.isNullOrBlank()) Text(ltrIsolate(m.contactPhone, rtl), style = MaterialTheme.typography.labelMedium, color = bubbleMeta)
             }
         }
-        if (!m.contactPhone.isNullOrBlank()) {
-            TextButton(onClick = { callbacks.onDialContact(m) }) { Text(stringResource(R.string.contact_call_number)) }
+        when {
+            pulseUser -> TextButton(onClick = { callbacks.onMessageContact(m) }) { Text(stringResource(R.string.contact_message)) }
+            !m.contactPhone.isNullOrBlank() -> TextButton(onClick = { callbacks.onDialContact(m) }) { Text(stringResource(R.string.contact_call_number)) }
         }
     }
 }
@@ -646,7 +656,7 @@ private fun PollContent(m: Message, me: String, callbacks: BubbleCallbacks) {
     val canVote = !(m.senderId == me && (m.status == MessageStatus.PENDING || m.status == MessageStatus.SENDING || m.status == MessageStatus.FAILED))
     Column(Modifier.widthIn(min = 230.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Poll, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.Poll, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text(m.pollQuestion ?: m.content, fontWeight = FontWeight.SemiBold)
         }
@@ -655,7 +665,7 @@ private fun PollContent(m: Message, me: String, callbacks: BubbleCallbacks) {
             val count = counts.getOrElse(i) { 0 }
             val fraction = if (total > 0) count.toFloat() / total else 0f
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(enabled = canVote) { callbacks.onVote(m, i) }.padding(vertical = 6.dp, horizontal = 4.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.sm)).clickable(enabled = canVote) { callbacks.onVote(m, i) }.padding(vertical = 6.dp, horizontal = 4.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -708,7 +718,7 @@ private fun SystemChip(m: Message, me: String, names: Map<String, String>) {
     Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
         Text(
             systemText(m, me, names), style = MaterialTheme.typography.labelMedium, color = PulseTheme.colors.metaText,
-            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(PulseTheme.colors.systemChip).padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.clip(RoundedCornerShape(Radii.md)).background(PulseTheme.colors.systemChip).padding(horizontal = 12.dp, vertical = 6.dp),
         )
     }
 }

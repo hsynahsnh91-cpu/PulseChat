@@ -47,6 +47,23 @@ object Formatters {
         else -> DateUtils.formatDateTime(context, t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR)
     }
 
+    /** "Today, 9:41", "Yesterday, 21:05" or "Mon, 21:05": when a status was posted or seen. */
+    fun dayAndTime(context: Context, t: Long): String {
+        val day = when {
+            isToday(t) -> context.getString(R.string.today)
+            isYesterday(t) -> context.getString(R.string.yesterday)
+            else -> DateUtils.formatDateTime(context, t, DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_ABBREV_WEEKDAY)
+        }
+        return context.getString(R.string.day_at_time, day, time(context, t))
+    }
+
+    /** Age of a status update: "Just now", "12 minutes ago" within the hour, otherwise [dayAndTime]. */
+    fun statusTime(context: Context, t: Long, now: Long = System.currentTimeMillis()): String = when {
+        now - t < DateUtils.MINUTE_IN_MILLIS -> context.getString(R.string.time_just_now)
+        now - t < DateUtils.HOUR_IN_MILLIS -> DateUtils.getRelativeTimeSpanString(t, now, DateUtils.MINUTE_IN_MILLIS).toString()
+        else -> dayAndTime(context, t)
+    }
+
     fun dateTime(context: Context, t: Long): String =
         DateUtils.formatDateTime(context, t, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_SHOW_YEAR)
 

@@ -18,6 +18,7 @@ import com.example.data.model.ChatFolder
 import com.example.data.model.ChatFolderMember
 import com.example.data.model.FolderWithCount
 import com.example.domain.model.ChatFilter
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +27,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -130,6 +134,14 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             viewed = groups.filter { !it.hasUnviewed },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UpdatesUi())
+
+    /** How many people have seen my current status updates. Who they are is only shown inside my status. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val myStatusViews: StateFlow<Int> = updates
+        .map { u -> u.mine.map { it.statusId } }
+        .distinctUntilChanged()
+        .flatMapLatest { ids -> if (ids.isEmpty()) flowOf(0) else c.statusRepository.observeViewerCount(ids) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     // ------------------------------------------------------------------ selection actions
 

@@ -132,6 +132,23 @@ class UserRepository(
     // ------------------------------------------------------------------ contacts
 
     fun observeContacts(): Flow<List<ContactRow>> = db.contactDao().observeContacts(currentUid().orEmpty())
+
+    /** Saved contacts and the people of my one-to-one chats, for sharing as a contact card. */
+    fun observeShareableContacts(): Flow<List<ContactRow>> = db.contactDao().observeShareable(currentUid().orEmpty())
+
+    /**
+     * The PulseChat user behind a shared contact card ("@username"), looked up on this phone first
+     * and otherwise on the server (needs a connection). Null when nobody (else) has that handle.
+     */
+    suspend fun findByHandle(handle: String): User? {
+        val me = currentUid() ?: return null
+        val username = Validators.normalizeUsername(handle)
+        if (Validators.usernameError(username) != null) return null
+        db.userDao().findByUsername(username)?.let { local ->
+            return local.takeIf { it.userId != me && it.userId !in db.contactDao().blockedIds(me) }
+        }
+        return searchUsers(username).firstOrNull()
+    }
     fun observeContact(target: String): Flow<Contact?> = db.contactDao().observe(currentUid().orEmpty(), target)
 
     suspend fun saveContact(target: String, nickname: String?) {
@@ -289,9 +306,12 @@ class UserRepository(
                         val sentAt = System.currentTimeMillis()
                         runCatching {
                             ref.set(mapOf("online" to true, "heartbeatAt" to FieldValue.serverTimestamp())).await()
-                            if (!clockMeasured) {
+                            val ackedAt = System.currentTimeMillis()
+                            // Only a quick round trip gives a usable clock sample; a write that waited in
+                            // the offline queue would make the device clock look far behind.
+                            if (!clockMeasured && ackedAt - sentAt < CLOCK_SAMPLE_MAX_ROUND_TRIP_MS) {
                                 val snap = ref.get(com.google.firebase.firestore.Source.SERVER).await()
-                                serverClock.observe(snap.millis("heartbeatAt"), sentAt + 150)
+                                serverClock.observe(snap.millis("heartbeatAt"), (sentAt + ackedAt) / 2)
                                 clockMeasured = true
                             }
                         }
@@ -338,5 +358,6 @@ class UserRepository(
     companion object {
         private const val TAG = "UserRepository"
         private const val STALE_MS = 30 * 60 * 1000L
+        private const val CLOCK_SAMPLE_MAX_ROUND_TRIP_MS = 3_000L
     }
 }

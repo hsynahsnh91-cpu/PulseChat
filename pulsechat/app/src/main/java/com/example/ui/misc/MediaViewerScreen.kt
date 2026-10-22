@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,7 +54,7 @@ import com.example.ui.status.VideoPlayerView
 import kotlinx.coroutines.launch
 import java.io.File
 import com.example.ui.common.LightSystemBarIcons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,7 +94,7 @@ fun MediaViewerScreen(messageId: String, onBack: () -> Unit) {
                 )
                 m.transferState == TransferState.DOWNLOADING -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 m.mediaUrl != null -> Button(onClick = { scope.launch { container.chatRepository.downloadMedia(m.messageId) } }, modifier = Modifier.align(Alignment.Center)) {
-                    Icon(Icons.Default.Download, null)
+                    Icon(Icons.Rounded.Download, null)
                     Text(" " + stringResource(R.string.action_download) + " · " + MediaLimits.humanSize(m.mediaSizeBytes))
                 }
                 else -> Text(stringResource(R.string.message_unavailable), color = Color.White, modifier = Modifier.align(Alignment.Center))
@@ -110,18 +110,18 @@ fun MediaViewerScreen(messageId: String, onBack: () -> Unit) {
                     if (m != null) Text(Formatters.dateTime(context, m.createdAt), style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                 }
             },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back)) } },
             actions = {
                 if (local != null && m != null) {
                     IconButton(onClick = {
                         val uri = container.media.contentUriFor(local)
                         val send = Intent(Intent.ACTION_SEND).setType(m.mediaMimeType ?: "*/*").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         context.startActivity(Intent.createChooser(send, null))
-                    }) { Icon(Icons.Default.Share, stringResource(R.string.action_share)) }
+                    }) { Icon(Icons.Rounded.Share, stringResource(R.string.action_share)) }
                     IconButton(onClick = {
                         val view = Intent(Intent.ACTION_VIEW).setDataAndType(container.media.contentUriFor(local), m.mediaMimeType ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         try { context.startActivity(view) } catch (e: ActivityNotFoundException) { Toast.makeText(context, R.string.error_no_app, Toast.LENGTH_SHORT).show() }
-                    }) { Icon(Icons.AutoMirrored.Filled.OpenInNew, stringResource(R.string.action_open_with)) }
+                    }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, stringResource(R.string.action_open_with)) }
                 }
             },
         )

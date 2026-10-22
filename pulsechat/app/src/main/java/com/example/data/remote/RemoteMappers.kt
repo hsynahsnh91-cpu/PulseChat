@@ -110,9 +110,13 @@ object RemoteMappers {
         val poll = doc.map("poll")
         val reactions = doc.map("reactions").mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
         val votes = (poll["votes"] as? Map<*, *>)?.mapNotNull { (k, v) -> (k as? String)?.let { key -> (v as? Number)?.toInt()?.let { key to it } } }?.toMap() ?: emptyMap()
-        val createdAt = doc.millis("createdAt").takeIf { it > 0 } ?: (doc.getLong("clientCreatedAt") ?: System.currentTimeMillis())
         val deleted = doc.getBoolean("deletedForEveryone") ?: false
         val pending = doc.metadata.hasPendingWrites()
+        // A write of mine that the server has not confirmed yet keeps its local position: the SDK's
+        // estimate for the server time stamp is the phone's clock, which can be minutes behind and
+        // would list the message above newer ones until the confirmation arrives.
+        val createdAt = existing?.createdAt?.takeIf { pending && it > 0 }
+            ?: doc.millis("createdAt").takeIf { it > 0 } ?: (doc.getLong("clientCreatedAt") ?: System.currentTimeMillis())
         val acked = !pending
         val remoteStatus = when {
             senderId != me -> existing?.status ?: MessageStatus.DELIVERED

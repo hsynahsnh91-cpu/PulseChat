@@ -2,10 +2,10 @@ package com.example.ui.calls
 
 import com.example.calls.AudioRoute
 import com.example.calls.CallStatsSnapshot
-import androidx.compose.material.icons.filled.PhoneInTalk
-import androidx.compose.material.icons.filled.Headset
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.rounded.PhoneInTalk
+import androidx.compose.material.icons.rounded.Headset
+import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.mutableStateOf
@@ -53,14 +53,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
-import androidx.compose.material.icons.filled.FlipCameraAndroid
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.CallEnd
+import androidx.compose.material.icons.rounded.FlipCameraAndroid
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.VideocamOff
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -169,12 +169,12 @@ fun CallScreen(onClose: () -> Unit) {
                 Spacer(Modifier.weight(1f))
                 when {
                     ui.state == CallState.RINGING && ui.direction == CallDirection.INCOMING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        RoundButton(Icons.Default.CallEnd, stringResource(R.string.call_decline), CallPalette.Decline, CallPalette.Text, large = true) { manager.decline() }
-                        RoundButton(if (ui.isVideo) Icons.Default.Videocam else Icons.Default.Call, stringResource(R.string.call_accept), CallPalette.Accept, CallPalette.Text, large = true) { acceptWithPermissions() }
+                        RoundButton(Icons.Rounded.CallEnd, stringResource(R.string.call_decline), CallPalette.Decline, CallPalette.Text, large = true) { manager.decline() }
+                        RoundButton(if (ui.isVideo) Icons.Rounded.Videocam else Icons.Rounded.Call, stringResource(R.string.call_accept), CallPalette.Accept, CallPalette.Text, large = true) { acceptWithPermissions() }
                     }
                     ui.isLive -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Top) {
-                            ToggleButton(if (ui.micMuted) Icons.Default.MicOff else Icons.Default.Mic, stringResource(if (ui.micMuted) R.string.call_unmute else R.string.call_mute),
+                            ToggleButton(if (ui.micMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic, stringResource(if (ui.micMuted) R.string.call_unmute else R.string.call_mute),
                                 active = ui.micMuted) { manager.toggleMute() }
                             // Speaker toggle; with a headset or Bluetooth device connected it becomes a route picker.
                             val hasHeadset = AudioRoute.WIRED_HEADSET in routes.available || AudioRoute.BLUETOOTH in routes.available
@@ -190,20 +190,20 @@ fun CallScreen(onClose: () -> Unit) {
                                         DropdownMenuItem(
                                             text = { Text(routeName(r)) },
                                             leadingIcon = { Icon(routeIcon(r), contentDescription = null) },
-                                            trailingIcon = { if (r == routes.current) Icon(Icons.Default.Check, contentDescription = stringResource(R.string.call_route_selected)) },
+                                            trailingIcon = { if (r == routes.current) Icon(Icons.Rounded.Check, contentDescription = stringResource(R.string.call_route_selected)) },
                                             onClick = { routeMenu = false; manager.selectAudioRoute(r) },
                                         )
                                     }
                                 }
                             }
                             if (ui.isVideo) {
-                                ToggleButton(if (ui.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, stringResource(if (ui.cameraOn) R.string.call_camera_off else R.string.call_camera_on),
+                                ToggleButton(if (ui.cameraOn) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, stringResource(if (ui.cameraOn) R.string.call_camera_off else R.string.call_camera_on),
                                     active = !ui.cameraOn) { manager.toggleCamera() }
-                                ToggleButton(Icons.Default.FlipCameraAndroid, stringResource(R.string.call_switch_camera), active = false) { manager.switchCamera() }
+                                ToggleButton(Icons.Rounded.FlipCameraAndroid, stringResource(R.string.call_switch_camera), active = false) { manager.switchCamera() }
                             }
                         }
                         Spacer(Modifier.height(if (compact) Spacing.lg else Spacing.xxl))
-                        RoundButton(Icons.Default.CallEnd, stringResource(R.string.call_end), CallPalette.Decline, CallPalette.Text, large = true, modifier = Modifier.testTag("call_end")) { manager.hangUp() }
+                        RoundButton(Icons.Rounded.CallEnd, stringResource(R.string.call_end), CallPalette.Decline, CallPalette.Text, large = true, modifier = Modifier.testTag("call_end")) { manager.hangUp() }
                     }
                 }
                 Spacer(Modifier.height(if (compact) Spacing.sm else Spacing.lg))
@@ -315,10 +315,10 @@ private fun routeName(route: AudioRoute): String = stringResource(when (route) {
 })
 
 private fun routeIcon(route: AudioRoute?): ImageVector = when (route) {
-    AudioRoute.SPEAKER, null -> Icons.AutoMirrored.Filled.VolumeUp
-    AudioRoute.EARPIECE -> Icons.Default.PhoneInTalk
-    AudioRoute.WIRED_HEADSET -> Icons.Default.Headset
-    AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
+    AudioRoute.SPEAKER, null -> Icons.AutoMirrored.Rounded.VolumeUp
+    AudioRoute.EARPIECE -> Icons.Rounded.PhoneInTalk
+    AudioRoute.WIRED_HEADSET -> Icons.Rounded.Headset
+    AudioRoute.BLUETOOTH -> Icons.Rounded.Bluetooth
 }
 
 /** Live call-quality numbers, shown only when "Show call details" is on (Settings › Diagnostics). */

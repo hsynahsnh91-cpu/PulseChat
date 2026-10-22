@@ -23,17 +23,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GroupAdd
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Circle
-import androidx.compose.material.icons.outlined.Call
-import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -95,7 +95,7 @@ private fun PersonRow(name: String, subtitle: String?, avatar: String?, color: S
         Box {
             UserAvatar(name, avatarUrl = avatar, size = 44.dp, colorHex = color)
             if (selected == true) Box(Modifier.size(20.dp).align(Alignment.BottomEnd).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
+                Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
             }
         }
         Spacer(Modifier.width(14.dp))
@@ -103,7 +103,7 @@ private fun PersonRow(name: String, subtitle: String?, avatar: String?, color: S
             Text(name, fontWeight = FontWeight.Medium, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline)
             if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
-        if (selected != null) Icon(if (selected) Icons.Default.CheckCircle else Icons.Outlined.Circle, contentDescription = null,
+        if (selected != null) Icon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, contentDescription = null,
             tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
         trailing()
     }
@@ -149,7 +149,7 @@ fun PeoplePickerScreen(mode: PickMode, conversationId: String?, nav: PeopleNav) 
                 FloatingActionButton(onClick = {
                     if (mode == PickMode.NEW_GROUP) detailsStep = true
                     else scope.launch { if (vm.addMembers(conversationId!!)) nav.back() }
-                }) { Icon(if (mode == PickMode.NEW_GROUP) Icons.AutoMirrored.Filled.ArrowForward else Icons.Default.Check, stringResource(R.string.action_continue)) }
+                }) { Icon(if (mode == PickMode.NEW_GROUP) Icons.AutoMirrored.Rounded.ArrowForward else Icons.Rounded.Check, stringResource(R.string.action_continue)) }
             }
         },
     ) { padding ->
@@ -157,8 +157,8 @@ fun PeoplePickerScreen(mode: PickMode, conversationId: String?, nav: PeopleNav) 
             item {
                 OutlinedTextField(
                     value = query, onValueChange = { vm.query.value = it }, singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    trailingIcon = { if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else if (query.isNotEmpty()) IconButton(onClick = { vm.query.value = "" }) { Icon(Icons.Default.Close, stringResource(R.string.action_clear)) } },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    trailingIcon = { if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else if (query.isNotEmpty()) IconButton(onClick = { vm.query.value = "" }) { Icon(Icons.Rounded.Close, stringResource(R.string.action_clear)) } },
                     placeholder = { Text(stringResource(R.string.people_search_hint)) },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -168,7 +168,7 @@ fun PeoplePickerScreen(mode: PickMode, conversationId: String?, nav: PeopleNav) 
                         items(selected, key = { it }) { id ->
                             val u = vm.selectedUser(id)
                             InputChip(selected = true, onClick = { u?.let { vm.toggle(it) } }, label = { Text(u?.displayName ?: "") },
-                                trailingIcon = { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_remove), modifier = Modifier.size(16.dp)) })
+                                trailingIcon = { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_remove), modifier = Modifier.size(16.dp)) })
                         }
                     }
                 }
@@ -187,7 +187,7 @@ fun PeoplePickerScreen(mode: PickMode, conversationId: String?, nav: PeopleNav) 
                         u.displayName, "@${u.username} · ${u.uniqueId10}", u.avatarUrl, u.avatarColorHex,
                         selected = if (multi) (u.userId in selected || already) else null, enabled = !already,
                         trailing = {
-                            if (!multi && !isContact) IconButton(onClick = { vm.saveContact(u) }) { Icon(Icons.Default.PersonAdd, stringResource(R.string.contact_save)) }
+                            if (!multi && !isContact) IconButton(onClick = { vm.saveContact(u) }) { Icon(Icons.Rounded.PersonAdd, stringResource(R.string.contact_save)) }
                             if (mode == PickMode.CALL) CallButtons { video -> startCall(u.userId, video) }
                         },
                     ) { handlePick(mode, u.userId, vm, scope, nav, multi) { vm.toggle(u) } }
@@ -195,7 +195,7 @@ fun PeoplePickerScreen(mode: PickMode, conversationId: String?, nav: PeopleNav) 
             }
             val filteredContacts = contacts.filter { it.userId !in blocked && (query.isBlank() || TextTools.matches(query, it.shownName, it.username)) }
             item { SectionHeader(stringResource(R.string.contacts_title)) }
-            if (filteredContacts.isEmpty()) item { EmptyState(Icons.Default.PersonAdd, stringResource(R.string.contacts_empty_title), stringResource(R.string.contacts_empty_body)) }
+            if (filteredContacts.isEmpty()) item { EmptyState(Icons.Rounded.PersonAdd, stringResource(R.string.contacts_empty_title), stringResource(R.string.contacts_empty_body)) }
             items(filteredContacts, key = { "c_" + it.userId }) { row ->
                 val already = row.userId in existing
                 PersonRow(
@@ -210,8 +210,8 @@ fun PeoplePickerScreen(mode: PickMode, conversationId: String?, nav: PeopleNav) 
 
 @Composable
 private fun CallButtons(onCall: (Boolean) -> Unit) {
-    IconButton(onClick = { onCall(false) }) { Icon(Icons.Outlined.Call, stringResource(R.string.action_voice_call), tint = MaterialTheme.colorScheme.primary) }
-    IconButton(onClick = { onCall(true) }) { Icon(Icons.Outlined.Videocam, stringResource(R.string.action_video_call), tint = MaterialTheme.colorScheme.primary) }
+    IconButton(onClick = { onCall(false) }) { Icon(Icons.Rounded.Call, stringResource(R.string.action_voice_call), tint = MaterialTheme.colorScheme.primary) }
+    IconButton(onClick = { onCall(true) }) { Icon(Icons.Rounded.Videocam, stringResource(R.string.action_video_call), tint = MaterialTheme.colorScheme.primary) }
 }
 
 private fun handlePick(mode: PickMode, userId: String, vm: ContactsViewModel, scope: kotlinx.coroutines.CoroutineScope, nav: PeopleNav, multi: Boolean, toggle: () -> Unit) {
@@ -239,7 +239,7 @@ private fun GroupDetailsStep(vm: ContactsViewModel, onBack: () -> Unit, onCreate
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             FloatingActionButton(onClick = { if (!busy) scope.launch { vm.createGroup(name, description, photo)?.let(onCreated) } }) {
-                if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) else Icon(Icons.Default.Check, stringResource(R.string.group_create))
+                if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) else Icon(Icons.Rounded.Check, stringResource(R.string.group_create))
             }
         },
     ) { padding ->
@@ -247,7 +247,7 @@ private fun GroupDetailsStep(vm: ContactsViewModel, onBack: () -> Unit, onCreate
             Box(Modifier.size(96.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer)
                 .clickable { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, contentAlignment = Alignment.Center) {
                 if (photo != null) AsyncImage(photo, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                else Icon(Icons.Default.CameraAlt, contentDescription = stringResource(R.string.group_change_photo), modifier = Modifier.size(36.dp))
+                else Icon(Icons.Rounded.CameraAlt, contentDescription = stringResource(R.string.group_change_photo), modifier = Modifier.size(36.dp))
             }
             Spacer(Modifier.size(16.dp))
             OutlinedTextField(value = name, onValueChange = { name = it.take(GroupPolicy.MAX_NAME) }, singleLine = true, label = { Text(stringResource(R.string.group_name)) },

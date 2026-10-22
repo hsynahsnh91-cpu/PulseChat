@@ -63,6 +63,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import com.example.ui.theme.LocalLiteMode
 import com.example.ui.theme.Motion
 import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.flow.first
@@ -144,16 +145,21 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     }
     // Short, direction-aware transitions (the default is a 700 ms cross-fade, which made every screen
     // change feel slow). Start/End follow the layout direction, so Arabic slides the other way.
+    // Android 11 and older / low-memory phones: a shorter fade only, so both screens are drawn
+    // together for less time (the slide costs a full redraw of both on every frame).
+    val lite = LocalLiteMode.current
     NavHost(
         navController = nav, startDestination = Routes.HOME,
         enterTransition = {
-            fadeIn(Motion.enter(Motion.NAVIGATION)) +
+            if (lite) fadeIn(Motion.enter(Motion.NAVIGATION_LITE))
+            else fadeIn(Motion.enter(Motion.NAVIGATION)) +
                 slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, Motion.enter(Motion.NAVIGATION)) { it / 10 }
         },
-        exitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
-        popEnterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) },
+        exitTransition = { fadeOut(Motion.exit(if (lite) Motion.NAVIGATION_LITE / 2 else Motion.QUICK)) },
+        popEnterTransition = { fadeIn(Motion.enter(if (lite) Motion.NAVIGATION_LITE else Motion.NAVIGATION)) },
         popExitTransition = {
-            fadeOut(Motion.exit(Motion.NAVIGATION)) +
+            if (lite) fadeOut(Motion.exit(Motion.NAVIGATION_LITE / 2))
+            else fadeOut(Motion.exit(Motion.NAVIGATION)) +
                 slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, Motion.exit(Motion.NAVIGATION)) { it / 10 }
         },
     ) {
@@ -189,6 +195,8 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                 openMedia = { nav.go(Routes.media(it)) },
                 openCall = { nav.go(Routes.CALL) },
                 openMediaBrowser = { nav.go("chat-media/$it") },
+                // A new entry (not single-top), so Back returns to this chat.
+                openChat = { target -> if (target != cid) nav.navigate(Routes.chat(target)) },
             ))
         }
         composable("chat-media/{cid}", arguments = listOf(navArgument("cid") { type = NavType.StringType })) { entry ->

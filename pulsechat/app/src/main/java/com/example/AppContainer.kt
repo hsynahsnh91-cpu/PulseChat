@@ -158,7 +158,9 @@ class AppContainer(val app: Application) {
     private fun installAppCheck() {
         runCatching {
             val appCheck = FirebaseAppCheck.getInstance()
-            if (BuildConfig.DEBUG) appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+            // The fast test build ("optimized": debug key, not debuggable) is installed outside Play
+            // like the debug build, so it attests the same way.
+            if (BuildConfig.DEBUG || BuildConfig.BUILD_TYPE == "optimized") appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
             else appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
         }.onFailure { Log.w(TAG, "App Check not installed: ${it.message}") }
     }

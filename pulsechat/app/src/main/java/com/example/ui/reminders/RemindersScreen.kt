@@ -17,13 +17,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AlarmOn
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.rounded.AlarmOn
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -107,14 +107,14 @@ fun RemindersScreen(onBack: () -> Unit, openMessage: (conversationId: String, me
     Scaffold(topBar = { BackTopBar(stringResource(R.string.reminders_title), onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (!exact) Banner(
-                stringResource(R.string.reminder_inexact_note), Icons.Default.AlarmOn,
+                stringResource(R.string.reminder_inexact_note), Icons.Rounded.AlarmOn,
                 MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer,
                 actionLabel = stringResource(R.string.reminder_allow_exact), onAction = { openExactAlarmSettings(context) },
             )
             val list = upcoming
             when {
                 list == null -> LoadingBox()
-                list.isEmpty() && past.isEmpty() -> EmptyState(Icons.Default.NotificationsActive, stringResource(R.string.reminders_empty_title), stringResource(R.string.reminders_empty_body))
+                list.isEmpty() && past.isEmpty() -> EmptyState(Icons.Rounded.NotificationsActive, stringResource(R.string.reminders_empty_title), stringResource(R.string.reminders_empty_body))
                 else -> LazyColumn {
                     item { SectionHeader(stringResource(R.string.reminders_upcoming)) }
                     if (list.isEmpty()) item { Text(stringResource(R.string.reminders_none_upcoming), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp)) }
@@ -138,17 +138,17 @@ private fun ReminderRow(r: Reminder, onOpen: () -> Unit, onEdit: () -> Unit, onD
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(enabled = r.conversationId != null, onClick = onOpen).padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Icon(if (r.source == ReminderSource.MESSAGE) Icons.Default.NotificationsActive else Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Icon(if (r.source == ReminderSource.MESSAGE) Icons.Rounded.NotificationsActive else Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(r.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
             Text(Formatters.dateTime(context, r.remindAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
+        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.action_more)) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text(stringResource(R.string.reminder_change_time)) }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { menu = false; onEdit() })
-            if (onDone != null) DropdownMenuItem(text = { Text(stringResource(R.string.reminder_done)) }, leadingIcon = { Icon(Icons.Default.Check, null) }, onClick = { menu = false; onDone() })
-            DropdownMenuItem(text = { Text(stringResource(R.string.action_delete)) }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { menu = false; onDelete() })
+            DropdownMenuItem(text = { Text(stringResource(R.string.reminder_change_time)) }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; onEdit() })
+            if (onDone != null) DropdownMenuItem(text = { Text(stringResource(R.string.reminder_done)) }, leadingIcon = { Icon(Icons.Rounded.Check, null) }, onClick = { menu = false; onDone() })
+            DropdownMenuItem(text = { Text(stringResource(R.string.action_delete)) }, leadingIcon = { Icon(Icons.Rounded.Delete, null) }, onClick = { menu = false; onDelete() })
         }
     }
     HorizontalDivider()

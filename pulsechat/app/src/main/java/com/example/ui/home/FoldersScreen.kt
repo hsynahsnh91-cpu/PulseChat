@@ -12,13 +12,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -115,7 +115,7 @@ fun FoldersScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = { BackTopBar(stringResource(R.string.folders_title), onBack) },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { editor = null to emptySet() }, icon = { Icon(Icons.Default.CreateNewFolder, null) },
+            ExtendedFloatingActionButton(onClick = { editor = null to emptySet() }, icon = { Icon(Icons.Rounded.CreateNewFolder, null) },
                 text = { Text(stringResource(R.string.folder_new)) })
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -123,22 +123,22 @@ fun FoldersScreen(onBack: () -> Unit) {
         val list = folders
         when {
             list == null -> LoadingBox(Modifier.padding(padding))
-            list.isEmpty() -> EmptyState(Icons.Default.Folder, stringResource(R.string.folders_empty_title), stringResource(R.string.folders_empty_body), Modifier.padding(padding))
+            list.isEmpty() -> EmptyState(Icons.Rounded.Folder, stringResource(R.string.folders_empty_title), stringResource(R.string.folders_empty_body), Modifier.padding(padding))
             else -> LazyColumn(Modifier.fillMaxSize().padding(padding)) {
                 items(list, key = { it.folderId }) { f ->
                     val index = list.indexOf(f)
                     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable { openFor = f }.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
                             Text(f.name, fontWeight = FontWeight.Medium)
                             Text(context.resources.getQuantityString(R.plurals.folder_chat_count, f.members, f.members), style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton(onClick = { vm.move(f.folderId, -1) }, enabled = index > 0) { Icon(Icons.Default.ArrowUpward, stringResource(R.string.folder_move_up)) }
-                        IconButton(onClick = { vm.move(f.folderId, 1) }, enabled = index < list.size - 1) { Icon(Icons.Default.ArrowDownward, stringResource(R.string.folder_move_down)) }
-                        IconButton(onClick = { openFor = f }) { Icon(Icons.Default.Edit, stringResource(R.string.action_edit)) }
-                        IconButton(onClick = { deleting = f }) { Icon(Icons.Default.Delete, stringResource(R.string.action_delete)) }
+                        IconButton(onClick = { vm.move(f.folderId, -1) }, enabled = index > 0) { Icon(Icons.Rounded.ArrowUpward, stringResource(R.string.folder_move_up)) }
+                        IconButton(onClick = { vm.move(f.folderId, 1) }, enabled = index < list.size - 1) { Icon(Icons.Rounded.ArrowDownward, stringResource(R.string.folder_move_down)) }
+                        IconButton(onClick = { openFor = f }) { Icon(Icons.Rounded.Edit, stringResource(R.string.action_edit)) }
+                        IconButton(onClick = { deleting = f }) { Icon(Icons.Rounded.Delete, stringResource(R.string.action_delete)) }
                     }
                     HorizontalDivider()
                 }
@@ -221,7 +221,7 @@ fun AssignFoldersDialog(folders: List<FolderWithCount>, initiallyChecked: Set<St
                     }
                 }
                 TextButton(onClick = onNewFolder) {
-                    Icon(Icons.Default.Add, contentDescription = null)
+                    Icon(Icons.Rounded.Add, contentDescription = null)
                     Spacer(Modifier.width(4.dp))
                     Text(stringResource(R.string.folder_new))
                 }

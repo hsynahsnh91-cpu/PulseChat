@@ -33,8 +33,17 @@ Every Material role is set explicitly — unset roles fall back to Material's pu
 
 - Spacing (4dp grid): `xxs 2 · xs 4 · sm 8 · md 12 · lg 16 · xl 20 · xxl 24 · xxxl 32`; screen edge 16;
   touch target 48; control height 52; content max width 560 (tablets); bubble max width 520.
-- Radii: `xs 6 · sm 10 · md 14 · lg 18 · xl 26`; bubbles 18 with a 6dp corner toward the sender.
-- Shapes: fields/menus/snackbars 8 · chips 10 · cards 14 · FAB 18 · dialogs/sheets 26.
+- Radii: `xs 8 · sm 12 · md 16 · lg 24 · xl 28`; bubbles 20 with an 8dp corner toward the sender.
+  Content inside a rounded container uses the container radius minus the padding (media, documents
+  and locations inside a bubble: 12), so corners stay concentric. Thin bars (progress, waveforms,
+  recording levels) and small chips are fully rounded.
+- Shapes: fields/menus/snackbars 12 · chips fully rounded · cards 18 · FAB 20 · dialogs/sheets 28;
+  buttons keep Material's fully rounded shape.
+- Grouped lists (Settings, chat/group info): rows sit in rounded cards (`SettingsGroup`, radius 24,
+  `surfaceContainerLow` on the `background` colour) with the section title above and notes below
+  (`SettingsNote`); no dividers inside a card.
+- Icons: Material "Rounded" everywhere. The bottom bar uses Material Symbols Rounded drawables
+  (`res/drawable/ic_nav_*`, Apache 2.0): outlined when not selected, filled when selected.
 - Type: system fonts (Roboto / platform Arabic). Headline 22–30 SemiBold, title 14–20 SemiBold/Medium,
   body 12–16, label 11–14 Medium. Letter spacing ≤ 0.2sp (wide tracking breaks up Arabic).
   Messages use `MessageTextStyle` (15.5/21).
@@ -52,6 +61,9 @@ Rules: motion confirms an action and never delays it; nothing loops unless it re
 (ringing call, active recording) and only while that screen is visible; list items fade in once and
 never slide; Compose scales every duration with the system animator scale, and decorative loops
 check `rememberReducedMotion()` so "Remove animations" turns them off.
+
+Lighter phones (`LocalLiteMode`: Android 11 or older, or a low-memory device): screen changes are a
+150 ms fade without the slide, and light-theme bubbles have no shadow. Nothing else changes.
 
 ## Insets
 

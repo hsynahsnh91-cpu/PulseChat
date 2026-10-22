@@ -20,21 +20,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,7 +80,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.widthIn
 import com.example.ui.theme.Spacing
-import androidx.compose.material.icons.automirrored.filled.Shortcut
+import androidx.compose.material.icons.automirrored.rounded.Shortcut
 
 val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
@@ -116,24 +116,24 @@ fun MessageActionsSheet(message: Message, facts: MessagePolicy.Facts, now: Long,
                         ReactionCell(selected = mine == emoji, onClick = { actions.onReact(emoji) }) { Text(emoji, fontSize = 22.sp) }
                     }
                     ReactionCell(selected = false, onClick = actions.onMoreReactions) {
-                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_more_reactions))
+                        Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.action_more_reactions))
                     }
                 }
                 HorizontalDivider(Modifier.padding(vertical = Spacing.sm), color = MaterialTheme.colorScheme.outlineVariant)
             }
-            if (MessagePolicy.canRetry(facts)) ActionRow(Icons.Default.Refresh, stringResource(R.string.action_retry), actions.onRetry)
-            if (MessagePolicy.canReply(facts)) ActionRow(Icons.AutoMirrored.Filled.Reply, stringResource(R.string.action_reply), actions.onReply)
-            if (MessagePolicy.canCopy(facts)) ActionRow(Icons.Default.ContentCopy, stringResource(R.string.action_copy), actions.onCopy)
-            if (MessagePolicy.canForward(facts)) ActionRow(Icons.AutoMirrored.Filled.Shortcut, stringResource(R.string.action_forward), actions.onForward)
-            if (MessagePolicy.canStar(facts)) ActionRow(if (message.isStarred) Icons.Default.StarBorder else Icons.Default.Star,
+            if (MessagePolicy.canRetry(facts)) ActionRow(Icons.Rounded.Refresh, stringResource(R.string.action_retry), actions.onRetry)
+            if (MessagePolicy.canReply(facts)) ActionRow(Icons.AutoMirrored.Rounded.Reply, stringResource(R.string.action_reply), actions.onReply)
+            if (MessagePolicy.canCopy(facts)) ActionRow(Icons.Rounded.ContentCopy, stringResource(R.string.action_copy), actions.onCopy)
+            if (MessagePolicy.canForward(facts)) ActionRow(Icons.AutoMirrored.Rounded.Shortcut, stringResource(R.string.action_forward), actions.onForward)
+            if (MessagePolicy.canStar(facts)) ActionRow(if (message.isStarred) Icons.Rounded.StarBorder else Icons.Rounded.Star,
                 stringResource(if (message.isStarred) R.string.action_unstar else R.string.action_star), actions.onStar)
-            if (MessagePolicy.canEdit(facts, now)) ActionRow(Icons.Default.Edit, stringResource(R.string.action_edit), actions.onEdit)
-            actions.onTranslate?.let { ActionRow(Icons.Default.Translate, stringResource(R.string.action_translate), it) }
-            actions.onTranscribe?.let { ActionRow(Icons.Default.GraphicEq, stringResource(R.string.action_transcribe), it) }
-            actions.onRemind?.let { ActionRow(Icons.Default.NotificationsActive, stringResource(R.string.action_remind_me), it) }
-            ActionRow(Icons.Default.CheckCircle, stringResource(R.string.action_select), actions.onSelect)
-            if (MessagePolicy.canShowInfo(facts)) ActionRow(Icons.Default.Info, stringResource(R.string.action_info), actions.onInfo)
-            ActionRow(Icons.Default.Delete, stringResource(R.string.action_delete), actions.onDelete, destructive = true)
+            if (MessagePolicy.canEdit(facts, now)) ActionRow(Icons.Rounded.Edit, stringResource(R.string.action_edit), actions.onEdit)
+            actions.onTranslate?.let { ActionRow(Icons.Rounded.Translate, stringResource(R.string.action_translate), it) }
+            actions.onTranscribe?.let { ActionRow(Icons.Rounded.GraphicEq, stringResource(R.string.action_transcribe), it) }
+            actions.onRemind?.let { ActionRow(Icons.Rounded.NotificationsActive, stringResource(R.string.action_remind_me), it) }
+            ActionRow(Icons.Rounded.CheckCircle, stringResource(R.string.action_select), actions.onSelect)
+            if (MessagePolicy.canShowInfo(facts)) ActionRow(Icons.Rounded.Info, stringResource(R.string.action_info), actions.onInfo)
+            ActionRow(Icons.Rounded.Delete, stringResource(R.string.action_delete), actions.onDelete, destructive = true)
         }
     }
 }
@@ -215,12 +215,12 @@ fun ForwardSheet(targets: List<Pair<Conversation, String>>, onSend: (List<String
                     ) {
                         if (conv.isGroup && conv.avatarUrl == null) {
                             Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Groups, contentDescription = null)
+                                Icon(Icons.Rounded.Groups, contentDescription = null)
                             }
                         } else UserAvatar(title, avatarUrl = conv.avatarUrl, size = 40.dp)
                         Spacer(Modifier.width(12.dp))
                         Text(title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Icon(if (selected) Icons.Default.CheckCircle else Icons.Outlined.Circle, contentDescription = null,
+                        Icon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, contentDescription = null,
                             tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
                     }
                 }
@@ -309,7 +309,7 @@ fun PollDialog(onCreate: (String, List<String>) -> Unit, onDismiss: () -> Unit) 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(value = opt, onValueChange = { options[i] = it.take(100) }, singleLine = true,
                             label = { Text(stringResource(R.string.poll_option, i + 1)) }, modifier = Modifier.weight(1f).padding(top = 6.dp))
-                        if (options.size > 2) IconButton(onClick = { options.removeAt(i) }) { Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete)) }
+                        if (options.size > 2) IconButton(onClick = { options.removeAt(i) }) { Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.action_delete)) }
                     }
                 }
                 if (options.size < 12) TextButton(onClick = { options.add("") }) { Text(stringResource(R.string.poll_add_option)) }

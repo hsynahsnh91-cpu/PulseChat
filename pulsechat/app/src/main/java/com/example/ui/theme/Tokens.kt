@@ -37,24 +37,28 @@ object Spacing {
     val bubbleMaxWidth: Dp = 520.dp
 }
 
-/** Corner radii. Material components read [PulseShapes]; custom surfaces use [Radii]. */
+/**
+ * Corner radii: soft, generous corners throughout. Material components read [PulseShapes]; custom
+ * surfaces use [Radii]. Content inside a rounded container uses a radius smaller by the padding
+ * between them, so the corners stay concentric (for example media inside a bubble).
+ */
 object Radii {
-    val xs: Dp = 6.dp
-    val sm: Dp = 10.dp
-    val md: Dp = 14.dp
-    val lg: Dp = 18.dp
-    val xl: Dp = 26.dp
+    val xs: Dp = 8.dp
+    val sm: Dp = 12.dp
+    val md: Dp = 16.dp
+    val lg: Dp = 24.dp
+    val xl: Dp = 28.dp
 
     /** Bubble corners: a large radius with a smaller corner pointing at the sender's side. */
-    val bubble: Dp = 18.dp
-    val bubbleTail: Dp = 6.dp
+    val bubble: Dp = 20.dp
+    val bubbleTail: Dp = 8.dp
 }
 
 val PulseShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),   // text fields, menus, snackbars, tooltips
-    small = RoundedCornerShape(Radii.sm),    // chips, small cards
-    medium = RoundedCornerShape(Radii.md),   // cards
-    large = RoundedCornerShape(Radii.lg),    // FABs, navigation drawer
+    extraSmall = RoundedCornerShape(Radii.sm), // text fields, menus, snackbars, tooltips
+    small = RoundedCornerShape(50),            // chips: fully rounded
+    medium = RoundedCornerShape(18.dp),        // cards, small FABs
+    large = RoundedCornerShape(20.dp),         // FABs, navigation drawer
     extraLarge = RoundedCornerShape(Radii.xl), // dialogs, bottom sheets
 )
 
@@ -70,6 +74,8 @@ object Motion {
     const val STANDARD = 180
     /** Screen-to-screen navigation. */
     const val NAVIGATION = 220
+    /** Screen-to-screen navigation on older or low-memory phones (fade only). */
+    const val NAVIGATION_LITE = 150
 
     /** Material "emphasized decelerate": elements entering the screen. */
     val EnterEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)

@@ -20,10 +20,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Backspace
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.automirrored.rounded.Backspace
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
@@ -129,7 +129,7 @@ fun LockScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
+            Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
             Spacer(Modifier.height(12.dp))
             Text(stringResource(R.string.app_lock_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
@@ -154,7 +154,7 @@ fun LockScreen(
                 if (biometric) {
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = onBiometric) {
-                        Icon(Icons.Default.Fingerprint, contentDescription = null)
+                        Icon(Icons.Rounded.Fingerprint, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.app_lock_use_biometric))
                     }
@@ -197,13 +197,13 @@ private fun NumberPad(enabled: Boolean, onDigit: (Char) -> Unit, onBackspace: ()
         Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(68.dp), contentAlignment = Alignment.Center) {
                 IconButton(onClick = onBackspace, enabled = enabled) {
-                    Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = stringResource(R.string.action_delete))
+                    Icon(Icons.AutoMirrored.Rounded.Backspace, contentDescription = stringResource(R.string.action_delete))
                 }
             }
             DigitKey('0', enabled, onDigit)
             Box(Modifier.size(68.dp), contentAlignment = Alignment.Center) {
                 FilledTonalIconButton(onClick = onSubmit, enabled = enabled && submitEnabled, modifier = Modifier.size(56.dp).testTag("app_lock_submit")) {
-                    Icon(Icons.Default.Check, contentDescription = stringResource(R.string.app_lock_unlock))
+                    Icon(Icons.Rounded.Check, contentDescription = stringResource(R.string.app_lock_unlock))
                 }
             }
         }

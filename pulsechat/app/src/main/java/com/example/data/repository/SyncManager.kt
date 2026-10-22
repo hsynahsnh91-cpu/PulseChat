@@ -13,7 +13,6 @@ import com.example.data.remote.Fs
 import com.example.data.remote.RemoteMappers
 import com.example.data.remote.millis
 import com.example.data.remote.toTimestamp
-import com.example.domain.DeliveryPolicy
 import com.example.domain.DisappearingPolicy
 import com.example.domain.Ids
 import com.example.domain.PresencePolicy
@@ -27,6 +26,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CoroutineScope
@@ -108,8 +108,11 @@ class SyncManager(
         _status.value = SyncStatus(SyncState.CONNECTING)
         val userDoc = firestore.collection(Fs.USERS).document(me)
 
+        // Metadata changes are included so the switch from cached data to the server's answer arrives
+        // even when no conversation changed in the meantime. Without them the first server sync is
+        // never reported and the sync state stays "connecting" until some conversation changes.
         globalRegs += firestore.collection(Fs.CONVERSATIONS).whereArrayContains("participants", me)
-            .addSnapshotListener(executor) { snap, err ->
+            .addSnapshotListener(executor, MetadataChanges.INCLUDE) { snap, err ->
                 if (err != null) { onListenerError("conversations", err); return@addSnapshotListener }
                 if (snap != null) enqueue { applyConversations(me, snap.documentChanges, snap.metadata.isFromCache) }
             }
@@ -245,9 +248,6 @@ class SyncManager(
                 if (existing == null && conv.clearedAt > 0 && m.createdAt <= conv.clearedAt) continue
                 db.messageDao().upsert(m)
                 if (!pending) maxCursor = maxOf(maxCursor, remoteUpdated)
-                if (m.senderId == me && existing != null && !pending && DeliveryPolicy.isAwaitingServer(existing.status)) {
-                    serverClock.observe(m.createdAt, existing.createdAt)
-                }
                 if (m.senderId != me && !pending) {
                     maxIncoming = maxOf(maxIncoming, m.createdAt)
                     if (notify && !fromCache && existing == null && m.createdAt > conv.lastReadAt && now - m.createdAt < NOTIFY_WINDOW_MS &&

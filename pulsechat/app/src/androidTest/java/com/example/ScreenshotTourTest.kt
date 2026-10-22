@@ -17,6 +17,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.core.content.FileProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -164,13 +166,19 @@ class ScreenshotTourTest : EmulatorE2ETest() {
         val alice = awaitSignedIn()
         switchDevice()
         c.authRepository.register("Bob Carter", "tour_b$suffix", pw, pw)
-        awaitSignedIn()
+        val bob = awaitSignedIn()
         val cid = c.chatRepository.openDirectChat(alice)
         val first = c.chatRepository.sendText(cid, "Hey Alice! Are we still on for the design review tomorrow?", null, emptyList())
         c.chatRepository.sendText(cid, "Here is the updated spec: https://example.com/specs/pulsechat-redesign-v2 – the spacing scale, motion guidelines and the new palette are in section 3.", null, emptyList())
         c.chatRepository.sendText(cid, "Ref: PULSECHAT-REDESIGN-2026-10-21-0001-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", null, emptyList())
         c.chatRepository.sendMediaUri(cid, photo(), MessageType.IMAGE, "Moodboard", null)
         await("Bob's messages sent", 90_000) { c.db.messageDao().observeRecent(cid, 0L, 20).first().count { it.isOnServer() } >= 4 }
+        // A status update for Alice to view (its viewers list is shown later). Long enough text to stay
+        // on screen while the tour opens the viewers list.
+        val statusOk = runCatching {
+            c.userRepository.saveContact(alice, null)
+            c.statusRepository.postText("Design review tomorrow at 10:00 in the studio. Bring your notes on spacing, motion and the new palette, see you there!", "#264660", "DEFAULT")
+        }.onFailure { Log.e("PulseTour", "status setup failed", it) }.isSuccess
         switchDevice()
         c.authRepository.signInWithPassword("tour_a$suffix", pw)
         awaitSignedIn()
@@ -179,10 +187,23 @@ class ScreenshotTourTest : EmulatorE2ETest() {
         c.chatRepository.react(first.messageId, "👍")
         c.chatRepository.sendText(cid, "مرحبا بوب! سأرسل الملاحظات قبل الاجتماع.", null, emptyList())
         await("Alice's replies sent") { c.db.messageDao().observeRecent(cid, 0L, 20).first().count { it.senderId == alice && it.isOnServer() } >= 2 }
+        if (statusOk) runCatching {
+            // Alice views Bob's update and posts her own, so Bob sees a viewer and a recent update.
+            await("Bob's status reached Alice") { c.db.statusDao().observeActive(System.currentTimeMillis()).first().any { it.userId == bob } }
+            c.statusRepository.markViewed(c.db.statusDao().observeActive(System.currentTimeMillis()).first().first { it.userId == bob })
+            c.userRepository.saveContact(bob, null)
+            c.statusRepository.postText("Moodboard is ready ✨", "#137E73", "SERIF")
+        }.onFailure { Log.e("PulseTour", "status view failed", it) }
         switchDevice()
         c.authRepository.signInWithPassword("tour_b$suffix", pw)
         awaitSignedIn()
         await("history synced to Bob") { c.db.messageDao().observeRecent(cid, 0L, 20).first().size >= 6 }
+        if (statusOk) runCatching {
+            await("Alice's view reached Bob") {
+                val mine = c.db.statusDao().observeActive(System.currentTimeMillis()).first().firstOrNull { it.userId == bob }
+                mine != null && c.db.statusDao().observeViews(mine.statusId).first().isNotEmpty()
+            }
+        }.onFailure { Log.e("PulseTour", "status view did not arrive", it) }
         c.chatRepository.ensureAiConversation(str(R.string.ai_assistant_name))
         c.folders.create("Work", setOf(cid))
         compose.waitUntil(30_000) { compose.onAllNodesWithText("Alice Johnson").fetchSemanticsNodes().isNotEmpty() }
@@ -194,6 +215,27 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             tap("tab_updates")
             settle()
             shot("${v.id}-1b-updates")
+            if (statusOk && (v.id.startsWith("a-") || v.id.startsWith("c-"))) {
+                runCatching {
+                    // My status: views chip, then the list of viewers with the time of viewing.
+                    compose.onNodeWithText(str(R.string.updates_my_status)).performClick()
+                    compose.waitUntil(10_000) { exists("status_viewer") }
+                    settle(600)
+                    shot("${v.id}-1c-my-status")
+                    tap("status_views")
+                    settle()
+                    shot("${v.id}-1d-viewers")
+                }.onFailure { Log.e("PulseTour", "my status shots failed", it) }
+                runCatching { goHome(); tap("tab_updates"); settle() }
+                runCatching {
+                    // Someone else's status: reply field.
+                    compose.onNodeWithText("Alice Johnson").performClick()
+                    compose.waitUntil(10_000) { exists("status_viewer") }
+                    settle(600)
+                    shot("${v.id}-1e-status-other")
+                }.onFailure { Log.e("PulseTour", "status shot failed", it) }
+                runCatching { goHome() }
+            }
             tap("tab_chats")
             settle()
             compose.onNodeWithText("Alice Johnson").performClick()
@@ -207,6 +249,13 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             tap("composer_attach")
             settle()
             shot("${v.id}-4-attach-sheet")
+            runCatching {
+                // Contact: in-app contacts, not the phone's address book.
+                compose.onNodeWithText(str(R.string.attach_contact)).performClick()
+                compose.waitUntil(10_000) { exists("share_contact_sheet") }
+                settle()
+                shot("${v.id}-4b-share-contact")
+            }.onFailure { Log.e("PulseTour", "contact sheet shot failed", it) }
             Espresso.pressBack()
             settle()
             goHome()
@@ -216,10 +265,14 @@ class ScreenshotTourTest : EmulatorE2ETest() {
             shot("${v.id}-6-settings")
             if (v.id.startsWith("c-") || v.id.startsWith("b-")) {
                 runCatching {
-                    compose.onNodeWithText(str(R.string.diag_title)).performScrollTo().performClick()
+                    // Diagnostics are reached from About (long press on the version).
+                    compose.onNodeWithTag("settings_about").performScrollTo().performClick()
                     settle()
-                    shot("${v.id}-7-diagnostics")
-                }
+                    shot("${v.id}-7-about")
+                    compose.onNodeWithTag("about_version").performScrollTo().performTouchInput { longClick() }
+                    settle()
+                    shot("${v.id}-7b-diagnostics")
+                }.onFailure { Log.e("PulseTour", "about/diagnostics shots failed", it) }
             }
             goHome()
         }

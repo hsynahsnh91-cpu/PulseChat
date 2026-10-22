@@ -54,6 +54,16 @@ android {
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
     }
+    // Fast build for trying the app on a phone: the same app as the debug build (same package, data
+    // and debug signing key, so it installs over it) but not debuggable, which makes scrolling and
+    // animations much smoother. Not for publishing; the release build above is unchanged.
+    create("optimized") {
+      initWith(getByName("debug"))
+      isDebuggable = false
+      isJniDebuggable = false
+      matchingFallbacks += listOf("debug")
+      signingConfig = signingConfigs.getByName("debugConfig")
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -105,7 +115,7 @@ val createDebugKeystore = tasks.register<Exec>("createDebugKeystore") {
     "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US",
   )
 }
-tasks.named { it.startsWith("validateSigningDebug") }.configureEach { dependsOn(createDebugKeystore) }
+tasks.named { it.startsWith("validateSigningDebug") || it.startsWith("validateSigningOptimized") }.configureEach { dependsOn(createDebugKeystore) }
 
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.

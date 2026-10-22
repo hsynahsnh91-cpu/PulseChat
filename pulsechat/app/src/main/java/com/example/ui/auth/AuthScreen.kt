@@ -26,13 +26,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -144,7 +144,7 @@ private fun ErrorCard(error: String?, onDismiss: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
         Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(error, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.weight(1f).padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium)
-            IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close), tint = MaterialTheme.colorScheme.onErrorContainer) }
+            IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_close), tint = MaterialTheme.colorScheme.onErrorContainer) }
         }
     }
 }
@@ -154,10 +154,10 @@ private fun PasswordField(value: String, onChange: (String) -> Unit, label: Stri
     var visible by rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
         value = value, onValueChange = onChange, label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }, singleLine = true,
-        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+        leadingIcon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
-                Icon(if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
                     contentDescription = stringResource(if (visible) R.string.auth_hide_password else R.string.auth_show_password))
             }
         },
@@ -170,7 +170,7 @@ private fun PasswordField(value: String, onChange: (String) -> Unit, label: Stri
 
 @Composable
 private fun PrimaryButton(text: String, loading: Boolean, enabled: Boolean, tag: String, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled && !loading, modifier = Modifier.fillMaxWidth().heightIn(min = Spacing.controlHeight).testTag(tag), shape = RoundedCornerShape(Radii.md)) {
+    Button(onClick = onClick, enabled = enabled && !loading, modifier = Modifier.fillMaxWidth().heightIn(min = Spacing.controlHeight).testTag(tag)) {
         if (loading) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp) else Text(text, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -208,7 +208,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
                             selected = identifier == account, onClick = { identifier = account },
                             label = { Text("@$account", maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp)) },
                             trailingIcon = {
-                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.auth_forget_account),
+                                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.auth_forget_account),
                                     modifier = Modifier.size(18.dp).clip(CircleShape).clickable { vm.forgetRecent(account) })
                             },
                         )
@@ -219,7 +219,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
                 value = identifier, onValueChange = { identifier = it }, singleLine = true,
                 label = { Text(stringResource(R.string.auth_identifier), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingText = { Text(stringResource(R.string.auth_identifier_hint)) },
-                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth().testTag("login_identifier"),
             )
@@ -231,7 +231,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
                 Spacer(Modifier.height(12.dp))
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                     Row(Modifier.padding(12.dp)) {
-                        Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                        Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                         Spacer(Modifier.size(8.dp))
                         Text(stringResource(R.string.auth_legacy_hint, ui.legacyAccounts.joinToString { "@$it" }), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer)
@@ -241,7 +241,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
         } else {
             OutlinedTextField(
                 value = name, onValueChange = { name = it.take(50) }, singleLine = true, label = { Text(stringResource(R.string.auth_display_name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Rounded.Badge, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), modifier = Modifier.fillMaxWidth().testTag("register_name"),
             )
             Spacer(Modifier.height(8.dp))
@@ -272,7 +272,7 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
         Spacer(Modifier.height(16.dp))
         OutlinedButton(
             onClick = { context.findActivity()?.let { vm.google(it) } }, enabled = !ui.loading,
-            modifier = Modifier.fillMaxWidth().heightIn(min = Spacing.controlHeight).testTag("google_signin_button"), shape = RoundedCornerShape(Radii.md),
+            modifier = Modifier.fillMaxWidth().heightIn(min = Spacing.controlHeight).testTag("google_signin_button"),
         ) { Text(stringResource(R.string.sign_in_google), fontWeight = FontWeight.SemiBold) }
         Spacer(Modifier.height(24.dp))
         Text(stringResource(R.string.auth_security_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)

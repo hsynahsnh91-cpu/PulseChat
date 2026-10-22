@@ -56,6 +56,8 @@ class StatusRepository(
 
     fun observeViewers(statusId: String): Flow<List<StatusViewRow>> = db.statusDao().observeViews(statusId)
 
+    fun observeViewerCount(statusIds: List<String>): Flow<Int> = db.statusDao().observeViewerCount(statusIds)
+
     @Synchronized
     fun start(me: String) {
         stop()

@@ -47,15 +47,25 @@ class ConnectivityMonitor(context: Context) {
 }
 
 /** Estimated offset between the device clock and Firestore server time. */
-class ServerClock {
+class ServerClock(private val deviceClock: () -> Long = System::currentTimeMillis) {
     @Volatile private var offsetMs: Long = 0L
+    private var samples = 0
 
-    fun now(): Long = System.currentTimeMillis() + offsetMs
+    fun now(): Long = deviceClock() + offsetMs
 
-    /** Called with a server timestamp for a write issued at [localSentAt]. */
+    /** Called with a server timestamp for a write the server received at device time [localSentAt]. */
+    @Synchronized
     fun observe(serverMillis: Long, localSentAt: Long) {
         if (serverMillis <= 0 || localSentAt <= 0) return
         val sample = serverMillis - localSentAt
-        if (kotlin.math.abs(sample) < 7 * 24 * 3600_000L) offsetMs = (offsetMs * 3 + sample) / 4
+        if (kotlin.math.abs(sample) >= MAX_OFFSET_MS) return
+        // The first measurement is used as is: averaging from 0 would need many samples to catch up
+        // with a phone whose clock is minutes off. Later ones are averaged to absorb network jitter.
+        offsetMs = if (samples == 0) sample else (offsetMs * 3 + sample) / 4
+        samples++
+    }
+
+    private companion object {
+        const val MAX_OFFSET_MS = 7 * 24 * 3600_000L
     }
 }

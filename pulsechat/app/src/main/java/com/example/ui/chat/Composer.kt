@@ -20,24 +20,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.EmojiEmotions
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Poll
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.EmojiEmotions
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Poll
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -180,10 +180,10 @@ private fun InputRow(
     val textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
     val inputStyle = textStyle.copy(textDirection = TextDirection.Content)
     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.weight(1f)) {
+        Surface(shape = RoundedCornerShape(Radii.lg), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.Bottom) {
                 IconButton(onClick = onEmojiToggle) {
-                    Icon(if (emojiOpen) Icons.Default.Keyboard else Icons.Default.EmojiEmotions,
+                    Icon(if (emojiOpen) Icons.Rounded.Keyboard else Icons.Rounded.EmojiEmotions,
                         contentDescription = stringResource(if (emojiOpen) R.string.action_keyboard else R.string.action_emoji),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -207,14 +207,14 @@ private fun InputRow(
                 )
                 if (!isAiChat && !editing) {
                     IconButton(onClick = onAttach, modifier = Modifier.testTag("composer_attach")) {
-                        Icon(Icons.Default.AttachFile, contentDescription = stringResource(R.string.action_attach), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.AttachFile, contentDescription = stringResource(R.string.action_attach), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (v.text.isEmpty()) IconButton(onClick = onCamera) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = stringResource(R.string.attach_camera), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.CameraAlt, contentDescription = stringResource(R.string.attach_camera), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     else if (onSchedule != null && v.text.isNotBlank()) {
                         IconButton(onClick = onSchedule, modifier = Modifier.testTag("composer_schedule")) {
-                            Icon(Icons.Default.Schedule, contentDescription = stringResource(R.string.schedule_title), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.Schedule, contentDescription = stringResource(R.string.schedule_title), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } else Spacer(Modifier.width(Spacing.xs))
                 } else Spacer(Modifier.width(Spacing.md))
@@ -245,7 +245,7 @@ private fun InputRow(
                 label = "send-mic",
             ) { send ->
                 Icon(
-                    if (send) Icons.AutoMirrored.Filled.Send else Icons.Default.Mic,
+                    if (send) Icons.AutoMirrored.Rounded.Send else Icons.Rounded.Mic,
                     contentDescription = stringResource(if (send) (if (editing) R.string.action_save else R.string.action_send) else R.string.action_record_voice),
                 )
             }
@@ -257,7 +257,7 @@ private fun InputRow(
 private fun RecordingBar(recording: State<VoiceRecorder.State>, onFinish: (Boolean) -> Unit) {
     val state = recording.value
     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = 6.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { onFinish(false) }) { Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.voice_discard), tint = MaterialTheme.colorScheme.error) }
+        IconButton(onClick = { onFinish(false) }) { Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.voice_discard), tint = MaterialTheme.colorScheme.error) }
         RecordingDot()
         Spacer(Modifier.width(Spacing.sm))
         Text(DurationFormat.clock(state.elapsedMs), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
@@ -265,13 +265,13 @@ private fun RecordingBar(recording: State<VoiceRecorder.State>, onFinish: (Boole
         Row(Modifier.weight(1f).height(36.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             val levels = state.levels.takeLast(40)
             levels.forEach { level ->
-                Box(Modifier.weight(1f).height((4 + level * 0.3f).dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
+                Box(Modifier.weight(1f).height((4 + level * 0.3f).dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
             }
-            repeat((40 - levels.size).coerceAtLeast(0)) { Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.outlineVariant)) }
+            repeat((40 - levels.size).coerceAtLeast(0)) { Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant)) }
         }
         Spacer(Modifier.width(Spacing.sm))
         FilledIconButton(onClick = { onFinish(true) }, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.voice_send))
+            Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.voice_send))
         }
     }
 }
@@ -296,7 +296,7 @@ fun ReplyOrEditBar(title: String, preview: String, editing: Boolean, onCancel: (
         modifier = Modifier.fillMaxWidth().padding(start = Spacing.sm, end = Spacing.sm, top = Spacing.xs),
     ) {
         Row(Modifier.padding(start = Spacing.md, top = Spacing.xs, bottom = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (editing) Icons.Default.Edit else Icons.AutoMirrored.Filled.Reply, contentDescription = null,
+            Icon(if (editing) Icons.Rounded.Edit else Icons.AutoMirrored.Rounded.Reply, contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(Spacing.sm))
             Row(Modifier.weight(1f).clip(RoundedCornerShape(Radii.sm)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)).height(IntrinsicSize.Min)) {
@@ -308,7 +308,7 @@ fun ReplyOrEditBar(title: String, preview: String, editing: Boolean, onCancel: (
                         style = MaterialTheme.typography.bodySmall)
                 }
             }
-            IconButton(onClick = onCancel) { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_cancel)) }
+            IconButton(onClick = onCancel) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.action_cancel)) }
         }
     }
 }
@@ -341,14 +341,14 @@ enum class AttachOption { GALLERY, CAMERA_PHOTO, CAMERA_VIDEO, DOCUMENT, CONTACT
 fun AttachmentSheet(showPoll: Boolean, showAi: Boolean, onDismiss: () -> Unit, onPick: (AttachOption) -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         val options = buildList {
-            add(Triple(AttachOption.GALLERY, Icons.Default.Image, R.string.attach_gallery))
-            add(Triple(AttachOption.CAMERA_PHOTO, Icons.Default.CameraAlt, R.string.attach_camera))
-            add(Triple(AttachOption.CAMERA_VIDEO, Icons.Default.Videocam, R.string.attach_video))
-            add(Triple(AttachOption.DOCUMENT, Icons.Default.Description, R.string.attach_document))
-            add(Triple(AttachOption.CONTACT, Icons.Default.Person, R.string.attach_contact))
-            add(Triple(AttachOption.LOCATION, Icons.Default.LocationOn, R.string.attach_location))
-            if (showPoll) add(Triple(AttachOption.POLL, Icons.Default.Poll, R.string.attach_poll))
-            if (showAi) add(Triple(AttachOption.AI_TOOLS, Icons.Default.AutoAwesome, R.string.ai_tools))
+            add(Triple(AttachOption.GALLERY, Icons.Rounded.Image, R.string.attach_gallery))
+            add(Triple(AttachOption.CAMERA_PHOTO, Icons.Rounded.CameraAlt, R.string.attach_camera))
+            add(Triple(AttachOption.CAMERA_VIDEO, Icons.Rounded.Videocam, R.string.attach_video))
+            add(Triple(AttachOption.DOCUMENT, Icons.Rounded.Description, R.string.attach_document))
+            add(Triple(AttachOption.CONTACT, Icons.Rounded.Person, R.string.attach_contact))
+            add(Triple(AttachOption.LOCATION, Icons.Rounded.LocationOn, R.string.attach_location))
+            if (showPoll) add(Triple(AttachOption.POLL, Icons.Rounded.Poll, R.string.attach_poll))
+            if (showAi) add(Triple(AttachOption.AI_TOOLS, Icons.Rounded.AutoAwesome, R.string.ai_tools))
         }
         // Three columns on narrow screens or with large text, so labels such as "Document" are not split.
         BoxWithConstraints(Modifier.padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.xxl)) {

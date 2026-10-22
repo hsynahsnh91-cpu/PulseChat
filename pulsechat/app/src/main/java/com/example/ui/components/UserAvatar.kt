@@ -6,8 +6,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -59,7 +59,7 @@ fun UserAvatar(
                 Modifier.size(size).clip(CircleShape).background(AvatarPalette.Assistant),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AvatarPalette.OnAvatar, modifier = Modifier.size(size * 0.5f))
+                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = AvatarPalette.OnAvatar, modifier = Modifier.size(size * 0.5f))
             }
             initial.isNotEmpty() -> Box(
                 Modifier.size(size).clip(CircleShape).background(avatarColor),
@@ -71,7 +71,7 @@ fun UserAvatar(
                 Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Person, contentDescription = displayName, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(size * 0.6f))
+                Icon(Icons.Rounded.Person, contentDescription = displayName, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(size * 0.6f))
             }
         }
 

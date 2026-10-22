@@ -42,6 +42,21 @@ object StatusPolicy {
 
     /** Index of the first unviewed item so the viewer resumes where the user left off. */
     fun startIndex(group: OwnerGroup): Int = group.items.indexOfFirst { !it.viewed }.let { if (it < 0) 0 else it }
+
+    /**
+     * Authors played one after another when [start]'s updates are opened: [start], then the authors
+     * listed after it in the same section of the Updates list (recent or viewed). My own updates
+     * (or an author not in [groups]) play alone.
+     */
+    fun playOrder(groups: List<OwnerGroup>, start: String): List<String> {
+        val section = groups.firstOrNull { it.ownerId == start }?.hasUnviewed ?: return listOf(start)
+        val owners = groups.filter { it.hasUnviewed == section }.map { it.ownerId }
+        return owners.drop(owners.indexOf(start))
+    }
+
+    /** How long a photo or text update stays on screen; longer texts get a little more time to read. */
+    fun displayMillis(isText: Boolean, textLength: Int): Long =
+        if (!isText) 5_000L else (4_000L + 45L * textLength).coerceIn(5_000L, 10_000L)
 }
 
 enum class NetworkKind { NONE, WIFI, CELLULAR, ROAMING }

@@ -25,6 +25,7 @@ import com.example.data.model.ReminderSource
 import com.example.data.model.ScheduledMessage
 import com.example.domain.AiParsing
 import com.example.domain.TextTools
+import com.example.data.model.ContactRow
 import com.example.data.repository.ChatException
 import com.example.data.repository.GroupValidationException
 import com.example.domain.Ids
@@ -82,6 +83,8 @@ sealed interface ChatEvent {
     data class NeedAiConsent(val action: () -> Unit) : ChatEvent
     /** On-device translation needs language packs; the user confirms the download. */
     data class NeedLanguageDownload(val messageId: String, val languages: List<String>) : ChatEvent
+    /** Open another chat (the person of a shared contact card). */
+    data class OpenChat(val conversationId: String) : ChatEvent
 }
 
 data class AiPanel(val busy: Boolean = false, val title: Int = 0, val suggestions: List<String> = emptyList(), val text: String? = null, val replaceDraft: Boolean = false)
@@ -308,6 +311,31 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
     }
 
     fun sendContact(name: String, phone: String) = launchSafely { repo.sendContact(conversationId, name, phone) }
+
+    /** People I can share as a contact card; null while loading. */
+    val shareableContacts: StateFlow<List<ContactRow>?> = c.userRepository.observeShareableContacts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Opens a chat with the PulseChat user of a shared contact card ("@username"). */
+    fun messageContact(m: Message) {
+        val handle = m.contactPhone.orEmpty()
+        viewModelScope.launch {
+            val user = try { c.userRepository.findByHandle(handle) } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                _events.tryEmit(ChatEvent.Toast(c.app.getString(if (c.connectivity.isOnline) R.string.contact_lookup_failed else R.string.banner_offline)))
+                return@launch
+            }
+            if (user == null) { _events.tryEmit(ChatEvent.Toast(c.app.getString(R.string.contact_not_on_pulsechat))); return@launch }
+            try {
+                _events.tryEmit(ChatEvent.OpenChat(repo.openDirectChat(user.userId)))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ChatException) {
+                _events.tryEmit(ChatEvent.Toast(chatErrorText(c.app, e.error)))
+            } catch (e: Exception) {
+                _events.tryEmit(ChatEvent.Toast(c.app.getString(R.string.contact_lookup_failed)))
+            }
+        }
+    }
     fun sendLocation(lat: Double, lng: Double) = launchSafely { repo.sendLocation(conversationId, lat, lng) }
     fun sendPoll(question: String, options: List<String>) = launchSafely { repo.sendPoll(conversationId, question, options) }
 
@@ -494,7 +522,7 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
                 repo.insertLocal(
                     Message(
                         messageId = Ids.newMessageId(), conversationId = conversationId, senderId = Ids.AI_ASSISTANT_ID, content = reply,
-                        type = MessageType.AI_RESPONSE, status = MessageStatus.READ, createdAt = System.currentTimeMillis(), isAiGenerated = true,
+                        type = MessageType.AI_RESPONSE, status = MessageStatus.READ, createdAt = repo.nextCreatedAt(conversationId, localOnly = true), isAiGenerated = true,
                     )
                 )
                 repo.markRead(conversationId)

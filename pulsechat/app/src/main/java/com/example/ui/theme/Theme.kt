@@ -9,9 +9,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import com.example.data.prefs.ThemeMode
+import com.example.util.DevicePerformance
 
 // Every Material role is set explicitly: roles left unset fall back to Material's baseline (purple)
 // palette, which is where tinted menus, sheets and navigation bars would otherwise come from.
@@ -201,7 +204,9 @@ fun PulseChatTheme(
     content: @Composable () -> Unit,
 ) {
     val dark = isAppInDarkTheme(themeMode)
-    CompositionLocalProvider(LocalPulseColors provides if (dark) DarkPulse else LightPulse) {
+    val context = LocalContext.current
+    val lite = remember { DevicePerformance.isLite(context) }
+    CompositionLocalProvider(LocalPulseColors provides if (dark) DarkPulse else LightPulse, LocalLiteMode provides lite) {
         MaterialTheme(
             colorScheme = if (dark) DarkColorScheme else LightColorScheme,
             typography = Typography,
@@ -210,6 +215,9 @@ fun PulseChatTheme(
         )
     }
 }
+
+/** True on Android 11 or older and on low-memory phones: lighter effects and shorter transitions. */
+val LocalLiteMode = staticCompositionLocalOf { false }
 
 object PulseTheme {
     val colors: PulseColors

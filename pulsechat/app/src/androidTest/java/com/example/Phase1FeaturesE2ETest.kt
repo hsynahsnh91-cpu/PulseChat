@@ -7,6 +7,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.data.model.ScheduledState
@@ -144,11 +146,16 @@ class Phase1FeaturesE2ETest : EmulatorE2ETest() {
         Espresso.pressBack()
         Espresso.pressBack()
 
-        // Diagnostics: the server check reaches the (emulated) backend.
+        // Diagnostics (not listed in Settings; long press on the version in About): the server check
+        // reaches the (emulated) backend.
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("home_menu").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("home_menu").performClick()
         compose.onNodeWithTag("menu_settings").performClick()
-        compose.onNodeWithText(context.getString(R.string.diag_title)).performScrollTo().performClick()
+        assertTrue("Diagnostics are not listed in Settings", compose.onAllNodesWithText(context.getString(R.string.diag_title)).fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("settings_about").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("about_version").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("about_version").performScrollTo().performTouchInput { longClick() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(context.getString(R.string.diag_run_check)).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(context.getString(R.string.diag_run_check)).performScrollTo().performClick()
         compose.waitUntil(20_000) { compose.onAllNodesWithText(context.getString(R.string.diag_server_ok, 0).substringBefore("("), substring = true).fetchSemanticsNodes().isNotEmpty() }
         c.authRepository.signOut()

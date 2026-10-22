@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.provider.ContactsContract
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -37,24 +36,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -108,9 +107,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
-import androidx.compose.material.icons.filled.PermMedia
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.TaskAlt
+import androidx.compose.material.icons.rounded.PermMedia
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.TaskAlt
 import com.example.ui.reminders.openExactAlarmSettings
 import com.example.data.model.ScheduledState
 import com.example.data.model.ScheduledMessage
@@ -164,7 +163,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.material.icons.automirrored.filled.Shortcut
+import androidx.compose.material.icons.automirrored.rounded.Shortcut
 
 data class ChatNav(
     val back: () -> Unit,
@@ -172,6 +171,8 @@ data class ChatNav(
     val openMedia: (String) -> Unit,
     val openCall: () -> Unit,
     val openMediaBrowser: (String) -> Unit = {},
+    /** Opens another chat (from a shared contact card). */
+    val openChat: (String) -> Unit = {},
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -240,6 +241,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     var pendingMedia by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
     var pendingDocument by remember { mutableStateOf<Uri?>(null) }
     var pendingContact by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var contactSheet by remember { mutableStateOf(false) }
     var pendingLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var pollOpen by remember { mutableStateOf(false) }
     var aiToolsOpen by remember { mutableStateOf(false) }
@@ -297,6 +299,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                 is ChatEvent.Toast -> snackbar.showSnackbar(e.text)
                 is ChatEvent.NeedAiConsent -> consentAction = e.action
                 is ChatEvent.NeedLanguageDownload -> downloadPrompt = e.messageId to e.languages
+                is ChatEvent.OpenChat -> nav.openChat(e.conversationId)
             }
         }
     }
@@ -334,14 +337,6 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     val takeVideo = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { ok ->
         val uri = captureUri
         if (ok && uri != null) pendingMedia = uri to true
-    }
-    val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.query(uri, arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null)?.use { c ->
-                if (c.moveToFirst()) pendingContact = (c.getString(0) ?: "") to (c.getString(1) ?: "")
-            }
-        }
     }
     fun launchCamera(video: Boolean) {
         val (_, uri) = container.media.newCaptureFile(if (video) "mp4" else "jpg")
@@ -410,7 +405,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         Row(Modifier.clickable(enabled = conv != null && !isAi) { nav.openInfo(conversationId) }, verticalAlignment = Alignment.CenterVertically) {
                             if (isGroup && conv?.avatarUrl == null) {
                                 Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Groups, contentDescription = null)
+                                    Icon(Icons.Rounded.Groups, contentDescription = null)
                                 }
                             } else {
                                 UserAvatar(title, avatarUrl = if (isGroup) conv?.avatarUrl else peer?.avatarUrl, size = 40.dp, isAiAssistant = isAi, colorHex = peer?.avatarColorHex)
@@ -433,33 +428,33 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                             }
                         }
                     },
-                    navigationIcon = { IconButton(onClick = nav.back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+                    navigationIcon = { IconButton(onClick = nav.back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back)) } },
                     actions = {
                         val canCall = !isGroup && !isAi && !readOnlyLegacy && peerId != null && !peerBlocked
                         // On narrow screens the video call moves into the menu so the name stays readable.
                         val narrowBar = LocalConfiguration.current.screenWidthDp < 360
                         if (canCall) {
-                            if (!narrowBar) IconButton(onClick = { startCall(peerId, true) }) { Icon(Icons.Default.Videocam, stringResource(R.string.action_video_call)) }
-                            IconButton(onClick = { startCall(peerId, false) }, modifier = Modifier.testTag("chat_voice_call")) { Icon(Icons.Default.Call, stringResource(R.string.action_voice_call)) }
+                            if (!narrowBar) IconButton(onClick = { startCall(peerId, true) }) { Icon(Icons.Rounded.Videocam, stringResource(R.string.action_video_call)) }
+                            IconButton(onClick = { startCall(peerId, false) }, modifier = Modifier.testTag("chat_voice_call")) { Icon(Icons.Rounded.Call, stringResource(R.string.action_voice_call)) }
                         }
-                        IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("chat_menu")) { Icon(Icons.Default.MoreVert, stringResource(R.string.action_more)) }
+                        IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("chat_menu")) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.action_more)) }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             if (canCall && narrowBar) DropdownMenuItem(text = { Text(stringResource(R.string.action_video_call)) },
-                                leadingIcon = { Icon(Icons.Default.Videocam, null) }, onClick = { menuOpen = false; startCall(peerId, true) })
+                                leadingIcon = { Icon(Icons.Rounded.Videocam, null) }, onClick = { menuOpen = false; startCall(peerId, true) })
                             if (!isAi) DropdownMenuItem(text = { Text(stringResource(if (isGroup) R.string.group_info else R.string.contact_info)) },
                                 onClick = { menuOpen = false; nav.openInfo(conversationId) })
                             DropdownMenuItem(text = { Text(stringResource(R.string.action_search)) }, onClick = { menuOpen = false; vm.setSearchActive(true) })
-                            if (!isAi) DropdownMenuItem(text = { Text(stringResource(R.string.media_browser_title)) }, leadingIcon = { Icon(Icons.Default.PermMedia, null) },
+                            if (!isAi) DropdownMenuItem(text = { Text(stringResource(R.string.media_browser_title)) }, leadingIcon = { Icon(Icons.Rounded.PermMedia, null) },
                                 onClick = { menuOpen = false; nav.openMediaBrowser(conversationId) }, modifier = Modifier.testTag("menu_media_browser"))
                             if (!isAi && !readOnlyLegacy) {
                                 DropdownMenuItem(text = { Text(stringResource(if (conv?.isMuted() == true) R.string.action_unmute else R.string.action_mute)) },
                                     onClick = { menuOpen = false; if (conv?.isMuted() == true) vm.setMuted(0L) else muteOpen = true })
                                 DropdownMenuItem(text = { Text(stringResource(R.string.disappearing_title)) }, onClick = { menuOpen = false; disappearingOpen = true })
-                                DropdownMenuItem(text = { Text(stringResource(R.string.ai_summarize)) }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                                DropdownMenuItem(text = { Text(stringResource(R.string.ai_summarize)) }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
                                     onClick = { menuOpen = false; vm.aiSummarize() })
-                                DropdownMenuItem(text = { Text(stringResource(R.string.ai_find_tasks)) }, leadingIcon = { Icon(Icons.Default.TaskAlt, null) },
+                                DropdownMenuItem(text = { Text(stringResource(R.string.ai_find_tasks)) }, leadingIcon = { Icon(Icons.Rounded.TaskAlt, null) },
                                     onClick = { menuOpen = false; vm.findTasksAndEvents() })
-                                DropdownMenuItem(text = { Text(stringResource(R.string.scheduled_messages)) }, leadingIcon = { Icon(Icons.Default.Schedule, null) },
+                                DropdownMenuItem(text = { Text(stringResource(R.string.scheduled_messages)) }, leadingIcon = { Icon(Icons.Rounded.Schedule, null) },
                                     onClick = { menuOpen = false; scheduledSheet = true }, modifier = Modifier.testTag("menu_scheduled"))
                             }
                             DropdownMenuItem(text = { Text(stringResource(R.string.action_clear_chat)) }, onClick = { menuOpen = false; clearOpen = true })
@@ -478,12 +473,12 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).background(PulseTheme.colors.chatBackground)) {
-            if (network == NetworkKind.NONE && !isAi) Banner(stringResource(R.string.banner_offline_chat), Icons.Default.WifiOff,
+            if (network == NetworkKind.NONE && !isAi) Banner(stringResource(R.string.banner_offline_chat), Icons.Rounded.WifiOff,
                 MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-            if (readOnlyLegacy) Banner(stringResource(R.string.chat_local_only), Icons.Default.History, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-            if (isAi) Banner(stringResource(R.string.ai_chat_notice), Icons.Default.AutoAwesome, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f), MaterialTheme.colorScheme.onSurface)
+            if (readOnlyLegacy) Banner(stringResource(R.string.chat_local_only), Icons.Rounded.History, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+            if (isAi) Banner(stringResource(R.string.ai_chat_notice), Icons.Rounded.AutoAwesome, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f), MaterialTheme.colorScheme.onSurface)
             if ((conv?.disappearingSeconds ?: 0L) > 0) Banner(
-                stringResource(R.string.disappearing_banner, Formatters.disappearingLabel(context, conv!!.disappearingSeconds)), Icons.Default.Timer,
+                stringResource(R.string.disappearing_banner, Formatters.disappearingLabel(context, conv!!.disappearingSeconds)), Icons.Rounded.Timer,
                 MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!isAi && !readOnlyLegacy && newSinceVisit >= 3 && !newBannerDismissed && summary == null) {
@@ -492,7 +487,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (items.isEmpty() && conv != null) {
                     Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(if (isAi) Icons.Default.AutoAwesome else Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(if (isAi) Icons.Rounded.AutoAwesome else Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(8.dp))
                         Text(stringResource(if (isAi) R.string.ai_empty else R.string.chat_empty), style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -516,6 +511,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         onVoiceSpeed = { vm.cycleVoiceSpeed() },
                         onVote = { m, i -> vm.vote(m.messageId, i) },
                         onReactions = { m -> reactionsDetailFor = m },
+                        onMessageContact = { m -> vm.messageContact(m) },
                     )
                 }
                 LazyColumn(
@@ -548,7 +544,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                             }
                             is DayItem -> Box(Modifier.fillMaxWidth().padding(vertical = Spacing.sm), contentAlignment = Alignment.Center) {
                                 Text(Formatters.dayHeader(context, item.at), style = MaterialTheme.typography.labelMedium, color = PulseTheme.colors.onSystemChip,
-                                    modifier = Modifier.clip(RoundedCornerShape(Radii.sm)).background(PulseTheme.colors.systemChip).padding(horizontal = Spacing.md, vertical = Spacing.xs))
+                                    modifier = Modifier.clip(CircleShape).background(PulseTheme.colors.systemChip).padding(horizontal = Spacing.md, vertical = Spacing.xs))
                             }
                             is UnreadItem -> Box(Modifier.fillMaxWidth().padding(vertical = Spacing.sm).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
                                 Text(context.resources.getQuantityString(R.plurals.unread_messages, item.count, item.count), style = MaterialTheme.typography.labelMedium,
@@ -571,7 +567,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         onClick = { scope.launch { listState.animateScrollToItem(0) } },
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurface,
-                    ) { Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.action_jump_latest)) }
+                    ) { Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.action_jump_latest)) }
                 }
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
             }
@@ -617,7 +613,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                     conv.isLeft -> Notice(stringResource(R.string.chat_left_group))
                     peerBlocked -> Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                            Icon(Icons.Default.Block, contentDescription = null)
+                            Icon(Icons.Rounded.Block, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(R.string.chat_blocked_notice), modifier = Modifier.weight(1f))
                             FilledTonalButton(onClick = vm::unblockPeer) { Text(stringResource(R.string.action_unblock)) }
@@ -699,9 +695,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                 AttachOption.CAMERA_PHOTO -> requestCamera(false)
                 AttachOption.CAMERA_VIDEO -> requestCamera(true)
                 AttachOption.DOCUMENT -> documentPicker.launch(arrayOf("*/*"))
-                AttachOption.CONTACT -> try {
-                    contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
-                } catch (e: ActivityNotFoundException) { Toast.makeText(context, R.string.error_no_app, Toast.LENGTH_SHORT).show() }
+                AttachOption.CONTACT -> contactSheet = true
                 AttachOption.LOCATION -> if (has(Manifest.permission.ACCESS_FINE_LOCATION) || has(Manifest.permission.ACCESS_COARSE_LOCATION)) fetchLocation()
                     else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                 AttachOption.POLL -> pollOpen = true
@@ -718,6 +712,14 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     pendingDocument?.let { uri ->
         ConfirmDialog(title = stringResource(R.string.document_send_title), text = uri.lastPathSegment, confirmLabel = stringResource(R.string.action_send),
             onConfirm = { vm.sendMedia(uri, MessageType.DOCUMENT, ""); pendingDocument = null }, onDismiss = { pendingDocument = null })
+    }
+    if (contactSheet) {
+        // In-app contacts only (saved contacts and people I chat with); the phone's address book is not used.
+        val shareable by vm.shareableContacts.collectAsState()
+        ShareContactSheet(shareable, onDismiss = { contactSheet = false }) { contact ->
+            contactSheet = false
+            pendingContact = contact.shownName to ContactSearch.handleOf(contact)
+        }
     }
     pendingContact?.let { (name, phone) ->
         ConfirmDialog(title = stringResource(R.string.contact_send_title), text = "$name\n$phone", confirmLabel = stringResource(R.string.action_send),
@@ -812,12 +814,12 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
 private fun SelectionBar(count: Int, onClose: () -> Unit, onStar: () -> Unit, onCopy: () -> Unit, onForward: () -> Unit, onDelete: () -> Unit) {
     TopAppBar(
         title = { Text(count.toString(), fontWeight = FontWeight.SemiBold) },
-        navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Default.Close, stringResource(R.string.action_close)) } },
+        navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.action_close)) } },
         actions = {
-            IconButton(onClick = onStar) { Icon(Icons.Default.Star, stringResource(R.string.action_star)) }
-            IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, stringResource(R.string.action_copy)) }
-            IconButton(onClick = onForward) { Icon(Icons.AutoMirrored.Filled.Shortcut, stringResource(R.string.action_forward)) }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, stringResource(R.string.action_delete)) }
+            IconButton(onClick = onStar) { Icon(Icons.Rounded.Star, stringResource(R.string.action_star)) }
+            IconButton(onClick = onCopy) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.action_copy)) }
+            IconButton(onClick = onForward) { Icon(Icons.AutoMirrored.Rounded.Shortcut, stringResource(R.string.action_forward)) }
+            IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, stringResource(R.string.action_delete)) }
         },
     )
 }
@@ -838,12 +840,12 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, position: Int, t
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
         },
-        navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+        navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back)) } },
         actions = {
             if (total > 0) Text("${position + 1}/$total", style = MaterialTheme.typography.labelMedium)
             else if (query.isNotBlank()) Text(stringResource(R.string.search_no_results), style = MaterialTheme.typography.labelMedium)
-            IconButton(onClick = onOlder, enabled = total > 0 && position < total - 1) { Icon(Icons.Default.KeyboardArrowUp, stringResource(R.string.search_older)) }
-            IconButton(onClick = onNewer, enabled = total > 0 && position > 0) { Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.search_newer)) }
+            IconButton(onClick = onOlder, enabled = total > 0 && position < total - 1) { Icon(Icons.Rounded.KeyboardArrowUp, stringResource(R.string.search_older)) }
+            IconButton(onClick = onNewer, enabled = total > 0 && position > 0) { Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.search_newer)) }
         },
     )
 }
@@ -863,7 +865,7 @@ private fun AiResultPanel(panel: AiPanel, onUse: (String) -> Unit, onClose: () -
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (panel.title != 0) Text(stringResource(panel.title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
                 AiBadge()
-                IconButton(onClick = onClose) { Icon(Icons.Default.Close, stringResource(R.string.action_close)) }
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.action_close)) }
             }
             when {
                 panel.busy -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -875,7 +877,7 @@ private fun AiResultPanel(panel: AiPanel, onUse: (String) -> Unit, onClose: () -
                 }
                 panel.suggestions.isNotEmpty() -> Column {
                     panel.suggestions.forEach { s ->
-                        Text(s, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onUse(s) }
+                        Text(s, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.sm)).clickable { onUse(s) }
                             .background(MaterialTheme.colorScheme.primaryContainer).padding(10.dp))
                         Spacer(Modifier.height(6.dp))
                     }
@@ -948,7 +950,7 @@ private fun ScheduledBar(count: Int, failed: Int, onOpen: () -> Unit) {
     val context = LocalContext.current
     Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).testTag("scheduled_bar")) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(context.resources.getQuantityString(R.plurals.scheduled_count, count, count), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             if (failed > 0) Text(context.resources.getQuantityString(R.plurals.scheduled_failed_count, failed, failed), color = MaterialTheme.colorScheme.error,
