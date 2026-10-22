@@ -7,9 +7,10 @@
  */
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
+import { onLog } from "firebase/app";
 import {
-  Bytes, collection, deleteDoc, doc, getDoc, getDocFromServer, getDocs, serverTimestamp, setDoc, Timestamp, updateDoc, waitForPendingWrites,
-  writeBatch, type Unsubscribe,
+  Bytes, collection, deleteDoc, disableNetwork, doc, enableNetwork, getDoc, getDocFromServer, getDocs, serverTimestamp, setDoc, Timestamp,
+  updateDoc, waitForPendingWrites, writeBatch, type Unsubscribe,
 } from "firebase/firestore";
 import { getBytes, ref as storageRef, uploadBytes } from "firebase/storage";
 import {
@@ -48,10 +49,29 @@ async function newUser(base: string, displayName = base): Promise<{ pc: PulseCha
   return { pc, uid, username: name };
 }
 
+// Known Firestore emulator bug (firebase/firebase-tools#8654): a Listen stream sometimes receives a corrupted
+// frame ("RESOURCE_EXHAUSTED: Received message larger than max (554173458 vs ...)") and the SDK then waits its
+// maximum backoff, about a minute, before listening again. That pause is not what these tests check, so the
+// next wait restarts the clients' connections (pending writes and listeners carry over) and keeps waiting.
+let listenDesyncs = 0;
+let handledDesyncs = 0;
+onLog((entry) => {
+  if (entry.type === "@firebase/firestore" && entry.message.includes("'Listen'") && entry.message.includes("RESOURCE_EXHAUSTED")) listenDesyncs++;
+});
+
+async function restartConnectionsAfterDesync(what: string): Promise<boolean> {
+  if (listenDesyncs === handledDesyncs) return false;
+  handledDesyncs = listenDesyncs;
+  console.warn(`emulator Listen-stream desync (firebase-tools#8654) before: ${what}; restarting the client connections`);
+  await Promise.all(clients.map((pc) => disableNetwork(pc.db).then(() => enableNetwork(pc.db)).catch(() => undefined)));
+  return true;
+}
+
 async function until(what: string, condition: () => boolean, timeoutMs = 20_000, details?: () => string): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+  let deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (condition()) return;
+    if (await restartConnectionsAfterDesync(what)) deadline = Math.max(deadline, Date.now() + timeoutMs);
     await new Promise((r) => setTimeout(r, 25));
   }
   assert.fail(`timed out waiting for: ${what}${details ? ` (state: ${details()})` : ""}`);
