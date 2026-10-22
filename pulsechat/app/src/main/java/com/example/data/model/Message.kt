@@ -69,6 +69,12 @@ data class Message(
     val expiresAt: Long = 0L,
     val failureReason: String? = null,
     val systemEvent: String? = null,  // JSON describing group events
+    // v5
+    /** Earlier versions of an edited text, oldest first: JSON [{"text": ..., "at": millis}] (see domain/EditHistory). */
+    val editHistory: String = "",
+    /** Live location: the session shown by this LOCATION message and when it ends. */
+    val liveId: String? = null,
+    val liveUntil: Long = 0L,
 ) {
     fun reactionMap(): Map<String, String> = parseStringMap(reactions)
     fun mentionList(): List<String> = mentions.split(",").map { it.trim() }.filter { it.isNotEmpty() }

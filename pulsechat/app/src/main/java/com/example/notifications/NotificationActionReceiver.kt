@@ -5,9 +5,10 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.RemoteInput
 import com.example.PulseChatApplication
+import com.example.data.repository.LiveLocationRepository
 import kotlinx.coroutines.launch
 
-/** Handles notification actions: inline reply, mark as read, decline/hang up calls. */
+/** Handles notification actions: inline reply, mark as read, decline/hang up calls, stop live location. */
 class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val container = (context.applicationContext as PulseChatApplication).container
@@ -30,6 +31,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     }
                     NotificationHelper.ACTION_DECLINE_CALL -> container.callManager.decline()
                     NotificationHelper.ACTION_HANG_UP -> container.callManager.hangUp()
+                    NotificationHelper.ACTION_STOP_LIVE_LOCATION -> container.liveLocation.stop(LiveLocationRepository.StopReason.USER)
                 }
             } finally {
                 pending.finish()

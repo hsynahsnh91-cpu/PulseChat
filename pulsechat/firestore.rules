@@ -251,22 +251,39 @@ service cloud.firestore {
             && (m.get('expiresAt', null) == null || m.expiresAt > request.time);
         }
 
-        // Authors may edit their own text messages for 15 minutes.
-        function editByAuthor() {
-          return resource.data.senderId == uid() && resource.data.type == 'TEXT' && resource.data.deletedForEveryone == false
-            && mchanged().hasOnly(['text', 'editedAt', 'updatedAt', 'mentions'])
-            && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 4096
-            && request.resource.data.editedAt == request.time && request.resource.data.updatedAt == request.time
-            && request.time < resource.data.createdAt + duration.value(15, 'm');
+        // Authors may edit their own text messages for 15 minutes, at most 20 times. Every edit appends
+        // the replaced text to `edits` (unchanged older entries, exactly the text being replaced, an
+        // edit time inside the edit window), so the history cannot be rewritten. The history lives in
+        // the message: only the chat's members can read it, and it is removed with the message.
+        function validEditHistory() {
+          let before = resource.data.get('edits', []);
+          let after = request.resource.data.get('edits', null);
+          let n = before.size();
+          return after is list && after.size() == n + 1 && n < 20
+            && (n == 0 || after[0:n] == before)
+            && after[n].keys().hasOnly(['text', 'at'])
+            && after[n].text == resource.data.text
+            && after[n].at is timestamp
+            && after[n].at > resource.data.createdAt - duration.value(10, 'm')
+            && after[n].at < request.time + duration.value(10, 'm');
         }
 
-        // Authors may delete for everyone within 48 hours; content must actually be removed.
+        function editByAuthor() {
+          return resource.data.senderId == uid() && resource.data.type == 'TEXT' && resource.data.deletedForEveryone == false
+            && mchanged().hasOnly(['text', 'editedAt', 'updatedAt', 'mentions', 'edits'])
+            && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 4096
+            && request.resource.data.editedAt == request.time && request.resource.data.updatedAt == request.time
+            && request.time < resource.data.createdAt + duration.value(15, 'm')
+            && validEditHistory();
+        }
+
+        // Authors may delete for everyone within 48 hours; content (and its edit history) must actually be removed.
         function deleteForEveryone() {
           return resource.data.senderId == uid() && resource.data.deletedForEveryone == false
-            && mchanged().hasOnly(['deletedForEveryone', 'text', 'media', 'replyTo', 'poll', 'contact', 'location', 'mentions', 'reactions', 'updatedAt'])
+            && mchanged().hasOnly(['deletedForEveryone', 'text', 'media', 'replyTo', 'poll', 'contact', 'location', 'mentions', 'reactions', 'updatedAt', 'edits'])
             && request.resource.data.deletedForEveryone == true && request.resource.data.text == ''
             && !('media' in request.resource.data) && !('poll' in request.resource.data) && !('contact' in request.resource.data)
-            && !('location' in request.resource.data) && !('replyTo' in request.resource.data)
+            && !('location' in request.resource.data) && !('replyTo' in request.resource.data) && !('edits' in request.resource.data)
             && request.resource.data.reactions.size() == 0
             && request.resource.data.updatedAt == request.time
             && request.time < resource.data.createdAt + duration.value(48, 'h');
@@ -299,6 +316,41 @@ service cloud.firestore {
         allow update: if isParticipantNow(cid) && (editByAuthor() || deleteForEveryone() || reactionUpdate() || voteUpdate());
         // Expired disappearing messages may be cleaned up by participants (TTL also removes them).
         allow delete: if isParticipantNow(cid) && resource.data.get('expiresAt', null) != null && resource.data.expiresAt < request.time;
+      }
+
+      // ---------------------------------------------------------------- live location
+      // One temporary live-location session: the sender's last point, when it was measured, when the
+      // session ends and whether it was stopped. Only members of the chat can read it; only the
+      // sender writes it. New points are refused after the end time (at most 8 hours after the
+      // start) or once the session was stopped, so an ended session can never move again.
+      match /live/{liveId} {
+        function validPoint(d) {
+          return d.lat is number && d.lat >= -90 && d.lat <= 90 && d.lng is number && d.lng >= -180 && d.lng <= 180
+            && d.accuracy is number && d.accuracy >= 0 && d.accuracy < 100000
+            && d.fixAt is timestamp && d.fixAt < request.time + duration.value(2, 'm');
+        }
+
+        allow read: if isParticipantNow(cid);
+
+        allow create: if isParticipantNow(cid)
+          && request.resource.data.keys().hasOnly(['ownerId', 'lat', 'lng', 'accuracy', 'fixAt', 'startedAt', 'updatedAt', 'expiresAt', 'endedAt'])
+          && request.resource.data.ownerId == uid()
+          && request.resource.data.startedAt == request.time && request.resource.data.updatedAt == request.time
+          && request.resource.data.endedAt == null
+          && request.resource.data.expiresAt is timestamp
+          && request.resource.data.expiresAt > request.time
+          && request.resource.data.expiresAt < request.time + duration.value(485, 'm')
+          && validPoint(request.resource.data);
+
+        allow update: if signedIn() && resource.data.ownerId == uid() && resource.data.endedAt == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lat', 'lng', 'accuracy', 'fixAt', 'updatedAt', 'endedAt'])
+          && request.resource.data.updatedAt == request.time
+          && validPoint(request.resource.data)
+          && (request.resource.data.endedAt == null
+                ? (request.time < resource.data.expiresAt && isParticipantNow(cid))
+                : request.resource.data.endedAt == request.time);
+
+        allow delete: if signedIn() && resource.data.ownerId == uid();
       }
     }
 

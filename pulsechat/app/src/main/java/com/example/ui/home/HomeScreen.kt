@@ -86,6 +86,7 @@ import com.example.ui.calls.rememberCallStarter
 import com.example.ui.common.Banner
 import com.example.ui.common.ChoiceDialog
 import com.example.ui.common.ConfirmDialog
+import com.example.ui.common.MuteDialog
 import com.example.ui.common.chatErrorText
 import com.example.ui.common.containerFactory
 import com.example.ui.components.UserAvatar
@@ -112,6 +113,7 @@ data class HomeNav(
     val openCall: () -> Unit,
     val openReminders: () -> Unit = {},
     val openFolders: () -> Unit = {},
+    val openLocked: () -> Unit = {},
 )
 
 private const val TAB_CHATS = 0
@@ -338,6 +340,7 @@ fun HomeScreen(nav: HomeNav) {
                     onFilter = vm::selectFilter, onOpen = nav.openChat, onToggleSelect = vm::toggleSelection,
                     onOpenArchived = nav.openArchived, onSearchMessages = { nav.openSearch(query) }, onNewChat = nav.openNewChat, contentPadding = listPadding,
                     folders = folders, selectedFolder = selectedFolder, onFolder = vm::selectFolder, onManageFolders = nav.openFolders,
+                    onOpenLocked = nav.openLocked,
                 )
                 TAB_UPDATES -> UpdatesTab(
                     ui = updates, me = meUser, onMyStatus = { nav.openStatus(vm.me) }, onAddText = { textStatus = true },
@@ -357,12 +360,9 @@ fun HomeScreen(nav: HomeNav) {
         )
     }
     if (muteDialog) {
-        val hour = 3_600_000L
-        ChoiceDialog(
-            title = stringResource(R.string.mute_title),
-            options = listOf(8 * hour to stringResource(R.string.mute_8h), 7 * 24 * hour to stringResource(R.string.mute_week), -1L to stringResource(R.string.mute_always)),
-            selected = null,
-            onSelect = { d -> muteDialog = false; vm.muteSelected(if (d < 0) Long.MAX_VALUE else System.currentTimeMillis() + d) },
+        MuteDialog(
+            isGroup = vm.selectionState().hasActiveGroup,
+            onSelect = { until -> muteDialog = false; vm.muteSelected(until) },
             onDismiss = { muteDialog = false },
         )
     }

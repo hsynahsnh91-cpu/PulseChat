@@ -1,6 +1,6 @@
 /** Messages: real-time reading, sending, media, receipts, typing, reactions, edit and delete (ChatRepository.kt). */
 import {
-  collection, deleteField, doc, onSnapshot, orderBy, limitToLast, query, serverTimestamp, Timestamp, updateDoc, writeBatch,
+  arrayUnion, collection, deleteField, doc, onSnapshot, orderBy, limitToLast, query, serverTimestamp, Timestamp, updateDoc, writeBatch,
   type FirestoreError, type Unsubscribe,
 } from "firebase/firestore";
 import { getBytes, getDownloadURL, ref as storageRef, uploadBytes, uploadBytesResumable } from "firebase/storage";
@@ -11,7 +11,7 @@ import {
   uploadToStore,
 } from "./media";
 import {
-  EDIT_WINDOW_MS, DELETE_FOR_EVERYONE_WINDOW_MS, Fs, MAX_TEXT_LENGTH, expiresAtFor, lastMessageData, messageCreateData, toMessage,
+  EDIT_WINDOW_MS, DELETE_FOR_EVERYONE_WINDOW_MS, Fs, MAX_EDITS, MAX_TEXT_LENGTH, expiresAtFor, lastMessageData, messageCreateData, toMessage,
   type ChatMessage, type Conversation, type OutgoingMessage, type ReplyToDoc, type MediaDoc,
 } from "./schema";
 import { extensionFor, maxBytesFor, preview, previewText, typeForMime } from "./text";
@@ -293,7 +293,10 @@ export async function react(pc: PulseChat, conv: Conversation, message: ChatMess
   await batch.commit();
 }
 
-/** Authors may edit their own text messages for 15 minutes (firestore.rules editByAuthor). */
+/**
+ * Authors may edit their own text messages for 15 minutes (firestore.rules editByAuthor). The replaced
+ * text joins the message's edit history (`edits`), readable by the chat's members only, like Android.
+ */
 export async function editMessage(pc: PulseChat, conv: Conversation, message: ChatMessage, newText: string): Promise<void> {
   const me = requireUid(pc);
   const text = newText.trim();
@@ -302,7 +305,10 @@ export async function editMessage(pc: PulseChat, conv: Conversation, message: Ch
   if (text.length === 0) throw new PulseChatError("EMPTY");
   if (text.length > MAX_TEXT_LENGTH) throw new PulseChatError("TOO_LONG");
   const batch = writeBatch(pc.db);
-  batch.update(messageRef(pc, conv.id, message.id), { text, editedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  if (message.edits.length >= MAX_EDITS) throw new PulseChatError("NOT_ALLOWED");
+  batch.update(messageRef(pc, conv.id, message.id), {
+    text, editedAt: serverTimestamp(), updatedAt: serverTimestamp(), edits: arrayUnion({ text: message.text, at: Timestamp.now() }),
+  });
   batch.update(conversationRef(pc, conv.id), {
     updatedAt: serverTimestamp(),
     ...(conv.lastMessage?.id === message.id ? { "lastMessage.preview": preview(text, 100) } : {}),
@@ -318,7 +324,7 @@ export async function deleteForEveryone(pc: PulseChat, conv: Conversation, messa
   const batch = writeBatch(pc.db);
   batch.update(messageRef(pc, conv.id, message.id), {
     deletedForEveryone: true, text: "", media: deleteField(), replyTo: deleteField(), poll: deleteField(), contact: deleteField(),
-    location: deleteField(), mentions: [], reactions: {}, updatedAt: serverTimestamp(),
+    location: deleteField(), edits: deleteField(), mentions: [], reactions: {}, updatedAt: serverTimestamp(),
   });
   batch.update(conversationRef(pc, conv.id), {
     updatedAt: serverTimestamp(),

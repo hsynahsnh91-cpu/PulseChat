@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.room.withTransaction
 import com.example.data.db.AppDatabase
 import com.example.data.model.BlockedUser
+import com.example.data.model.ChatNotificationSettings
 import com.example.data.model.Contact
 import com.example.data.model.Conversation
 import com.example.data.model.Message
@@ -118,7 +119,7 @@ class SyncManager(
             }
         globalRegs += userDoc.collection(Fs.CHAT_PREFS).addSnapshotListener(executor) { snap, err ->
             if (err != null) { onListenerError("chatPrefs", err); return@addSnapshotListener }
-            if (snap != null) enqueue { applyChatPrefs(snap.documentChanges) }
+            if (snap != null) enqueue { applyChatPrefs(me, snap.documentChanges) }
         }
         globalRegs += userDoc.collection(Fs.CONTACTS).addSnapshotListener(executor) { snap, err ->
             if (err != null) { onListenerError("contacts", err); return@addSnapshotListener }
@@ -344,7 +345,7 @@ class SyncManager(
             .set(values + ("updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
     }
 
-    private suspend fun applyChatPrefs(changes: List<DocumentChange>) {
+    private suspend fun applyChatPrefs(me: String, changes: List<DocumentChange>) {
         for (change in changes) {
             if (change.type == DocumentChange.Type.REMOVED) continue
             val doc = change.document
@@ -352,8 +353,20 @@ class SyncManager(
             db.withTransaction {
                 val c = db.conversationDao().get(doc.id)
                 if (c == null) pendingPrefs[doc.id] = data else db.conversationDao().upsert(applyPrefs(c, data))
+                applyNotificationPrefs(me, doc.id, data)
             }
         }
+    }
+
+    /** Mute and preview are notification settings (chat_notification_settings), not conversation state. */
+    private suspend fun applyNotificationPrefs(me: String, cid: String, p: Map<String, Any?>) {
+        val mutedUntil = (p["mutedUntil"] as? Number)?.toLong()
+        val preview = (p["notifyPreview"] as? String)?.takeIf { it in ChatNotificationSettings.PREVIEWS }
+        if (mutedUntil == null && preview == null) return
+        val dao = db.chatSettingsDao()
+        val current = dao.notificationSettings(me, cid) ?: ChatNotificationSettings(me, cid)
+        val updated = current.copy(mutedUntil = mutedUntil ?: current.mutedUntil, preview = preview ?: current.preview)
+        if (updated != current) dao.upsertNotificationSettings(updated.copy(updatedAt = System.currentTimeMillis()))
     }
 
     private fun applyPrefs(c: Conversation, p: Map<String, Any?>): Conversation {
@@ -363,7 +376,6 @@ class SyncManager(
             isPinned = p["pinned"] as? Boolean ?: c.isPinned,
             pinnedAt = (p["pinnedAt"] as? Number)?.toLong() ?: c.pinnedAt,
             isArchived = p["archived"] as? Boolean ?: c.isArchived,
-            mutedUntil = (p["mutedUntil"] as? Number)?.toLong() ?: c.mutedUntil,
             isFavorite = p["favorite"] as? Boolean ?: c.isFavorite,
             markedUnread = p["markedUnread"] as? Boolean ?: c.markedUnread,
             clearedAt = clearedAt,

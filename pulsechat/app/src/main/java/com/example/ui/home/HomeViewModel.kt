@@ -41,6 +41,8 @@ data class ChatsUi(
     val archivedUnread: Int = 0,
     val typing: Map<String, Set<String>> = emptyMap(),
     val totalChats: Int = 0,
+    /** Locked chats are listed only behind the "Locked chats" entry (no names or previews here). */
+    val lockedCount: Int = 0,
 )
 
 data class StatusOwner(
@@ -97,7 +99,8 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.folders.assign(ids, folderIds); selection.value = emptySet() }
     }
 
-    val chats: StateFlow<ChatsUi> = combine(rows, filter, query, c.chatRepository.observeAllTyping(), folderFilter) { list, f, q, typing, inFolder ->
+    val chats: StateFlow<ChatsUi> = combine(rows, filter, query, c.chatRepository.observeAllTyping(), folderFilter) { all, f, q, typing, inFolder ->
+        val list = all.filterNot { it.isLocked }
         val archived = list.filter { it.conversation.isArchived }
         val shown = if (inFolder == null) list else list.filter { it.conversation.conversationId in inFolder }
         ChatsUi(
@@ -107,11 +110,18 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             archivedUnread = archived.count { ChatListPolicy.hasUnread(it) },
             typing = typing,
             totalChats = list.size,
+            lockedCount = all.size - list.size,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatsUi())
 
     val archivedChats: StateFlow<List<ChatListRow>> = combine(rows, c.chatRepository.observeAllTyping()) { list, _ ->
-        ChatListPolicy.arrange(list, ChatFilter.ALL, "", archived = true)
+        ChatListPolicy.arrange(list.filterNot { it.isLocked }, ChatFilter.ALL, "", archived = true)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Shown only after the screen-lock check (see ChatLockGuard), archived or not. */
+    val lockedChats: StateFlow<List<ChatListRow>> = combine(rows, c.chatRepository.observeAllTyping()) { list, _ ->
+        val locked = list.filter { it.isLocked }
+        ChatListPolicy.arrange(locked, ChatFilter.ALL, "", archived = false) + ChatListPolicy.arrange(locked, ChatFilter.ALL, "", archived = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val groups: StateFlow<List<Conversation>> = c.chatRepository.observeGroups(me).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -171,7 +181,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     fun archiveSelected(archive: Boolean) = act { selected().forEach { c.chatRepository.setArchived(it.conversation.conversationId, archive) } }
-    fun muteSelected(until: Long) = act { selected().forEach { c.chatRepository.setMutedUntil(it.conversation.conversationId, until) } }
+    fun muteSelected(until: Long) = act { selected().forEach { c.chatSettings.setMutedUntil(it.conversation.conversationId, until) } }
     fun markSelected(unread: Boolean) = act { selected().forEach { c.chatRepository.setMarkedUnread(it.conversation.conversationId, unread) } }
 
     fun favoriteSelected() = act {
@@ -186,7 +196,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
         val items = selected()
         return SelectionFlags(
             allPinned = items.isNotEmpty() && items.all { it.conversation.isPinned },
-            allMuted = items.isNotEmpty() && items.all { it.conversation.isMuted() },
+            allMuted = items.isNotEmpty() && items.all { it.isMuted() },
             allFavorite = items.isNotEmpty() && items.all { it.conversation.isFavorite },
             anyUnread = items.any { ChatListPolicy.hasUnread(it) },
             allArchived = items.isNotEmpty() && items.all { it.conversation.isArchived },

@@ -13,6 +13,8 @@ import com.example.data.repository.AuthRepository
 import com.example.data.repository.AutoReplyManager
 import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
+import com.example.data.repository.ChatSettingsRepository
+import com.example.data.repository.LiveLocationRepository
 import com.example.data.repository.DiagnosticsLog
 import com.example.data.repository.FolderRepository
 import com.example.data.repository.ReminderRepository
@@ -92,6 +94,9 @@ class AppContainer(val app: Application) {
     val folders by lazy { FolderRepository(db, uid) }
     val translations by lazy { TranslationRepository(db) }
     val appLock by lazy { AppLockManager(prefs) { callManager.ui.value.isLive } }
+    /** Per-chat notification settings and chat locks (kept apart from the conversations themselves). */
+    val chatSettings by lazy { ChatSettingsRepository(db, syncManager, uid) }
+    val liveLocation by lazy { LiveLocationRepository(app, { firestore }, chatRepository, serverClock, uid) }
     val autoReply by lazy { AutoReplyManager(app) }
 
     /** "Show in chat" requests (conversationId to messageId) for an already open chat screen. */
@@ -107,6 +112,7 @@ class AppContainer(val app: Application) {
         }
         installAppCheck()
         chatRepository.diagnostics = diagnosticsLog
+        chatRepository.onLiveLocationDeleted = { liveId -> liveLocation.onMessageDeleted(liveId) }
         syncManager.diagnostics = diagnosticsLog
         authRepository.addSignOutHook { id -> onSignedOut(id) }
         syncManager.onIncoming = { conv, messages -> handleIncoming(conv, messages) }
@@ -125,10 +131,13 @@ class AppContainer(val app: Application) {
                 if (foreground) {
                     backgroundJob?.cancel()
                     connectivity.refresh()
+                    // Read before the app lock forgets that the user is returning from PulseChat's own picker.
+                    chatSettings.onAppForeground(appLock.isReturningFromOwnScreen())
                     appLock.onForeground()
                     uid()?.let { startRealtime(it) }
                 } else {
                     appLock.onBackground()
+                    chatSettings.onAppBackground()
                     voicePlayer.stop()
                     backgroundJob?.cancel()
                     // Keep listeners briefly (e.g. app switching), then rely on push messages.
@@ -166,6 +175,9 @@ class AppContainer(val app: Application) {
     }
 
     private suspend fun onSignedIn(id: String) {
+        runCatching { chatSettings.importLegacyMutes(id) }
+        // A live location whose service did not survive a restart is ended, never resumed silently.
+        liveLocation.endIfOrphaned()
         startRealtime(id)
         userRepository.startPresence()
         pushTokens.registerCurrentToken()
@@ -193,6 +205,8 @@ class AppContainer(val app: Application) {
 
     private suspend fun onSignedOut(id: String) {
         callManager.hangUp()
+        liveLocation.stop(LiveLocationRepository.StopReason.SIGNED_OUT)
+        chatSettings.closeLockedChats()
         runCatching { scheduledMessages.clearForSignOut(id) }
         runCatching { reminders.clearForSignOut(id) }
         userRepository.goOffline(id)

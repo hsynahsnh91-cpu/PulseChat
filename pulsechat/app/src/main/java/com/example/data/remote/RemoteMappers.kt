@@ -5,6 +5,7 @@ import com.example.data.model.Message
 import com.example.data.model.StatusItem
 import com.example.data.model.User
 import com.example.domain.DeliveryPolicy
+import com.example.domain.EditHistory
 import com.example.domain.Ids
 import com.example.domain.TextTools
 import com.example.domain.model.MessageStatus
@@ -180,7 +181,21 @@ object RemoteMappers {
             expiresAt = doc.millis("expiresAt"),
             failureReason = null,
             systemEvent = (doc.get("system") as? Map<*, *>)?.let { JSONObject(it.mapKeys { k -> k.key.toString() }).toString() },
+            editHistory = if (deleted) "" else editHistory(doc.get("edits")),
+            liveId = if (deleted) null else location["liveId"] as? String,
+            liveUntil = if (deleted) 0L else location.millisOf("liveUntil"),
         )
+    }
+
+    /** `edits` on a message document: [{text, at}] written with arrayUnion by each edit (oldest first). */
+    fun editHistory(raw: Any?): String {
+        val list = raw as? List<*> ?: return ""
+        val entries = list.mapNotNull { item ->
+            val entry = item as? Map<*, *> ?: return@mapNotNull null
+            val text = entry["text"] as? String ?: return@mapNotNull null
+            EditHistory.Entry(text, entry.millisOf("at"))
+        }
+        return EditHistory.encode(entries)
     }
 
     /** Full document written when a message is first sent (create-only; see firestore.rules). */
@@ -221,7 +236,9 @@ object RemoteMappers {
         }
         if (m.type == MessageType.CONTACT) map["contact"] = mapOf("name" to m.contactName, "phone" to m.contactPhone)
         if (m.type == MessageType.LOCATION && m.locationLat != null && m.locationLng != null) {
-            map["location"] = mapOf("lat" to m.locationLat, "lng" to m.locationLng)
+            // Live sessions add their ID and end time; older apps still show the starting point.
+            map["location"] = if (m.liveId == null) mapOf("lat" to m.locationLat, "lng" to m.locationLng)
+                else mapOf("lat" to m.locationLat, "lng" to m.locationLng, "liveId" to m.liveId, "liveUntil" to m.liveUntil)
         }
         if (m.type == MessageType.POLL) {
             map["poll"] = mapOf("question" to m.pollQuestion, "options" to m.pollOptionList(), "votes" to emptyMap<String, Int>())

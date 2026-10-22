@@ -49,6 +49,8 @@ export type Visibility = "everyone" | "contacts" | "nobody";
 export const DISAPPEARING_OPTIONS = [0, 86_400, 604_800, 7_776_000] as const;
 export const MAX_TEXT_LENGTH = 4096;
 export const EDIT_WINDOW_MS = 15 * 60 * 1000;
+/** A message keeps at most this many earlier versions (firestore.rules editByAuthor). */
+export const MAX_EDITS = 20;
 export const DELETE_FOR_EVERYONE_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 // ================================================================================ stored documents
@@ -132,11 +134,15 @@ export interface MessageDoc {
   replyTo?: ReplyToDoc;
   media?: MediaDoc;
   contact?: { name: string | null; phone: string | null };
-  location?: { lat: number; lng: number };
+  location?: { lat: number; lng: number; liveId?: string; liveUntil?: number };
   poll?: PollDoc;
   expiresAt?: Timestamp;        // disappearing messages (TTL)
   system?: SystemDoc;           // type SYSTEM (group events)
+  edits?: EditDoc[];            // earlier versions of an edited text, oldest first (members only)
 }
+
+/** One earlier version of an edited message: the replaced text and when the edit happened. */
+export interface EditDoc { text: string; at: Timestamp }
 
 /** presence/{uid}: heartbeat every 45 s while active; stale after 100 s. */
 export interface PresenceDoc { online: boolean; heartbeatAt?: Timestamp; lastSeen?: Timestamp }
@@ -201,6 +207,8 @@ export interface ChatMessage {
   poll: PollDoc | null;
   expiresAt: number;
   system: SystemDoc | null;
+  /** Earlier versions (text and edit time in ms), oldest first; empty if never edited or deleted. */
+  edits: { text: string; at: number }[];
 }
 
 export type DeliveryStatus = "sending" | "sent" | "delivered" | "read";
@@ -306,6 +314,9 @@ export function toMessage(snap: DocumentSnapshot, conversationId: string): ChatM
     poll: obj<PollDoc>(d.poll),
     expiresAt: millis(d.expiresAt),
     system: obj<SystemDoc>(d.system),
+    edits: deleted || !Array.isArray(d.edits) ? [] : d.edits
+      .filter((e): e is EditDoc => !!e && typeof (e as EditDoc).text === "string")
+      .map((e) => ({ text: e.text, at: millis(e.at) })),
   };
 }
 

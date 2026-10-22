@@ -39,6 +39,7 @@ data class Conversation(
     // v3: per-user preferences
     val pinnedAt: Long = 0L,
     val isArchived: Boolean = false,
+    /** Legacy (before v5). Mutes now live in chat_notification_settings; this column is only read once to move them. */
     val mutedUntil: Long = 0L,
     val isFavorite: Boolean = false,
     val markedUnread: Boolean = false,
@@ -58,7 +59,6 @@ data class Conversation(
 
     val isAiConversation: Boolean get() = Ids.AI_ASSISTANT_ID in getParticipantsList()
 
-    fun isMuted(now: Long = System.currentTimeMillis()): Boolean = mutedUntil > now
 
     fun roster(): GroupRoster = GroupRoster(
         participants = getParticipantsList(),

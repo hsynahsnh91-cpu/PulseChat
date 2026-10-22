@@ -103,7 +103,7 @@ class GroupsStatusPrivacyE2ETest : EmulatorE2ETest() {
         val mutedUntil = System.currentTimeMillis() + 8 * 60 * 60 * 1000L
         assertTrue(c.chatRepository.setPinned(group, true))
         c.chatRepository.setFavorite(group, true)
-        c.chatRepository.setMutedUntil(group, mutedUntil)
+        c.chatSettings.setMutedUntil(group, mutedUntil)
         c.chatRepository.setMarkedUnread(group, true)
         c.chatRepository.setArchived(dm, true)
         await("both statuses delivered to the audience") {
@@ -120,7 +120,7 @@ class GroupsStatusPrivacyE2ETest : EmulatorE2ETest() {
         awaitSignedIn()
         await("chat preferences restored") {
             val g = c.db.conversationDao().get(group)
-            g != null && g.isPinned && g.isFavorite && g.mutedUntil == mutedUntil && g.markedUnread
+            g != null && g.isPinned && g.isFavorite && g.markedUnread && c.chatSettings.notificationSettings(group).mutedUntil == mutedUntil
         }
         await("archived chat restored") { c.db.conversationDao().get(dm)?.isArchived == true }
         await("block list restored") { dave in c.db.contactDao().blockedIds(carol) }

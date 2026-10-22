@@ -14,9 +14,11 @@ import com.example.data.model.User
 import com.example.data.prefs.AppPreferences
 import com.example.data.remote.Fs
 import com.example.data.remote.RemoteMappers
+import com.example.data.remote.toTimestamp
 import com.example.domain.ChatListPolicy
 import com.example.domain.DeliveryPolicy
 import com.example.domain.DisappearingPolicy
+import com.example.domain.EditHistory
 import com.example.domain.GroupError
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
@@ -78,6 +80,8 @@ class ChatRepository(
 ) {
     /** Send failures are reported to Settings › Diagnostics (set by AppContainer). */
     var diagnostics: DiagnosticsLog? = null
+    /** Stops live sharing when its message is deleted for everyone (set by AppContainer). */
+    var onLiveLocationDeleted: ((String) -> Unit)? = null
     private val _errors = MutableSharedFlow<ChatError>(extraBufferCapacity = 8)
     /** One-off failures of background commits, surfaced as snackbars. */
     val errors: SharedFlow<ChatError> = _errors.asSharedFlow()
@@ -266,6 +270,26 @@ class ChatRepository(
         )
         insertLocal(m)
         pushMessage(m, conv)
+    }
+
+    /** The chat message that shows a live-location session (points are written by LiveLocationRepository). */
+    suspend fun sendLiveLocation(cid: String, lat: Double, lng: Double, liveId: String, liveUntil: Long) {
+        val me = requireUid()
+        val conv = requireWritable(cid, me)
+        val now = nextCreatedAt(conv)
+        val m = Message(
+            messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = "", type = MessageType.LOCATION,
+            status = initialStatus(), createdAt = now, locationLat = lat, locationLng = lng, liveId = liveId, liveUntil = liveUntil,
+            expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
+        )
+        insertLocal(m)
+        pushMessage(m, conv)
+    }
+
+    /** Throws when the user may not post in [cid] (checked before live sharing starts). */
+    suspend fun checkCanPost(cid: String) {
+        val me = requireUid()
+        requireWritable(cid, me)
     }
 
     suspend fun sendPoll(cid: String, question: String, options: List<String>) {
@@ -606,10 +630,19 @@ class ChatRepository(
         }
         val text = newText.trim()
         if (text == m.content) return
-        db.messageDao().update(m.copy(content = text, editedAt = serverClock.now()))
+        if (!EditHistory.canEditAgain(m.editHistory)) throw ChatException(ChatError.NOT_ALLOWED)
+        // The replaced text joins the message's edit history (readable by the chat's members only,
+        // removed with the message; see domain/EditHistory and firestore.rules editByAuthor).
+        val at = serverClock.now()
+        db.messageDao().update(m.copy(content = text, editedAt = at, editHistory = EditHistory.append(m.editHistory, m.content, at)))
         sync.refreshLastMessage(m.conversationId)
         val batch = firestore.batch()
-        batch.update(msgRef(m.conversationId, m.messageId), mapOf("text" to text, "editedAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()))
+        batch.update(
+            msgRef(m.conversationId, m.messageId), mapOf(
+                "text" to text, "editedAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp(),
+                "edits" to FieldValue.arrayUnion(mapOf("text" to m.content, "at" to at.toTimestamp())),
+            )
+        )
         touchConversation(batch, m.conversationId, if (conv?.lastMessageId == m.messageId) TextTools.preview(text, 100) else null)
         commit(batch) { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
     }
@@ -638,6 +671,7 @@ class ChatRepository(
                     deletedForEveryone = true, content = "", mediaUrl = null, localMediaPath = null, reactions = "", isStarred = false,
                     replyToMessageId = null, replyToPreview = null, replyToSenderId = null, pollOptions = null, pollQuestion = null,
                     contactName = null, contactPhone = null, locationLat = null, locationLng = null, mentions = "", transferState = TransferState.NONE,
+                    editHistory = "", liveId = null, liveUntil = 0L,
                 )
             )
             media.deleteLocal(listOf(m.localMediaPath))
@@ -647,9 +681,15 @@ class ChatRepository(
                 msgRef(m.conversationId, m.messageId), mapOf(
                     "deletedForEveryone" to true, "text" to "", "media" to FieldValue.delete(), "replyTo" to FieldValue.delete(),
                     "poll" to FieldValue.delete(), "contact" to FieldValue.delete(), "location" to FieldValue.delete(),
+                    "edits" to FieldValue.delete(),
                     "mentions" to emptyList<String>(), "reactions" to emptyMap<String, String>(), "updatedAt" to FieldValue.serverTimestamp(),
                 )
             )
+            // A live location goes with its message: sharing stops and the shared points are deleted.
+            m.liveId?.let { liveId ->
+                onLiveLocationDeleted?.invoke(liveId)
+                batch.delete(convRef(m.conversationId).collection(Fs.LIVE).document(liveId))
+            }
             touchConversation(batch, m.conversationId, if (conv?.lastMessageId == m.messageId) "" else null)
             commit(batch) { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
             if (!m.storagePath.isNullOrBlank()) scope.launch(Dispatchers.IO) { media.deleteRemote(m.storagePath) }
@@ -785,7 +825,6 @@ class ChatRepository(
         if (archived) db.conversationDao().setPinned(cid, false, 0L)
     }
 
-    suspend fun setMutedUntil(cid: String, until: Long) = pref(cid, mapOf("mutedUntil" to until)) { db.conversationDao().setMutedUntil(cid, until) }
     suspend fun setFavorite(cid: String, favorite: Boolean) = pref(cid, mapOf("favorite" to favorite)) { db.conversationDao().setFavorite(cid, favorite) }
 
     suspend fun setMarkedUnread(cid: String, unread: Boolean) {

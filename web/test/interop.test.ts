@@ -185,6 +185,10 @@ describe("direct chat between two web clients", () => {
       const m = aliceMessages.value.find((x) => x.id === firstId);
       return m?.text === "Hello again" && m.editedAt > 0;
     });
+    // The replaced text is kept in the message's edit history, visible to the chat's members.
+    const edited = aliceMessages.value.find((x) => x.id === firstId)!;
+    assert.deepEqual(edited.edits.map((e) => e.text), ["Hello from the web 👋"]);
+    assert.ok(edited.edits[0].at > 0);
     await until("Bob sees his photo as the last message", () => bobConv().lastMessage?.id === photoId);
     await deleteForEveryone(bob.pc, bobConv(), bobMessages.value.find((m) => m.id === photoId)!);
     await until("deletion reaches Alice", () => aliceMessages.value.find((m) => m.id === photoId)?.deleted === true);

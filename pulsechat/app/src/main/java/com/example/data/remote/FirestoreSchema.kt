@@ -19,7 +19,8 @@ import java.util.Date
  * uniqueIds/{id10}                 10-digit ID -> uid/username reservation
  * presence/{uid}                   heartbeat presence (privacy-controlled)
  * conversations/{cid}              participants, admins, group info, lastMessage, receipts, typing
- * conversations/{cid}/messages/{messageId}
+ * conversations/{cid}/messages/{messageId}   (edits: earlier versions of an edited text)
+ * conversations/{cid}/live/{liveId}           live-location session: last point, expiry, end
  * statuses/{statusId}              24h status with explicit audience list
  * statuses/{statusId}/views/{uid}
  * calls/{callId}                   WebRTC signalling (offer/answer/state)
@@ -42,6 +43,7 @@ object Fs {
     const val PRESENCE = "presence"
     const val CONVERSATIONS = "conversations"
     const val MESSAGES = "messages"
+    const val LIVE = "live"
     const val STATUSES = "statuses"
     const val VIEWS = "views"
     const val CALLS = "calls"

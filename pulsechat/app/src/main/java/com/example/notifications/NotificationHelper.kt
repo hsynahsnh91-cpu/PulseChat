@@ -20,11 +20,13 @@ import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.data.db.AppDatabase
+import com.example.data.model.ChatNotificationSettings
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.prefs.AppPreferences
 import com.example.domain.DurationFormat
 import com.example.domain.Mentions
+import com.example.domain.NotificationPolicy
 import com.example.domain.model.MessageType
 import java.util.concurrent.ConcurrentHashMap
 
@@ -55,6 +57,8 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
             NotificationChannel(CH_MISSED, context.getString(R.string.channel_missed_calls), NotificationManager.IMPORTANCE_DEFAULT),
             NotificationChannel(CH_ONGOING, context.getString(R.string.channel_ongoing_call), NotificationManager.IMPORTANCE_LOW),
             NotificationChannel(CH_REMINDERS, context.getString(R.string.channel_reminders), NotificationManager.IMPORTANCE_HIGH),
+            // One channel for the ongoing "sharing live location" notice (never one per chat or message).
+            NotificationChannel(CH_LIVE_LOCATION, context.getString(R.string.channel_live_location), NotificationManager.IMPORTANCE_LOW),
         )
         manager.createNotificationChannels(channels)
     }
@@ -87,7 +91,7 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
             MessageType.VIDEO -> context.getString(R.string.preview_video) + (body?.let { " · $it" } ?: "")
             MessageType.AUDIO -> context.getString(R.string.preview_voice) + " " + DurationFormat.clock(m.mediaDurationSeconds * 1000L)
             MessageType.DOCUMENT -> context.getString(R.string.preview_document) + " " + (m.fileName ?: "")
-            MessageType.LOCATION -> context.getString(R.string.preview_location)
+            MessageType.LOCATION -> context.getString(if (m.liveId != null) R.string.preview_live_location else R.string.preview_location)
             MessageType.CONTACT -> context.getString(R.string.preview_contact) + " " + (m.contactName ?: "")
             MessageType.POLL -> context.getString(R.string.preview_poll) + " " + (m.pollQuestion ?: "")
             MessageType.CALL_EVENT -> context.getString(R.string.preview_call)
@@ -95,34 +99,48 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         }
     }
 
-    /** Posts/updates the notification for new incoming messages of one conversation. */
+    /**
+     * Posts/updates the notification for new incoming messages of one conversation. This chat's own
+     * settings (chat_notification_settings) decide here, before anything is posted: a muted chat
+     * posts nothing, and the preview choice or a chat lock limits what the notification may show.
+     * Other chats are not affected.
+     */
     @SuppressLint("MissingPermission")
     suspend fun showMessages(conv: Conversation, messages: List<Message>, me: String) {
         val settings = prefs.current
         if (!canPost()) return
         if (conv.isGroup && !settings.groupNotifications) return
         if (!conv.isGroup && !settings.messageNotifications) return
-        val mentioned = messages.any { Mentions.mentionsUser(it.mentionList(), me) }
-        if (conv.isMuted() && !mentioned) return
-        val lines = active.getOrPut(conv.conversationId) { LinkedHashMap() }
+        val cid = conv.conversationId
+        val chatSettings = db.chatSettingsDao().notificationSettings(me, cid)
+        val locked = db.chatSettingsDao().isLocked(me, cid)
+        val mentioned = messages.any { it.senderId != me && Mentions.mentionsUser(it.mentionList(), me) }
+        if (!NotificationPolicy.shouldNotify(chatSettings?.mutedUntil ?: 0L, System.currentTimeMillis(), conv.isGroup, mentioned)) return
+        val content = NotificationPolicy.content(settings.notificationPreviews, chatSettings?.preview ?: ChatNotificationSettings.PREVIEW_DEFAULT, locked)
+        val showText = content == NotificationPolicy.Content.FULL
+        val showNames = content != NotificationPolicy.Content.HIDDEN
+        val hiddenText = context.getString(R.string.notification_new_message)
+        val lines = active.getOrPut(cid) { LinkedHashMap() }
         for (m in messages) {
             if (m.senderId == me || lines.containsKey(m.messageId)) continue
             val sender = db.contactDao().get(me, m.senderId)?.customNickname ?: db.userDao().get(m.senderId)?.displayName
                 ?: context.getString(R.string.unknown_user)
-            val text = if (settings.notificationPreviews) previewFor(m) else context.getString(R.string.notification_new_message)
-            lines[m.messageId] = Line(m.messageId, sender, m.senderId, text, m.createdAt)
+            lines[m.messageId] = Line(m.messageId, sender, m.senderId, if (showText) previewFor(m) else hiddenText, m.createdAt)
         }
+        // Lines kept from earlier messages must not show text the current setting hides.
+        if (!showText) for (key in lines.keys.toList()) lines[key]?.let { lines[key] = it.copy(text = hiddenText) }
         while (lines.size > 8) lines.remove(lines.keys.first())
         if (lines.isEmpty()) return
-        val title = if (conv.isGroup) conv.title else lines.values.last().sender
+        val appName = context.getString(R.string.app_name)
+        val title = if (!showNames) appName else if (conv.isGroup) conv.title else lines.values.last().sender
         val self = Person.Builder().setName(context.getString(R.string.you)).setKey(me).build()
         val style = NotificationCompat.MessagingStyle(self)
-        if (conv.isGroup && settings.notificationPreviews) {
+        if (conv.isGroup && showNames) {
             style.conversationTitle = conv.title
             style.isGroupConversation = true
         }
         lines.values.forEach { l ->
-            val person = Person.Builder().setName(if (settings.notificationPreviews) l.sender else context.getString(R.string.app_name)).setKey(l.senderKey).build()
+            val person = Person.Builder().setName(if (showNames) l.sender else appName).setKey(if (showNames) l.senderKey else "hidden").build()
             style.addMessage(l.text, l.time, person)
         }
         val requestBase = conv.conversationId.hashCode()
@@ -135,7 +153,7 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         val builder = NotificationCompat.Builder(context, if (conv.isGroup) CH_GROUPS else CH_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ContextCompat.getColor(context, R.color.pulse_accent))
-            .setContentTitle(if (settings.notificationPreviews) title else context.getString(R.string.app_name))
+            .setContentTitle(title)
             .setContentText(lines.values.last().text)
             .setStyle(style)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -144,10 +162,10 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
             .setOnlyAlertOnce(false)
             .setGroup(GROUP_KEY)
             .setWhen(lines.values.last().time)
-            .setVisibility(if (settings.notificationPreviews) NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_SECRET)
+            .setVisibility(if (showNames) NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_SECRET)
             .setContentIntent(openIntent(EXTRA_CONVERSATION, conv.conversationId, requestBase))
-            .addAction(reply)
-            .addAction(markRead)
+        // A locked chat opens only after the screen-lock check, so it offers no reply from the notification.
+        if (!locked) builder.addAction(reply).addAction(markRead)
         try {
             nm.notify(conv.conversationId, MESSAGE_NOTIFICATION_ID, builder.build())
             postSummary()
@@ -217,7 +235,7 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
 
     /** Reminder notification; tapping opens the chat at the message. Returns false if it can't be shown. */
     @SuppressLint("MissingPermission")
-    fun showReminder(r: com.example.data.model.Reminder, chatTitle: String?): Boolean {
+    fun showReminder(r: com.example.data.model.Reminder, chatTitle: String?, chatLocked: Boolean = false): Boolean {
         if (!canPost()) return false
         val open = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -233,7 +251,8 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
                 .putExtra(ReminderReceiver.EXTRA_ID, r.id),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val showContent = prefs.current.notificationPreviews
+        // Reminders about messages of a locked chat never show the text or the chat.
+        val showContent = prefs.current.notificationPreviews && !chatLocked
         val builder = NotificationCompat.Builder(context, CH_REMINDERS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.reminder_notification_title))
@@ -285,7 +304,31 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
             .build()
     }
 
+    /** Ongoing notice of [com.example.location.LiveLocationService] with a Stop action. */
+    fun liveLocationNotification(conversationId: String?, until: Long): Notification {
+        val stop = PendingIntent.getBroadcast(
+            context, 4300, Intent(context, NotificationActionReceiver::class.java).setAction(ACTION_STOP_LIVE_LOCATION),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val until24 = android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(until))
+        val builder = NotificationCompat.Builder(context, CH_LIVE_LOCATION)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.pulse_accent))
+            .setContentTitle(context.getString(R.string.live_notification_title))
+            .setContentText(if (until > 0) context.getString(R.string.live_notification_text, until24) else null)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .addAction(0, context.getString(R.string.live_stop), stop)
+        if (conversationId != null) builder.setContentIntent(openIntent(EXTRA_CONVERSATION, conversationId, 4301))
+        return builder.build()
+    }
+
     companion object {
+        const val CH_LIVE_LOCATION = "live_location"
+        const val LIVE_LOCATION_NOTIFICATION_ID = 6
+        const val ACTION_STOP_LIVE_LOCATION = "com.example.pulsechat.STOP_LIVE_LOCATION"
         const val CH_MESSAGES = "messages"
         const val CH_GROUPS = "groups"
         const val CH_CALLS = "calls_incoming"

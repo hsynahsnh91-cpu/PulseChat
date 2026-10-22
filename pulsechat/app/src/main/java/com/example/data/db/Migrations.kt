@@ -163,5 +163,27 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_2_3, MIGRATION_3_4)
+    /**
+     * v4 -> v5: per-chat notification settings and chat locks (new tables, keyed by account so two
+     * accounts on one phone never share them), plus edit history and live-location columns on
+     * messages. Existing rows are untouched; mutes kept on conversations are moved to the new table
+     * at the next sign-in (the migration cannot know which account they belong to).
+     */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `chat_notification_settings` (`ownerId` TEXT NOT NULL, `conversationId` TEXT NOT NULL, " +
+                    "`mutedUntil` INTEGER NOT NULL, `preview` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`ownerId`, `conversationId`))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `locked_chats` (`ownerId` TEXT NOT NULL, `conversationId` TEXT NOT NULL, " +
+                    "`lockedAt` INTEGER NOT NULL, PRIMARY KEY(`ownerId`, `conversationId`))"
+            )
+            db.execSQL("ALTER TABLE `messages` ADD COLUMN `editHistory` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `messages` ADD COLUMN `liveId` TEXT")
+            db.execSQL("ALTER TABLE `messages` ADD COLUMN `liveUntil` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 }

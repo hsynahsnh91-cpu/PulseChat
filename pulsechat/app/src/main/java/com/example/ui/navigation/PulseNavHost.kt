@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -43,6 +44,9 @@ import com.example.ui.home.HomeScreen
 import com.example.ui.info.ConversationInfoScreen
 import com.example.ui.info.InfoNav
 import com.example.ui.misc.ArchivedScreen
+import com.example.ui.misc.LockedChatsScreen
+import com.example.ui.location.LiveLocationScreen
+import com.example.ui.security.ChatLockGuard
 import com.example.ui.misc.GlobalSearchScreen
 import com.example.ui.misc.MediaViewerScreen
 import com.example.ui.misc.StarredScreen
@@ -83,6 +87,8 @@ object Routes {
     fun search(q: String) = "search?q=" + android.net.Uri.encode(q)
     fun status(owner: String) = "status/$owner"
     fun media(mid: String) = "media/$mid"
+    fun live(cid: String, liveId: String) = "live/$cid/$liveId"
+    const val LOCKED = "locked"
 }
 
 private fun NavHostController.go(route: String) = navigate(route) { launchSingleTop = true }
@@ -181,41 +187,63 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                     openCall = { nav.go(Routes.CALL) },
                     openReminders = { nav.go("reminders") },
                     openFolders = { nav.go("folders") },
+                    openLocked = { nav.go(Routes.LOCKED) },
                 )
             )
+        }
+        // Locked chats (and the list of them) open only after the phone's screen-lock check.
+        composable(Routes.LOCKED) {
+            ChatLockGuard(null, onBack = { nav.popBackStack() }) {
+                LockedChatsScreen(onBack = { nav.popBackStack() }, openChat = { nav.go(Routes.chat(it)) })
+            }
+        }
+        composable(
+            "live/{cid}/{liveId}",
+            arguments = listOf(navArgument("cid") { type = NavType.StringType }, navArgument("liveId") { type = NavType.StringType }),
+        ) { entry ->
+            val cid = entry.arguments?.getString("cid") ?: return@composable
+            val liveId = entry.arguments?.getString("liveId") ?: return@composable
+            ChatLockGuard(cid, onBack = { nav.popBackStack() }) {
+                LiveLocationScreen(cid, liveId, onBack = { nav.popBackStack() })
+            }
         }
         composable(
             "chat/{cid}?msg={msg}",
             arguments = listOf(navArgument("cid") { type = NavType.StringType }, navArgument("msg") { type = NavType.StringType; nullable = true; defaultValue = null }),
         ) { entry ->
             val cid = entry.arguments?.getString("cid") ?: return@composable
-            ChatScreen(cid, entry.arguments?.getString("msg"), ChatNav(
-                back = { nav.popBackStack() },
-                openInfo = { nav.go(Routes.info(it)) },
-                openMedia = { nav.go(Routes.media(it)) },
-                openCall = { nav.go(Routes.CALL) },
-                openMediaBrowser = { nav.go("chat-media/$it") },
-                // A new entry (not single-top), so Back returns to this chat.
-                openChat = { target -> if (target != cid) nav.navigate(Routes.chat(target)) },
-            ))
+            ChatLockGuard(cid, onBack = { nav.popBackStack() }) {
+                ChatScreen(cid, entry.arguments?.getString("msg"), ChatNav(
+                    back = { nav.popBackStack() },
+                    openInfo = { nav.go(Routes.info(it)) },
+                    openMedia = { nav.go(Routes.media(it)) },
+                    openCall = { nav.go(Routes.CALL) },
+                    openMediaBrowser = { nav.go("chat-media/$it") },
+                    // A new entry (not single-top), so Back returns to this chat.
+                    openChat = { target -> if (target != cid) nav.navigate(Routes.chat(target)) },
+                    openLiveLocation = { c, live -> nav.go(Routes.live(c, live)) },
+                ))
+            }
         }
         composable("chat-media/{cid}", arguments = listOf(navArgument("cid") { type = NavType.StringType })) { entry ->
             val cid = entry.arguments?.getString("cid") ?: return@composable
-            ChatMediaScreen(cid, onBack = { nav.popBackStack() }, openMedia = { nav.go(Routes.media(it)) },
-                showInChat = { mid -> container.chatJumps.value = cid to mid; nav.popBackStack() })
+            ChatLockGuard(cid, onBack = { nav.popBackStack() }) {
+                ChatMediaScreen(cid, onBack = { nav.popBackStack() }, openMedia = { nav.go(Routes.media(it)) },
+                    showInChat = { mid -> container.chatJumps.value = cid to mid; nav.popBackStack() })
+            }
         }
         composable("reminders") { RemindersScreen(onBack = { nav.popBackStack() }, openMessage = { cid, mid -> openChatAt(cid, mid) }) }
         composable("folders") { FoldersScreen(onBack = { nav.popBackStack() }) }
         composable("info/{cid}", arguments = listOf(navArgument("cid") { type = NavType.StringType })) { entry ->
             val cid = entry.arguments?.getString("cid") ?: return@composable
-            ConversationInfoScreen(cid, InfoNav(
+            ChatLockGuard(cid, onBack = { nav.popBackStack() }) { ConversationInfoScreen(cid, InfoNav(
                 back = { nav.popBackStack() },
                 openChat = { target -> if (target == cid) nav.popBackStack() else nav.go(Routes.chat(target)) },
                 openMedia = { nav.go(Routes.media(it)) },
                 addMembers = { nav.go(Routes.pick(PickMode.ADD_MEMBERS, it)) },
                 openCall = { nav.go(Routes.CALL) },
                 closeChat = { nav.popBackStack(Routes.HOME, inclusive = false) },
-            ))
+            )) }
         }
         composable(
             "pick/{mode}?cid={cid}",
@@ -244,7 +272,13 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
             "media/{mid}", arguments = listOf(navArgument("mid") { type = NavType.StringType }),
             enterTransition = { fadeIn(Motion.enter(Motion.NAVIGATION)) }, popExitTransition = { fadeOut(Motion.exit(Motion.QUICK)) },
         ) { entry ->
-            MediaViewerScreen(entry.arguments?.getString("mid").orEmpty(), onBack = { nav.popBackStack() })
+            val mid = entry.arguments?.getString("mid").orEmpty()
+            // A photo or video of a locked chat is covered by the same check as the chat.
+            val owner by produceState<String?>(null, mid) { value = container.db.messageDao().get(mid)?.conversationId.orEmpty() }
+            owner?.let { cid ->
+                if (cid.isEmpty()) MediaViewerScreen(mid, onBack = { nav.popBackStack() })
+                else ChatLockGuard(cid, onBack = { nav.popBackStack() }) { MediaViewerScreen(mid, onBack = { nav.popBackStack() }) }
+            }
         }
         composable(
             Routes.CALL,

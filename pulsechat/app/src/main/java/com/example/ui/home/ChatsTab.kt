@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
@@ -86,6 +87,7 @@ fun ChatsTab(
     selectedFolder: String? = null,
     onFolder: (String?) -> Unit = {},
     onManageFolders: () -> Unit = {},
+    onOpenLocked: () -> Unit = {},
 ) {
     if (!ui.loaded) { LoadingBox(); return }
     LazyColumn(Modifier.fillMaxSize().testTag("chat_list"), contentPadding = contentPadding) {
@@ -138,6 +140,20 @@ fun ChatsTab(
                     Spacer(Modifier.width(24.dp))
                     Text(stringResource(R.string.archived_chats), modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
                     Text(ui.archivedCount.toString(), color = if (ui.archivedUnread > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (ui.lockedCount > 0 && query.isBlank() && filter == ChatFilter.ALL && selectedFolder == null) {
+            item(key = "locked") {
+                // Only the number of locked chats: no names, photos or previews before the screen-lock check.
+                Row(
+                    Modifier.fillMaxWidth().clickable(onClick = onOpenLocked).heightIn(min = 56.dp).padding(horizontal = 24.dp).testTag("locked_chats_entry"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(24.dp))
+                    Text(stringResource(R.string.chat_locked_list_title), modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                    Text(ui.lockedCount.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -250,14 +266,14 @@ fun ChatRow(
                     }
                 }
                 if (c.isFavorite) Icon(Icons.Rounded.Star, contentDescription = stringResource(R.string.filter_favorites), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
-                if (c.isMuted()) Icon(Icons.Rounded.NotificationsOff, contentDescription = stringResource(R.string.muted), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+                if (row.isMuted()) Icon(Icons.Rounded.NotificationsOff, contentDescription = stringResource(R.string.muted), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
                 if (c.isPinned) Icon(Icons.Rounded.PushPin, contentDescription = stringResource(R.string.pinned), tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(16.dp))
                 if (!c.draftText.isNullOrBlank() && typing.isEmpty()) Icon(Icons.Rounded.Edit, contentDescription = null, tint = pulse.metaText, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 if (badge != null) {
                     val badgeDesc = if (badge.isEmpty()) stringResource(R.string.a11y_marked_unread) else stringResource(R.string.a11y_unread_count, badge)
                     Spacer(Modifier.width(6.dp))
                     // Muted chats get a neutral badge so their unread count does not compete for attention.
-                    val muted = c.isMuted()
+                    val muted = row.isMuted()
                     Box(
                         Modifier.clip(CircleShape).background(if (muted) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.primary)
                             .widthIn(min = 20.dp).padding(horizontal = 6.dp, vertical = 2.dp),

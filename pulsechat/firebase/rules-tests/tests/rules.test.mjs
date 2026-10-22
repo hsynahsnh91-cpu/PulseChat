@@ -153,10 +153,30 @@ describe("direct chats and messages", () => {
     await seedDm();
     await seedMessage(DM, "fresh", "alice", 60_000);
     await seedMessage(DM, "old", "alice", 20 * 60_000);
-    const edit = { text: "edited", editedAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    const edit = { text: "edited", editedAt: serverTimestamp(), updatedAt: serverTimestamp(), edits: arrayUnion({ text: "hi", at: Timestamp.now() }) };
     await assertFails(updateDoc(doc(db("bob"), `conversations/${DM}/messages/fresh`), edit));
     await assertSucceeds(updateDoc(doc(db("alice"), `conversations/${DM}/messages/fresh`), edit));
     await assertFails(updateDoc(doc(db("alice"), `conversations/${DM}/messages/old`), edit));
+  });
+
+  test("every edit keeps the replaced text in the history, which cannot be skipped or rewritten", async () => {
+    await seedPeople();
+    await seedDm();
+    await seedMessage(DM, "m1", "alice", 60_000);
+    const msg = (uid) => doc(db(uid), `conversations/${DM}/messages/m1`);
+    const base = { editedAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    // An edit without a history entry, with a made-up earlier text or a far-off time is refused.
+    await assertFails(updateDoc(msg("alice"), { ...base, text: "v2" }));
+    await assertFails(updateDoc(msg("alice"), { ...base, text: "v2", edits: arrayUnion({ text: "something else", at: Timestamp.now() }) }));
+    await assertFails(updateDoc(msg("alice"), { ...base, text: "v2", edits: arrayUnion({ text: "hi", at: Timestamp.fromMillis(Date.now() + 3_600_000) }) }));
+    // The real edit records the replaced text; the next one must keep the first entry and add the second.
+    await assertSucceeds(updateDoc(msg("alice"), { ...base, text: "v2", edits: arrayUnion({ text: "hi", at: Timestamp.now() }) }));
+    await assertFails(updateDoc(msg("alice"), { ...base, text: "v3", edits: [{ text: "v2", at: Timestamp.now() }] }));
+    await assertSucceeds(updateDoc(msg("alice"), { ...base, text: "v3", edits: arrayUnion({ text: "v2", at: Timestamp.now() }) }));
+    const stored = (await getDoc(msg("bob"))).data();
+    if (stored.edits.length !== 2 || stored.edits[0].text !== "hi" || stored.edits[1].text !== "v2") throw new Error("history must list both earlier versions");
+    // Only members of the chat can read the message, and with it the history.
+    await assertFails(getDoc(doc(db("carol"), `conversations/${DM}/messages/m1`)));
   });
 
   test("delete for everyone must remove the content and is author-only", async () => {
@@ -165,11 +185,16 @@ describe("direct chats and messages", () => {
     await seedMessage(DM, "m1", "alice", 60_000, { media: { url: "https://x", path: "chat-media/x" } });
     const wipe = {
       deletedForEveryone: true, text: "", media: deleteField(), replyTo: deleteField(), poll: deleteField(), contact: deleteField(),
-      location: deleteField(), mentions: [], reactions: {}, updatedAt: serverTimestamp(),
+      location: deleteField(), edits: deleteField(), mentions: [], reactions: {}, updatedAt: serverTimestamp(),
     };
     await assertFails(updateDoc(doc(db("bob"), `conversations/${DM}/messages/m1`), wipe));
     await assertFails(updateDoc(doc(db("alice"), `conversations/${DM}/messages/m1`), { ...wipe, text: "still here" }));
     await assertSucceeds(updateDoc(doc(db("alice"), `conversations/${DM}/messages/m1`), wipe));
+    // An edited message loses its edit history with it.
+    await seedMessage(DM, "m2", "alice", 60_000, { text: "v2", editedAt: Timestamp.now(), edits: [{ text: "v1", at: Timestamp.now() }] });
+    const { edits: _keepHistory, ...wipeWithoutHistory } = wipe;
+    await assertFails(updateDoc(doc(db("alice"), `conversations/${DM}/messages/m2`), wipeWithoutHistory));
+    await assertSucceeds(updateDoc(doc(db("alice"), `conversations/${DM}/messages/m2`), wipe));
   });
 
   test("reactions and receipts: each participant controls only their own entry", async () => {
@@ -181,6 +206,48 @@ describe("direct chats and messages", () => {
     await assertSucceeds(updateDoc(doc(db("bob"), `conversations/${DM}`), { "receipts.bob.r": Timestamp.now() }));
     await assertFails(updateDoc(doc(db("bob"), `conversations/${DM}`), { "receipts.alice.r": Timestamp.now() }));
     await assertFails(updateDoc(doc(db("bob"), `conversations/${DM}`), { participants: ["alice", "bob", "carol"] }));
+  });
+});
+
+describe("live location", () => {
+  const live = (uid, id = "s1") => doc(db(uid), `conversations/${DM}/live/${id}`);
+  const start = (extra = {}) => ({
+    ownerId: "alice", lat: 52.07, lng: 4.38, accuracy: 12, fixAt: Timestamp.now(), startedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    expiresAt: Timestamp.fromMillis(Date.now() + 15 * 60_000), endedAt: null, ...extra,
+  });
+  const point = (lat) => ({ lat, lng: 4.39, accuracy: 8, fixAt: Timestamp.now(), updatedAt: serverTimestamp() });
+
+  test("only chat members see it and only the sender writes it, for at most 8 hours", async () => {
+    await seedPeople();
+    await seedDm();
+    await assertFails(setDoc(live("carol"), start({ ownerId: "carol" })));
+    await assertFails(setDoc(live("bob"), start()));
+    await assertFails(setDoc(live("alice"), start({ expiresAt: Timestamp.fromMillis(Date.now() + 9 * 3_600_000) })));
+    await assertFails(setDoc(live("alice"), start({ lat: 123 })));
+    await assertSucceeds(setDoc(live("alice"), start()));
+    await assertSucceeds(getDoc(live("bob")));
+    await assertFails(getDoc(live("carol")));
+    await assertFails(updateDoc(live("bob"), point(52.08)));
+    await assertSucceeds(updateDoc(live("alice"), point(52.08)));
+    await assertFails(updateDoc(live("alice"), { expiresAt: Timestamp.fromMillis(Date.now() + 7 * 3_600_000), updatedAt: serverTimestamp() }));
+  });
+
+  test("a stopped or expired session can never move again", async () => {
+    await seedPeople();
+    await seedDm();
+    await assertSucceeds(setDoc(live("alice"), start()));
+    await assertSucceeds(updateDoc(live("alice"), { endedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(live("alice"), point(52.09)));
+    await assertFails(updateDoc(live("alice"), { endedAt: null, updatedAt: serverTimestamp() }));
+    await seed(async (fs) => setDoc(doc(fs, `conversations/${DM}/live/old`), {
+      ownerId: "alice", lat: 52, lng: 4, accuracy: 5, fixAt: Timestamp.fromMillis(Date.now() - 3_600_000), startedAt: Timestamp.fromMillis(Date.now() - 3_600_000),
+      updatedAt: Timestamp.fromMillis(Date.now() - 3_600_000), expiresAt: Timestamp.fromMillis(Date.now() - 60_000), endedAt: null,
+    }));
+    await assertFails(updateDoc(live("alice", "old"), point(52.1)));
+    // Marking an expired session as ended is still allowed (clean-up), and the sender can delete it.
+    await assertSucceeds(updateDoc(live("alice", "old"), { endedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(live("bob", "old")));
+    await assertSucceeds(deleteDoc(live("alice", "old")));
   });
 });
 

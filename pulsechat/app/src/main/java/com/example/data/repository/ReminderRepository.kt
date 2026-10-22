@@ -110,7 +110,8 @@ class ReminderRepository(
         val chatTitle = r.conversationId?.let { db.conversationDao().get(it) }?.let { c ->
             if (c.isGroup) c.title else c.peerId?.let { db.userDao().get(it)?.displayName } ?: c.title
         }
-        if (!notifications.showReminder(r, chatTitle)) diagnostics.record(DiagnosticsLog.REMINDER, "reminder_not_shown")
+        val locked = r.conversationId?.let { db.chatSettingsDao().isLocked(r.ownerId, it) } == true
+        if (!notifications.showReminder(r, chatTitle, locked)) diagnostics.record(DiagnosticsLog.REMINDER, "reminder_not_shown")
     }
 
     /** Re-arms every scheduled reminder; overdue ones (e.g. the phone was off) fire now. */
