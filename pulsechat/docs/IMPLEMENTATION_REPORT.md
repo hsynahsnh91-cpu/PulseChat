@@ -431,7 +431,35 @@ OEM background limits), and OpenStreetMap availability limits under heavy use.
 
 ## Verification
 
-To be completed with the CI results of this change.
+PR run [39766083337](https://github.com/hsynahsnh91-cpu/PulseChat/actions/runs/39766083337) (commit
+`baaa405`): every job green.
+
+* Builds: debug, release (lint-vital), optimized; Windows fresh-clone build.
+* Unit tests (JVM/Robolectric): **194/194** (38 new). `VoiceGateTest` (10) on synthetic noise and
+  speech at 48 kHz: background lowered ≥ 8 dB between words, a quiet room left within 4 dB, the first
+  30 ms of a word and a soft consonant 12 dB above the noise come out at full level, word endings and
+  120 ms pauses kept, no gain step above 0.03 per sample, never louder than the input, the floor follows
+  a room that gets louder, every sample rate. `CallQualityPolicyTest` (12): first quality per network,
+  mobile data capped at 540p, step-by-step rise, fitting to bandwidth with room for the voice, severe
+  drops act at once, pause after a collapse and resume, no flicker on an unstable network, voice-only
+  calls. Stats parsing, video-edit and storage rules (`Phase3PoliciesTest`), the v5 → v6 migration,
+  `StorageManagerTest` (counts by kind; clearing keeps used files, recent captures and folders), and UI
+  tests for the storage summary, the clear button and a media that can't be sent as it is.
+* Rules: a video cover up to 64 KB is accepted, larger or non-image covers are refused.
+* Instrumented, API 34 emulator: **20/20**.
+  * `VoiceIsolationLoopbackTest`: two peer connections on the device call each other through the app's
+    real media engine; the outgoing microphone frames pass through voice isolation (WebRTC capture
+    post-processing at 48 kHz, 152 frames in the check, no error). Skipped on a device without a usable
+    microphone input (some emulator hosts deliver no audio).
+  * `CallLifecycleE2ETest`: every call has the voice-isolation step and a first automatic quality
+    (`voice 40 kbps (network wifi)` on the emulator), and the encoder accepts the limits.
+  * `VideoEditorUiTest`: trimming 1.7–4.2 s of a 6 s video gives a 3.2 s cut that starts on the keyframe
+    at 1 s, keeps its voice track, has the chosen cover (≤ 48 KB); a video too large to send can only be
+    confirmed once it is short enough.
+  * `Phase3FeaturesE2ETest`: the cut and its cover reach the other person through the backend before any
+    download (`media.thumb`, `media.coverMs`); an unedited video travels with a cover too; a file that
+    is not a video is reported, with no half-written file left.
+  * Screenshot tour: the video bubble with its cover, Settings › Storage, and the video editor.
 
 **Not verified (needs real phones or people):** how much background noise users actually hear removed
 on different phones and rooms, speech onsets with real voices, quality steps on real weak/changing

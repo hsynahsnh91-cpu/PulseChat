@@ -8,6 +8,7 @@ import android.media.MediaRecorder
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -40,19 +41,39 @@ class VoiceIsolationLoopbackTest {
     private val context: Context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val c: AppContainer get() = (context.applicationContext as PulseChatApplication).container
 
-    private fun microphoneWorks(): Boolean = runCatching {
-        val size = AudioRecord.getMinBufferSize(48_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4_096)
-        val record = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 48_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size)
-        try {
-            if (record.state != AudioRecord.STATE_INITIALIZED) return@runCatching false
-            record.startRecording()
-            val read = record.read(ShortArray(480), 0, 480)
-            record.recordingState == AudioRecord.RECORDSTATE_RECORDING && read > 0
-        } finally {
-            runCatching { record.stop() }
-            record.release()
-        }
-    }.getOrDefault(false)
+    /**
+     * Is there a microphone that delivers audio in real time? Non-blocking reads on a separate thread:
+     * on some emulator hosts the audio input never delivers data, and a blocking read would hang.
+     */
+    private fun microphoneWorks(): Boolean {
+        val works = AtomicBoolean(false)
+        val probe = Thread {
+            runCatching {
+                val size = AudioRecord.getMinBufferSize(48_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(4_096)
+                val record = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 48_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size)
+                try {
+                    if (record.state != AudioRecord.STATE_INITIALIZED) return@runCatching
+                    record.startRecording()
+                    val buffer = ShortArray(480)
+                    val deadline = System.currentTimeMillis() + 2_000
+                    var samples = 0
+                    while (System.currentTimeMillis() < deadline && samples < 4_800) {
+                        val n = record.read(buffer, 0, buffer.size, AudioRecord.READ_NON_BLOCKING)
+                        if (n < 0) break
+                        samples += n
+                        if (n == 0) Thread.sleep(20)
+                    }
+                    works.set(record.recordingState == AudioRecord.RECORDSTATE_RECORDING && samples >= 4_800)
+                } finally {
+                    runCatching { record.stop() }
+                    record.release()
+                }
+            }
+        }.apply { isDaemon = true; start() }
+        probe.join(6_000)
+        // A probe still stuck in the audio driver means the microphone is not usable here.
+        return works.get() && !probe.isAlive
+    }
 
     private class Observer(val onCandidate: (IceCandidate) -> Unit, val onState: (PeerConnection.IceConnectionState?) -> Unit) : PeerConnection.Observer {
         override fun onSignalingChange(state: PeerConnection.SignalingState?) = Unit
@@ -128,10 +149,10 @@ class VoiceIsolationLoopbackTest {
             assertTrue("processing rate ${processor.sampleRate}", processor.sampleRate in setOf(16_000, 32_000, 48_000))
             assertTrue("stats are collected: $stats", stats != null && stats.frames > 0)
         } finally {
-            pc1.dispose()
-            pc2.dispose()
-            track.dispose()
-            source.dispose()
+            // Released off the test thread, so a stuck audio driver cannot hang the whole test run.
+            val cleanup = Thread { runCatching { pc1.dispose(); pc2.dispose(); track.dispose(); source.dispose() } }.apply { isDaemon = true; start() }
+            cleanup.join(15_000)
+            if (cleanup.isAlive) Log.w("PulseCallDiag", "loopback: the media engine did not release within 15 s")
         }
     }
 }
