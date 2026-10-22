@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.filter
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onChildren
 import androidx.compose.ui.test.onNodeWithTag
@@ -53,6 +54,12 @@ class VideoEditorUiTest {
         // The start moved back to the keyframe at 1 s: the editor shows the real cut.
         compose.onNodeWithTag("video_edit_summary").assertTextContains("0:01 – 0:04", substring = true)
         compose.onNodeWithTag("video_cover_slider").performSemanticsAction(SemanticsActions.SetProgress) { it(3_000f) }
+        // The previews show real frames: the clip's first picture and the chosen cover.
+        val coverLabel = context.getString(R.string.video_edit_cover)
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithTag("video_start_frame").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithContentDescription(coverLabel).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("video_edit_done").assertIsEnabled().performClick()
         compose.waitUntil(30_000) { result != null }
 

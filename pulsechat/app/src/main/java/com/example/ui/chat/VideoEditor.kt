@@ -204,7 +204,7 @@ fun VideoEditorDialog(source: Uri, maxBytes: Long, onDone: (EditedVideo) -> Unit
                         }
                         Box(Modifier.fillMaxWidth().aspectRatio(video.displayAspect.coerceIn(0.4f, 2.5f)), contentAlignment = Alignment.Center) {
                             AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())
-                            if (!playing) startFrame?.let { Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
+                            if (!playing) startFrame?.let { Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().testTag("video_start_frame")) }
                             Box(
                                 Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)).clickable(enabled = !working) { playing = !playing },
                                 contentAlignment = Alignment.Center,

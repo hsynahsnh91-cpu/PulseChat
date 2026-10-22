@@ -15,6 +15,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -45,6 +47,11 @@ class VideoTrimException(message: String) : Exception(message)
  * Location and other metadata of the original are not copied.
  */
 class VideoTrimmer(private val context: Context) {
+    /**
+     * Frames are read one request at a time: two frame readers decoding at once (filmstrip and cover)
+     * can fail on phones with few video decoders, which would leave a preview empty.
+     */
+    private val frameLock = Mutex()
 
     suspend fun probe(uri: Uri): VideoInfo = withContext(Dispatchers.IO) {
         var duration = 0L
@@ -94,35 +101,41 @@ class VideoTrimmer(private val context: Context) {
     }
 
     /** One frame near [timeMs], at most [maxDim] px on its longer side ([exact] = that very frame, slower). */
-    suspend fun frame(uri: Uri, timeMs: Long, maxDim: Int, exact: Boolean = false): Bitmap? = withContext(Dispatchers.IO) {
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(context, uri)
-            frameAt(retriever, timeMs, maxDim, exact)
-        } catch (e: Exception) {
-            null
-        } finally {
-            runCatching { retriever.release() }
+    suspend fun frame(uri: Uri, timeMs: Long, maxDim: Int, exact: Boolean = false): Bitmap? = frameLock.withLock {
+        withContext(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, uri)
+                frameAt(retriever, timeMs, maxDim, exact)
+            } catch (e: Exception) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
         }
     }
 
     /** Small frames for the editor's filmstrip (one reader for all of them). */
-    suspend fun filmstrip(uri: Uri, timesMs: List<Long>, maxDim: Int): List<Bitmap?> = withContext(Dispatchers.IO) {
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(context, uri)
-            timesMs.map { t -> runCatching { frameAt(retriever, t, maxDim, exact = false) }.getOrNull() }
-        } catch (e: Exception) {
-            timesMs.map { null }
-        } finally {
-            runCatching { retriever.release() }
+    suspend fun filmstrip(uri: Uri, timesMs: List<Long>, maxDim: Int): List<Bitmap?> = frameLock.withLock {
+        withContext(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, uri)
+                timesMs.map { t -> runCatching { frameAt(retriever, t, maxDim, exact = false) }.getOrNull() }
+            } catch (e: Exception) {
+                timesMs.map { null }
+            } finally {
+                runCatching { retriever.release() }
+            }
         }
     }
 
     private fun frameAt(retriever: MediaMetadataRetriever, timeMs: Long, maxDim: Int, exact: Boolean): Bitmap? {
         val option = if (exact) MediaMetadataRetriever.OPTION_CLOSEST else MediaMetadataRetriever.OPTION_CLOSEST_SYNC
         val us = timeMs.coerceAtLeast(0L) * 1000L
-        val raw = if (Build.VERSION.SDK_INT >= 27) retriever.getScaledFrameAtTime(us, option, maxDim, maxDim) else retriever.getFrameAtTime(us, option)
+        // A scaled frame where the phone supports it; the full frame (scaled here) otherwise or if that fails.
+        val scaled = if (Build.VERSION.SDK_INT >= 27) runCatching { retriever.getScaledFrameAtTime(us, option, maxDim, maxDim) }.getOrNull() else null
+        val raw = scaled ?: retriever.getFrameAtTime(us, option)
         return raw?.let { scaledDown(it, maxDim) }
     }
 

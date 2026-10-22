@@ -293,6 +293,13 @@ class ScreenshotTourTest : EmulatorE2ETest() {
         // Per-chat notifications, edit history, live location and chat lock (light phone, dark Arabic).
         // Bob writes and edits a message, then shares a live location (its points are written here
         // directly; the location service itself is covered by Phase2FeaturesE2ETest).
+        // The photo and the video are downloaded now (the chat shots above show them before download),
+        // so Settings › Storage has media to show.
+        runCatching {
+            c.db.messageDao().observeRecent(cid, 0L, 30).first()
+                .filter { it.type == MessageType.IMAGE || it.type == MessageType.VIDEO }
+                .forEach { c.chatRepository.downloadMedia(it.messageId) }
+        }.onFailure { Log.e("PulseTour", "media download failed", it) }
         val live = runCatching {
             val late = c.chatRepository.sendText(cid, "Running 5 minutes late", null, emptyList())
             await("late message sent") { c.db.messageDao().get(late.messageId)?.isOnServer() == true }
@@ -420,7 +427,10 @@ class ScreenshotTourTest : EmulatorE2ETest() {
                 compose.onNodeWithTag("video_trim_range").onChildren().filter(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))[1]
                     .performSemanticsAction(SemanticsActions.SetProgress) { it(4_600f) }
                 compose.onNodeWithTag("video_cover_slider").performSemanticsAction(SemanticsActions.SetProgress) { it(2_400f) }
-                settle(2_500) // filmstrip and cover frames
+                compose.waitUntil(15_000) {
+                    exists("video_start_frame") && compose.onAllNodesWithContentDescription(str(R.string.video_edit_cover)).fetchSemanticsNodes().isNotEmpty()
+                }
+                settle(1_500)
                 shot("${v.id}-13-video-editor")
             }.onFailure { Log.e("PulseTour", "video editor shot failed", it) }
         }

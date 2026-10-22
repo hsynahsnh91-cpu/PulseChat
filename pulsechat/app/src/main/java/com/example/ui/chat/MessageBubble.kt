@@ -536,7 +536,8 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
                 }
             }
             thumb?.let { androidx.compose.foundation.Image(it.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-            if (m.transferState != TransferState.UPLOADING && m.transferState != TransferState.DOWNLOADING && (local != null || m.mediaUrl != null)) {
+            // Play once the video is on this phone; before that the download button is the only control.
+            if (m.transferState != TransferState.UPLOADING && m.transferState != TransferState.DOWNLOADING && local != null) {
                 Box(Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.action_play), tint = Color.White, modifier = Modifier.size(32.dp))
                 }
