@@ -58,4 +58,31 @@ object MediaRefs {
         val clean = key.filter { it.isLetterOrDigit() && it.code < 128 }.take(60)
         return if (clean.length >= 16) "md$clean" else newMediaId()
     }
+
+    /**
+     * Extracts authorization scope fields (`scope`, `conversationId`, `statusId`) from a Storage
+     * path so `firestore.rules` can enforce conversation participation, group membership, status
+     * audience/expiry, and profile photo visibility on the built-in `media/{mediaId}` store.
+     */
+    fun scopeFieldsForStoragePath(storagePath: String?): Map<String, String> {
+        if (storagePath.isNullOrBlank()) return emptyMap()
+        val parts = storagePath.trimStart('/').split('/')
+        return when (parts.firstOrNull()) {
+            "chat-media" -> {
+                val cid = parts.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return emptyMap()
+                mapOf("scope" to "chat", "conversationId" to cid)
+            }
+            "group-photos" -> {
+                val cid = parts.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return emptyMap()
+                mapOf("scope" to "group", "conversationId" to cid)
+            }
+            "status-media" -> {
+                val fileName = parts.getOrNull(2)?.takeIf { it.isNotBlank() } ?: return emptyMap()
+                val sid = fileName.substringBeforeLast('.').ifBlank { fileName }
+                mapOf("scope" to "status", "statusId" to sid)
+            }
+            "profile-photos" -> mapOf("scope" to "profile")
+            else -> emptyMap()
+        }
+    }
 }

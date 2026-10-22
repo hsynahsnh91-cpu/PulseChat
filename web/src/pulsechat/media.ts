@@ -53,16 +53,49 @@ export async function toBytes(data: Blob | Uint8Array | ArrayBuffer): Promise<Ui
   return new Uint8Array(await data.arrayBuffer());
 }
 
+export function scopeFieldsForStoragePath(storagePath?: string | null): Record<string, string> {
+  if (!storagePath) return {};
+  const parts = storagePath.replace(/^\/+/, "").split("/");
+  switch (parts[0]) {
+    case "chat-media":
+      return parts[1] ? { scope: "chat", conversationId: parts[1] } : {};
+    case "group-photos":
+      return parts[1] ? { scope: "group", conversationId: parts[1] } : {};
+    case "status-media": {
+      const file = parts[2];
+      if (!file) return {};
+      const dot = file.lastIndexOf(".");
+      return { scope: "status", statusId: dot > 0 ? file.slice(0, dot) : file };
+    }
+    case "profile-photos":
+      return { scope: "profile" };
+    default:
+      return {};
+  }
+}
+
 /** Writes the metadata document, then the chunks in order. Returns the `pulsemedia://` reference. */
 export async function uploadToStore(
-  pc: PulseChat, data: Uint8Array, mime: string, mediaId: string, onProgress?: (percent: number) => void,
+  pc: PulseChat,
+  data: Uint8Array,
+  mime: string,
+  mediaId: string,
+  onProgress?: (percent: number) => void,
+  storagePath?: string,
 ): Promise<string> {
   const owner = requireUid(pc);
   if (data.byteLength === 0) throw new PulseChatError("EMPTY");
   if (data.byteLength > MEDIA_MAX_BYTES) throw new PulseChatError("TOO_LARGE");
   const chunks = chunkCount(data.byteLength);
   const meta = doc(pc.db, Fs.MEDIA, mediaId);
-  await setDoc(meta, { owner, mime: mime.slice(0, 128), size: data.byteLength, chunks, createdAt: serverTimestamp() });
+  await setDoc(meta, {
+    owner,
+    mime: mime.slice(0, 128),
+    size: data.byteLength,
+    chunks,
+    createdAt: serverTimestamp(),
+    ...scopeFieldsForStoragePath(storagePath),
+  });
   for (let i = 0; i < chunks; i++) {
     const part = data.subarray(i * MEDIA_CHUNK_BYTES, Math.min(data.byteLength, (i + 1) * MEDIA_CHUNK_BYTES));
     await setDoc(doc(pc.db, Fs.MEDIA, mediaId, Fs.MEDIA_CHUNKS, String(i)), { owner, data: Bytes.fromUint8Array(part) });

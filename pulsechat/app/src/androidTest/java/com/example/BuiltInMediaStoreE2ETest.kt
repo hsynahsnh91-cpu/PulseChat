@@ -79,6 +79,8 @@ class BuiltInMediaStoreE2ETest : EmulatorE2ETest() {
         val voiceMeta = c.firestore.collection("media").document(MediaRefs.idOf(sentVoice.mediaUrl)!!).get(Source.SERVER).await()
         assertEquals("voice note split into two chunks", 2L, voiceMeta.getLong("chunks"))
         assertEquals(bob, voiceMeta.getString("owner"))
+        assertEquals("chat", voiceMeta.getString("scope"))
+        assertEquals(cid, voiceMeta.getString("conversationId"))
         switchDevice()
 
         // 3. Alice on a fresh device: both messages arrive, the files download with identical bytes,

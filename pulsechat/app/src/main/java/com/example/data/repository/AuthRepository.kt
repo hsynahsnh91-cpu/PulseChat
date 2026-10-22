@@ -23,6 +23,7 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
@@ -269,6 +270,29 @@ class AuthRepository(
             suppressEvaluation = false
             evaluate(auth.currentUser)
         }
+    }
+
+    /**
+     * Verifies [password] against the currently signed-in account [uid] before sealing it into a
+     * pairing delegation envelope, preventing invalid or cross-account credentials from being stored.
+     */
+    suspend fun verifyCurrentUserPassword(uid: String, password: String): Pair<String, String>? {
+        val current = auth.currentUser ?: return null
+        if (current.uid != uid || password.isBlank()) return null
+        val username = db.userDao().get(uid)?.username?.takeIf { it.isNotBlank() }
+            ?: runCatching {
+                firestore.collection(Fs.USERS).document(uid).get().await().getString("username").orEmpty()
+            }.getOrDefault("")
+            .ifBlank { prefs.recentAccounts().firstOrNull().orEmpty() }
+        if (username.isBlank()) return null
+        val email = Ids.authEmailForUsername(username, projectId)
+        val ok = runCatching {
+            current.reauthenticate(EmailAuthProvider.getCredential(email, password)).await()
+            true
+        }.getOrDefault(false)
+        if (!ok) return null
+        keyManager?.storeAccountDelegation(uid, email, password)
+        return email to password
     }
 
     /** Second step for new Google users: choose a unique username and display name. */

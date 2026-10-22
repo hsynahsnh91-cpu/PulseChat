@@ -23,6 +23,7 @@ import com.example.domain.EditHistory
 import com.example.domain.GroupError
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
+import com.example.domain.MediaRefs
 import com.example.domain.MessageOrder
 import com.example.domain.MessagePolicy
 import com.example.domain.PresencePolicy
@@ -367,7 +368,13 @@ class ChatRepository(
             var lastReported = -10
             try {
                 db.messageDao().setTransfer(m.messageId, TransferState.UPLOADING, 0)
-                val uploaded = media.upload(m.messageId, File(m.localMediaPath!!), m.storagePath!!, m.mediaMimeType ?: "application/octet-stream") { p ->
+                val uploaded = media.upload(
+                    key = m.messageId,
+                    file = File(m.localMediaPath!!),
+                    storagePath = m.storagePath!!,
+                    mime = m.mediaMimeType ?: "application/octet-stream",
+                    customMetadata = mapOf("participants" to conv.participantIds),
+                ) { p ->
                     // 100 % is recorded by setUploadedRef; a late progress write must not undo it.
                     if (p < 100 && (p < lastReported || p - lastReported >= 5)) {
                         lastReported = p
@@ -780,7 +787,10 @@ class ChatRepository(
             for (src in forwardable) {
                 val now = nextCreatedAt(conv)
                 if (src.type.isMedia) {
-                    val path = src.localMediaPath
+                    val path = src.localMediaPath?.takeIf { File(it).exists() }
+                        ?: src.mediaUrl?.takeIf { MediaRefs.isPulse(it) }?.let { ref ->
+                            runCatching { media.cachedStoreFile(ref).absolutePath }.getOrNull()
+                        }
                     if (path != null && File(path).exists()) {
                         val copy = File(media.mediaDir, "fwd_${Ids.newId("m")}.${MediaRepository.extensionFor(src.mediaMimeType ?: "", src.fileName ?: "")}")
                         File(path).copyTo(copy, overwrite = true)
@@ -794,6 +804,7 @@ class ChatRepository(
                             isForwarded = true, replyToMessageId = null, replyToPreview = null, replyToSenderId = null, replyToType = null,
                             mentions = "", reactions = "", isStarred = false, deletedForMe = false, localMediaPath = null,
                             transferState = TransferState.NONE, updatedAt = 0L, editedAt = 0L, pollVotesByUser = "",
+                            editHistory = "", failureReason = null,
                             expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
                         )
                         insertLocal(m)
@@ -925,7 +936,12 @@ class ChatRepository(
         val photoUrl = photo?.let { uri ->
             runCatching {
                 val bytes = media.compressImage(uri, 640, 85) ?: return@runCatching null
-                media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg").url
+                media.uploadBytes(
+                    bytes = bytes,
+                    storagePath = "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg",
+                    mime = "image/jpeg",
+                    customMetadata = mapOf("participants" to participants.joinToString(",")),
+                ).url
             }.getOrNull()
         }
         val now = System.currentTimeMillis()
@@ -1026,7 +1042,12 @@ class ChatRepository(
         var photoUrl = c.avatarUrl
         if (photo != null) {
             val bytes = media.compressImage(photo, 640, 85) ?: throw ChatException(ChatError.FILE_UNREADABLE)
-            photoUrl = media.uploadBytes(bytes, "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg", "image/jpeg").url
+            photoUrl = media.uploadBytes(
+                bytes = bytes,
+                storagePath = "group-photos/$cid/$me/photo_${System.currentTimeMillis()}.jpg",
+                mime = "image/jpeg",
+                customMetadata = mapOf("participants" to c.participantIds),
+            ).url
             update["photoUrl"] = photoUrl
         }
         val event = when {
@@ -1131,6 +1152,11 @@ class ChatRepository(
     }
 
     fun cancelDownload(messageId: String) = media.cancelDownload(messageId)
+
+    fun clearSessionState() {
+        lastTypingWrite.clear()
+        typingState.clear()
+    }
 
     suspend fun clearMediaFor(cid: String) {
         val files = db.messageDao().withLocalMedia(cid).filter { it.mediaUrl != null }

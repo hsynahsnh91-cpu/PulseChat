@@ -127,4 +127,25 @@ class MediaRefsTest {
         assertTrue(MediaRefs.isValidId(MediaRefs.mediaIdFor("st_0123456789abcdef0123456789abcdef")))
         assertTrue("short keys get a random ID", MediaRefs.isValidId(MediaRefs.mediaIdFor("x")))
     }
+
+    @Test fun scopeFieldsForStoragePathMapsStoragePathsToFirestoreScopes() {
+        assertEquals(
+            mapOf("scope" to "chat", "conversationId" to "dm_alice_bob"),
+            MediaRefs.scopeFieldsForStoragePath("chat-media/dm_alice_bob/alice/m1.jpg"),
+        )
+        assertEquals(
+            mapOf("scope" to "group", "conversationId" to "grp_0123456789abcdef"),
+            MediaRefs.scopeFieldsForStoragePath("group-photos/grp_0123456789abcdef/avatar.jpg"),
+        )
+        assertEquals(
+            mapOf("scope" to "status", "statusId" to "st_0123456789abcdef"),
+            MediaRefs.scopeFieldsForStoragePath("status-media/alice/st_0123456789abcdef.jpg"),
+        )
+        assertEquals(
+            mapOf("scope" to "profile"),
+            MediaRefs.scopeFieldsForStoragePath("profile-photos/alice/avatar.jpg"),
+        )
+        assertTrue(MediaRefs.scopeFieldsForStoragePath(null).isEmpty())
+        assertTrue(MediaRefs.scopeFieldsForStoragePath("unknown/path.jpg").isEmpty())
+    }
 }

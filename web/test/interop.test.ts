@@ -199,6 +199,8 @@ describe("direct chat between two web clients", () => {
     assert.equal(photo.media?.size, png.byteLength);
     assert.deepEqual(new Uint8Array(await getBytes(storageRef(alice.pc.storage, photo.media!.path))), png);
     await expectDenied("upload into another user's folder", uploadBytes(storageRef(alice.pc.storage, `chat-media/${draft.id}/${bob.uid}/x.png`), png, { contentType: "image/png" }));
+    const mallory = await newUser("mallory", "Mallory");
+    await expectDenied("outsider reading direct chat media in Cloud Storage", getBytes(storageRef(mallory.pc.storage, photo.media!.path)));
 
     // Reactions, edit and delete-for-everyone as the rules allow them.
     await react(alice.pc, aliceConv(), original, "👍");
@@ -252,6 +254,11 @@ describe("built-in media store (projects without Cloud Storage)", () => {
     assert.deepEqual(await mediaBytes(alice.pc, msg.media!), voice, "Alice downloads identical bytes");
 
     const mediaId = storeIdOf(msg.media!.url)!;
+    assert.equal(meta.scope, "chat");
+    assert.equal(meta.conversationId, draft.id);
+    const mallory = await newUser("bmallory", "Mallory");
+    await expectDenied("outsider reading built-in media metadata", getDoc(doc(mallory.pc.db, "media", mediaId)));
+    await expectDenied("outsider reading built-in media chunk", getDoc(doc(mallory.pc.db, "media", mediaId, "chunks", "0")));
     await expectDenied("overwriting someone else's chunk", setDoc(doc(alice.pc.db, "media", mediaId, "chunks", "0"), { owner: alice.uid, data: Bytes.fromUint8Array(new Uint8Array(4)) }));
     await expectDenied("deleting someone else's media", deleteDoc(doc(alice.pc.db, "media", mediaId)));
   });

@@ -161,7 +161,17 @@ class StatusRepository(
         scope.launch(Dispatchers.IO) {
             try {
                 var last = -10
-                val uploaded = media.upload(item.statusId, File(item.localMediaPath!!), item.storagePath!!, mime) { p ->
+                val uploaded = media.upload(
+                    key = item.statusId,
+                    file = File(item.localMediaPath!!),
+                    storagePath = item.storagePath!!,
+                    mime = mime,
+                    customMetadata = mapOf(
+                        "audience" to item.audience,
+                        "expiresAt" to item.expiresAt.toString(),
+                        "statusId" to item.statusId,
+                    ),
+                ) { p ->
                     if (p < 100 && (p < last || p - last >= 5)) { last = p; scope.launch(Dispatchers.IO) { db.statusDao().setUpload(item.statusId, StatusItem.UPLOAD_UPLOADING, p) } }
                 }
                 db.statusDao().upsert(item.copy(mediaUrl = uploaded.url, storagePath = uploaded.path, uploadState = StatusItem.UPLOAD_PENDING, uploadProgress = 100))

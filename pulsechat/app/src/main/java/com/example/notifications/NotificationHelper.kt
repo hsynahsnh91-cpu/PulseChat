@@ -111,17 +111,20 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         if (!canPost()) return
         if (conv.isGroup && !settings.groupNotifications) return
         if (!conv.isGroup && !settings.messageNotifications) return
+        val blockedIds = runCatching { db.contactDao().blockedIds(me).toSet() }.getOrDefault(emptySet())
+        val unblockedMessages = messages.filter { it.senderId !in blockedIds }
+        if (unblockedMessages.isEmpty()) return
         val cid = conv.conversationId
         val chatSettings = db.chatSettingsDao().notificationSettings(me, cid)
         val locked = db.chatSettingsDao().isLocked(me, cid)
-        val mentioned = messages.any { it.senderId != me && Mentions.mentionsUser(it.mentionList(), me) }
+        val mentioned = unblockedMessages.any { it.senderId != me && Mentions.mentionsUser(it.mentionList(), me) }
         if (!NotificationPolicy.shouldNotify(chatSettings?.mutedUntil ?: 0L, System.currentTimeMillis(), conv.isGroup, mentioned)) return
         val content = NotificationPolicy.content(settings.notificationPreviews, chatSettings?.preview ?: ChatNotificationSettings.PREVIEW_DEFAULT, locked)
         val showText = content == NotificationPolicy.Content.FULL
         val showNames = content != NotificationPolicy.Content.HIDDEN
         val hiddenText = context.getString(R.string.notification_new_message)
         val lines = active.getOrPut(cid) { LinkedHashMap() }
-        for (m in messages) {
+        for (m in unblockedMessages) {
             if (m.senderId == me || lines.containsKey(m.messageId)) continue
             val sender = db.contactDao().get(me, m.senderId)?.customNickname ?: db.userDao().get(m.senderId)?.displayName
                 ?: context.getString(R.string.unknown_user)

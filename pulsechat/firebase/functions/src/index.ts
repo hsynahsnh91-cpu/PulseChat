@@ -15,7 +15,7 @@
  * Requires the Blaze plan. The Firestore database ID must match the app's named database.
  */
 import { setGlobalOptions, logger } from "firebase-functions/v2";
-import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { initializeApp } from "firebase-admin/app";
@@ -281,12 +281,6 @@ export const exchangeDevicePairing = onRequest({ cors: true }, async (req, res) 
     const customToken = await getAuth().createCustomToken(outcome.ownerUid, {
       linkedDeviceId: outcome.deviceId,
     });
-    await push(
-      outcome.ownerUid,
-      deviceLinkedPayload(outcome.deviceId, outcome.deviceName),
-      24 * 3600,
-      outcome.deviceId,
-    ).catch(() => undefined);
 
     res.status(200).json({
       uid: outcome.ownerUid,
@@ -301,9 +295,10 @@ export const exchangeDevicePairing = onRequest({ cors: true }, async (req, res) 
 
 /**
  * When a linked device is revoked, delete its FCM token immediately so it receives no further
- * notifications; when a new QR-linked device becomes active, notify the account's other devices.
+ * notifications; when a new QR-linked device becomes active (created or re-linked), notify the
+ * account's other active devices once.
  */
-export const onLinkedDeviceUpdated = onDocumentUpdated(
+export const onLinkedDeviceUpdated = onDocumentWritten(
   { document: "users/{uid}/linkedDevices/{deviceId}", database: DATABASE },
   async (event) => {
     const before = event.data?.before.data();
@@ -324,12 +319,17 @@ export const purgeExpired = onSchedule("every 60 minutes", async () => {
   for (const query of [
     db.collectionGroup("messages").where("expiresAt", "<", now).limit(400),
     db.collection("statuses").where("expiresAt", "<", now).limit(400),
-    db.collection("devicePairings").where("expiresAt", "<", now).limit(400),
+    db.collection("devicePairings").where("expiresAt", "<", now).limit(200),
     db.collection("devicePairingCodes").where("expiresAt", "<", now).limit(400),
   ]) {
     const snap = await query.get();
     const batch = db.batch();
-    snap.docs.forEach((d) => batch.delete(d.ref));
+    snap.docs.forEach((d) => {
+      if (d.ref.parent.id === "devicePairings") {
+        batch.delete(d.ref.collection("exchange").doc("envelope"));
+      }
+      batch.delete(d.ref);
+    });
     if (!snap.empty) await batch.commit();
     deleted += snap.size;
   }

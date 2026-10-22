@@ -229,7 +229,18 @@ class UserRepository(
         val me = currentUid() ?: return
         val bytes = media.compressImage(uri, 640, 85) ?: throw IllegalArgumentException("unreadable image")
         val previous = db.userDao().get(me)?.avatarUrl
-        val url = media.uploadBytes(bytes, "profile-photos/$me/avatar_${System.currentTimeMillis()}.jpg", "image/jpeg").url
+        val blocked = db.contactDao().blockedIds(me).toSet()
+        val contacts = (db.contactDao().contactIds(me).toSet() - blocked).joinToString(",")
+        val url = media.uploadBytes(
+            bytes = bytes,
+            storagePath = "profile-photos/$me/avatar_${System.currentTimeMillis()}.jpg",
+            mime = "image/jpeg",
+            customMetadata = mapOf(
+                "visibility" to prefs.current.photoVisibility.name.lowercase(),
+                "contacts" to contacts,
+                "blocked" to blocked.joinToString(","),
+            ),
+        ).url
         firestore.collection(Fs.USERS).document(me).collection(Fs.RESTRICTED).document(Fs.PHOTO_DOC)
             .set(mapOf("url" to url, "updatedAt" to FieldValue.serverTimestamp())).await()
         db.userDao().get(me)?.let { db.userDao().upsert(it.copy(avatarUrl = url)) }

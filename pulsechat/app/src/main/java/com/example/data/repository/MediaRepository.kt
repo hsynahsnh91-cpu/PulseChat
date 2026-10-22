@@ -189,11 +189,18 @@ class MediaRepository(
      * Uploads [file] for [key] (message/status ID). [storagePath] is the Cloud Storage path the
      * storage rules allow; when Cloud Storage is unavailable the file goes to the built-in store.
      */
-    suspend fun upload(key: String, file: File, storagePath: String, mime: String, onProgress: (Int) -> Unit): UploadResult {
+    suspend fun upload(
+        key: String,
+        file: File,
+        storagePath: String,
+        mime: String,
+        customMetadata: Map<String, String> = emptyMap(),
+        onProgress: (Int) -> Unit,
+    ): UploadResult {
         if (!file.exists() || file.length() == 0L) throw FileNotFoundException("missing media file")
         if (storageLikelyAvailable()) {
             try {
-                return UploadResult(uploadToStorage(key, file, storagePath, mime, onProgress), storagePath)
+                return UploadResult(uploadToStorage(key, file, storagePath, mime, customMetadata, onProgress), storagePath)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -202,16 +209,23 @@ class MediaRepository(
             }
         }
         onProgress(0)
-        return trackStoreJob(key) { uploadToStore(file.length(), { file.inputStream() }, mime, MediaRefs.mediaIdFor(key), onProgress) }
+        return trackStoreJob(key) {
+            uploadToStore(file.length(), { file.inputStream() }, mime, MediaRefs.mediaIdFor(key), storagePath, onProgress)
+        }
     }
 
     /** Uploads a small in-memory file (profile and group photos). */
-    suspend fun uploadBytes(bytes: ByteArray, storagePath: String, mime: String): UploadResult {
+    suspend fun uploadBytes(
+        bytes: ByteArray,
+        storagePath: String,
+        mime: String,
+        customMetadata: Map<String, String> = emptyMap(),
+    ): UploadResult {
         if (bytes.isEmpty()) throw IllegalArgumentException("empty media")
         if (storageLikelyAvailable()) {
             try {
                 val ref = storageProvider().reference.child(storagePath)
-                ref.putBytes(bytes, StorageMetadata.Builder().setContentType(mime).build()).await()
+                ref.putBytes(bytes, buildStorageMetadata(mime, customMetadata)).await()
                 return UploadResult(ref.downloadUrl.await().toString(), storagePath)
             } catch (e: CancellationException) {
                 throw e
@@ -220,12 +234,27 @@ class MediaRepository(
                 markStorageUnavailable(e)
             }
         }
-        return uploadToStore(bytes.size.toLong(), { ByteArrayInputStream(bytes) }, mime, MediaRefs.newMediaId()) { }
+        return uploadToStore(bytes.size.toLong(), { ByteArrayInputStream(bytes) }, mime, MediaRefs.newMediaId(), storagePath) { }
     }
 
-    private suspend fun uploadToStorage(key: String, file: File, storagePath: String, mime: String, onProgress: (Int) -> Unit): String {
+    private fun buildStorageMetadata(mime: String, customMetadata: Map<String, String>): StorageMetadata {
+        val builder = StorageMetadata.Builder().setContentType(mime)
+        for ((k, v) in customMetadata) {
+            if (k.isNotBlank()) builder.setCustomMetadata(k, v)
+        }
+        return builder.build()
+    }
+
+    private suspend fun uploadToStorage(
+        key: String,
+        file: File,
+        storagePath: String,
+        mime: String,
+        customMetadata: Map<String, String>,
+        onProgress: (Int) -> Unit,
+    ): String {
         val ref = storageProvider().reference.child(storagePath)
-        val task = ref.putFile(Uri.fromFile(file), StorageMetadata.Builder().setContentType(mime).build())
+        val task = ref.putFile(Uri.fromFile(file), buildStorageMetadata(mime, customMetadata))
         uploads[key] = task
         task.addOnProgressListener { snap ->
             val total = snap.totalByteCount
@@ -243,14 +272,29 @@ class MediaRepository(
     }
 
     /** Writes the metadata document, then the chunks in order (the reader trusts `chunks`). */
-    private suspend fun uploadToStore(size: Long, open: () -> InputStream, mime: String, mediaId: String, onProgress: (Int) -> Unit): UploadResult =
+    private suspend fun uploadToStore(
+        size: Long,
+        open: () -> InputStream,
+        mime: String,
+        mediaId: String,
+        storagePath: String? = null,
+        onProgress: (Int) -> Unit,
+    ): UploadResult =
         withContext(Dispatchers.IO) {
             val owner = currentUid() ?: throw IllegalStateException("not signed in")
             if (!MediaRefs.fits(size)) throw MediaTooLargeException(MediaRefs.MAX_BYTES)
             val chunks = MediaRefs.chunkCount(size)
             val doc = firestoreProvider().collection(Fs.MEDIA).document(mediaId)
+            val metaFields = mutableMapOf<String, Any>(
+                "owner" to owner,
+                "mime" to mime.take(128),
+                "size" to size,
+                "chunks" to chunks,
+                "createdAt" to FieldValue.serverTimestamp(),
+            )
+            metaFields.putAll(MediaRefs.scopeFieldsForStoragePath(storagePath))
             withTimeoutOrNull(WRITE_TIMEOUT_MS) {
-                doc.set(mapOf("owner" to owner, "mime" to mime.take(128), "size" to size, "chunks" to chunks, "createdAt" to FieldValue.serverTimestamp())).await()
+                doc.set(metaFields).await()
                 true
             } ?: throw IOException("media upload timed out")
             open().use { input ->

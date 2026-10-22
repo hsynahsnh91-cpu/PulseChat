@@ -111,7 +111,7 @@ service cloud.firestore {
                'pairedByDeviceId', 'sessionId'])
             && d.deviceId == deviceId && d.uid == userId
             && d.deviceName is string && d.deviceName.size() > 0 && d.deviceName.size() <= 80
-            && d.deviceType in ['android_phone', 'android_tablet', 'web', 'unknown']
+            && d.deviceType in ['android_phone', 'android_tablet', 'web', 'other', 'unknown']
             && d.platform in ['android', 'web']
             && d.publicKey is string && d.publicKey.size() >= 32 && d.publicKey.size() <= 512
             && d.keyFingerprint is string && d.keyFingerprint.matches('^[0-9a-f]{16,64}$')
@@ -121,15 +121,20 @@ service cloud.firestore {
             && d.updatedAt == request.time;
         }
         function validActiveCreate(d) {
+          let claimDid = request.auth.token.get('linkedDeviceId', null);
           return validDeviceFields(d)
             && d.status == 'active'
             && d.linkedAt == request.time && d.lastActiveAt == request.time
             && d.get('revokedAt', null) == null
+            && (claimDid == null || (claimDid == deviceId && d.authMethod == 'qr_linked'))
             && (d.authMethod == 'primary_login' || (
                  d.authMethod == 'qr_linked'
                  && d.get('sessionId', null) is string
                  && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.ownerUid == userId
                  && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.requesterDeviceId == deviceId
+                 && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.status == 'completed'
+                 && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.consumed == true
+                 && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.completedAt == request.time
                ));
         }
 
@@ -502,28 +507,68 @@ service cloud.firestore {
     // Used for photos, voice notes, videos, documents, statuses and profile/group photos whenever
     // the project has no usable Cloud Storage bucket (see MediaRefs.kt). A file is a metadata
     // document plus numbered chunks of at most 512 KB (64 chunks, i.e. 32 MB, at most).
-    // Like Storage objects, media can be read by signed-in users who know its random ID, which
-    // only appears in documents the reader is already allowed to see; it can never be listed.
-    // Only the uploader can write or delete it.
+    // Scoped media documents enforce conversation participation, group membership, status audience
+    // and expiry, or profile photo visibility + block list; legacy unscoped documents remain
+    // readable by non-blocked signed-in users holding the unguessable ID.
     match /media/{mediaId} {
       function validMediaId() { return mediaId.matches('^[A-Za-z0-9_-]{8,64}$'); }
       function mediaOwnedByMe() { return resource == null || resource.data.owner == uid(); }
+      function validMediaScope(d) {
+        let sc = d.get('scope', null);
+        let cid = d.get('conversationId', null);
+        let sid = d.get('statusId', null);
+        return (sc == null || sc in ['chat', 'group', 'status', 'profile'])
+          && (cid == null || (cid is string && cid.size() > 0 && cid.size() <= 128))
+          && (sid == null || (sid is string && sid.size() > 0 && sid.size() <= 128))
+          && (sc != 'chat' || (cid is string && cid.size() > 0))
+          && (sc != 'group' || (cid is string && cid.size() > 0))
+          && (sc != 'status' || (sid is string && sid.size() > 0))
+          && (resource == null || (
+               sc == resource.data.get('scope', null)
+               && cid == resource.data.get('conversationId', null)
+               && sid == resource.data.get('statusId', null)
+             ));
+      }
+      function canReadMedia(m) {
+        let sc = m.get('scope', null);
+        return signedIn() && (
+          m.owner == uid()
+          || (sc == 'chat' && m.get('conversationId', '') is string && (
+                (m.conversationId.matches('^dm_.*') && (
+                  m.conversationId.matches('^dm_' + uid() + '_.*') || m.conversationId.matches('^dm_.*_' + uid() + '$')
+                ))
+                || (exists(convPath(m.conversationId)) && uid() in get(convPath(m.conversationId)).data.participants)
+             ))
+          || (sc == 'group' && m.get('conversationId', '') is string
+                && exists(convPath(m.conversationId)) && uid() in get(convPath(m.conversationId)).data.participants)
+          || (sc == 'status' && m.get('statusId', '') is string
+                && exists(/databases/$(database)/documents/statuses/$(m.statusId))
+                && uid() in get(/databases/$(database)/documents/statuses/$(m.statusId)).data.audience
+                && get(/databases/$(database)/documents/statuses/$(m.statusId)).data.expiresAt > request.time
+                && !hasBlocked(m.owner, uid()))
+          || (sc == 'profile'
+                && (!exists(/databases/$(database)/documents/users/$(m.owner)) || visibilityAllows(m.owner, 'photoVisibility'))
+                && !hasBlocked(m.owner, uid()))
+          || (sc == null && !hasBlocked(m.owner, uid()))
+        );
+      }
 
-      allow get: if signedIn();
+      allow get: if canReadMedia(resource.data);
       allow list: if false;
       allow create, update: if signedIn() && validMediaId() && mediaOwnedByMe()
-        && request.resource.data.keys().hasOnly(['owner', 'mime', 'size', 'chunks', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['owner', 'mime', 'size', 'chunks', 'createdAt', 'scope', 'conversationId', 'statusId'])
         && request.resource.data.owner == uid()
         && request.resource.data.mime is string && request.resource.data.mime.size() <= 128
         && request.resource.data['size'] is int && request.resource.data['size'] > 0 && request.resource.data['size'] <= 33554432
         && request.resource.data.chunks is int && request.resource.data.chunks > 0 && request.resource.data.chunks <= 64
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && validMediaScope(request.resource.data);
       allow delete: if signedIn() && resource.data.owner == uid();
 
       match /chunks/{index} {
         function parent() { return get(/databases/$(database)/documents/media/$(mediaId)).data; }
 
-        allow get: if signedIn();
+        allow get: if canReadMedia(parent());
         allow list: if false;
         allow create, update: if signedIn()
           && (resource == null || resource.data.owner == uid())
@@ -574,7 +619,7 @@ service cloud.firestore {
         && request.resource.data.completedAt == null
         && request.resource.data.requesterDeviceId is string && request.resource.data.requesterDeviceId.size() >= 8 && request.resource.data.requesterDeviceId.size() <= 64
         && request.resource.data.requesterDeviceName is string && request.resource.data.requesterDeviceName.size() > 0 && request.resource.data.requesterDeviceName.size() <= 80
-        && request.resource.data.requesterDeviceType in ['android_phone', 'android_tablet', 'web', 'unknown']
+        && request.resource.data.requesterDeviceType in ['android_phone', 'android_tablet', 'web', 'other', 'unknown']
         && request.resource.data.requesterPlatform in ['android', 'web']
         && request.resource.data.requesterPublicKey is string && request.resource.data.requesterPublicKey.size() >= 32 && request.resource.data.requesterPublicKey.size() <= 512
         && request.resource.data.requesterKeyFingerprint is string && request.resource.data.requesterKeyFingerprint.matches('^[0-9a-f]{16,64}$')
@@ -613,7 +658,7 @@ service cloud.firestore {
         // 3. Requesting device cancels or expires its own pending session by proving possession of sessionSecret
         (resource.data.status == 'pending' && resource.data.consumed == false
           && pchanged().hasOnly(['status', 'updatedAt', 'secretProof'])
-          && request.resource.data.status in ['expired', 'revoked']
+          && request.resource.data.status in ['expired', 'revoked', 'cancelled']
           && request.resource.data.updatedAt == request.time
           && validSecretProof())
         ||
@@ -671,7 +716,10 @@ service cloud.firestore {
         && request.resource.data.expiresAt > request.time
         && request.resource.data.expiresAt <= request.time + duration.value(3, 'm')
         && getAfter(/databases/$(database)/documents/devicePairings/$(request.resource.data.sessionId)).data.manualCodeHash == codeHash;
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if codeHash.matches('^[0-9a-f]{64}$')
+        && (request.time >= resource.data.expiresAt
+            || getAfter(/databases/$(database)/documents/devicePairings/$(resource.data.sessionId)).data.status in ['revoked', 'expired', 'cancelled', 'rejected', 'completed']);
     }
 
     // ------------------------------------------------------------------ admin-managed config (e.g. TURN servers)

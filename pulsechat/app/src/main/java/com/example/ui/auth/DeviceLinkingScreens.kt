@@ -1315,6 +1315,7 @@ private fun LinkNewDeviceApproverScreen(
                                 value = verifyPassword,
                                 onValueChange = { verifyPassword = it },
                                 label = { Text(stringResource(R.string.auth_password)) },
+                                isError = state.error != null,
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(),
                                 keyboardOptions = KeyboardOptions(
@@ -1323,6 +1324,15 @@ private fun LinkNewDeviceApproverScreen(
                                 ),
                                 modifier = Modifier.fillMaxWidth(),
                             )
+                            if (state.error != null) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = stringResource(DeviceLinkingViewModel.errorStringRes(state.error)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
                             Spacer(Modifier.height(14.dp))
                             Button(
                                 onClick = { onApprove(preview, verifyPassword) },

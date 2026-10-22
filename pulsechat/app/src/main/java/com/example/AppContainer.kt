@@ -234,6 +234,8 @@ class AppContainer(val app: Application) {
         callManager.hangUp()
         liveLocation.stop(LiveLocationRepository.StopReason.SIGNED_OUT)
         chatSettings.closeLockedChats()
+        appLock.disableLock()
+        chatRepository.clearSessionState()
         runCatching { scheduledMessages.clearForSignOut(id) }
         runCatching { reminders.clearForSignOut(id) }
         userRepository.goOffline(id)
@@ -247,14 +249,16 @@ class AppContainer(val app: Application) {
     private suspend fun handleIncoming(conv: Conversation, messages: List<Message>) {
         val me = uid() ?: return
         val settings = prefs.current
-        messages.filter { it.type.isMedia && it.localMediaPath == null && it.mediaUrl != null }.forEach { m ->
+        val blockedIds = runCatching { db.contactDao().blockedIds(me).toSet() }.getOrDefault(emptySet())
+        val allowedMessages = messages.filter { it.senderId !in blockedIds }
+        allowedMessages.filter { it.type.isMedia && it.localMediaPath == null && it.mediaUrl != null }.forEach { m ->
             if (AutoDownloadPolicy.shouldAutoDownload(m.type, connectivity.network.value, settings.autoDownload, m.mediaSizeBytes)) {
                 appScope.launch { chatRepository.downloadMedia(m.messageId) }
             }
         }
         val visible = syncManager.activeConversationId == conv.conversationId && AppForeground.inForeground.value
-        if (!visible) notifications.showMessages(conv, messages, me)
-        maybeAutoReply(conv, messages, me)
+        if (!visible && allowedMessages.isNotEmpty()) notifications.showMessages(conv, allowedMessages, me)
+        maybeAutoReply(conv, allowedMessages, me)
     }
 
     /** User-configured away message (direct chats only, with a per-contact cooldown). */

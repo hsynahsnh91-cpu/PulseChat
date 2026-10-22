@@ -645,7 +645,8 @@ class DeviceLinkRepository(
                         cleanupActiveRequest(markCancelledOnServer = false)
                         _requestState.value = PairingRequestUiState.Rejected
                     }
-                    PairingSessionStatus.CANCELLED -> {
+                    PairingSessionStatus.CANCELLED,
+                    PairingSessionStatus.REVOKED -> {
                         cleanupActiveRequest(markCancelledOnServer = false)
                         _requestState.value = PairingRequestUiState.Cancelled
                     }
@@ -800,6 +801,7 @@ class DeviceLinkRepository(
             _linkSuccessEvents.tryEmit(devName)
         } catch (e: Exception) {
             Log.w(TAG, "completeApprovedSession failed: ${e.message}")
+            rateLimiter.recordExchangeFailure(secretRecord.sessionId)
             cleanupActiveRequest(markCancelledOnServer = false)
             val pairingErr = (e as? PairingException)?.error ?: mapFirestoreError(e)
             _requestState.value = if (pairingErr == PairingError.EXPIRED) {
@@ -1087,14 +1089,10 @@ class DeviceLinkRepository(
 
         var delegation = keyManager.readAccountDelegation(uid)
         if (delegation == null && !verificationPassword.isNullOrBlank()) {
-            val username = prefs.recentAccounts().firstOrNull()
-                ?: runCatching {
-                    firestore.collection(Fs.USERS).document(uid).get().await().getString("username").orEmpty()
-                }.getOrDefault("")
-            if (username.isNotBlank()) {
-                val email = Ids.authEmailForUsername(username, projectId)
-                keyManager.storeAccountDelegation(uid, email, verificationPassword)
-                delegation = email to verificationPassword
+            delegation = authRepository.verifyCurrentUserPassword(uid, verificationPassword)
+            if (delegation == null) {
+                _approverState.value = ApproverScanState.NeedsAccountVerification(preview, error = PairingError.UNAUTHORIZED)
+                return
             }
         }
 
@@ -1191,6 +1189,10 @@ class DeviceLinkRepository(
             _approverState.value = ApproverScanState.Error(PairingError.UNAUTHORIZED)
             return
         }
+        if (!verifyCurrentDeviceActive()) {
+            _approverState.value = ApproverScanState.Error(PairingError.DEVICE_REVOKED)
+            return
+        }
         _approverState.value = ApproverScanState.Approving
         try {
             val sessionRef = firestore.collection(Fs.DEVICE_PAIRINGS).document(preview.sessionId)
@@ -1207,6 +1209,10 @@ class DeviceLinkRepository(
                             "codeVerifierProof" to preview.codeVerifier,
                         )
                     )
+                    val codeHash = snap.getString("manualCodeHash").orEmpty()
+                    if (codeHash.isNotBlank()) {
+                        tx.delete(firestore.collection(Fs.DEVICE_PAIRING_CODES).document(codeHash))
+                    }
                 }
             }.await()
             _approverState.value = ApproverScanState.Rejected

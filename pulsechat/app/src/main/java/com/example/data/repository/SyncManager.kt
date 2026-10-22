@@ -141,6 +141,9 @@ class SyncManager(
         globalRegs.clear()
         messageRegs.values.forEach { it.remove() }
         messageRegs.clear()
+        pendingPrefs.clear()
+        deliveredWritten.clear()
+        readWritten.clear()
         uid = null
         _status.value = SyncStatus(SyncState.STOPPED)
         _typing.value = emptyMap()

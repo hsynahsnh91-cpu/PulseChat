@@ -156,12 +156,12 @@ object DevicePairingPolicy {
             PairingStatus.PENDING -> when (to) {
                 PairingStatus.APPROVED -> notExpired
                 PairingStatus.REJECTED -> notExpired
-                PairingStatus.EXPIRED, PairingStatus.REVOKED -> true
+                PairingStatus.EXPIRED, PairingStatus.REVOKED, PairingStatus.CANCELLED -> true
                 else -> false
             }
             PairingStatus.APPROVED -> when (to) {
                 PairingStatus.COMPLETED -> notExpired
-                PairingStatus.REVOKED, PairingStatus.EXPIRED -> true
+                PairingStatus.REVOKED, PairingStatus.EXPIRED, PairingStatus.CANCELLED -> true
                 else -> false
             }
             else -> false
