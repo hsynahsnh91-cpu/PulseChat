@@ -9,9 +9,12 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.example.domain.DevicePairingPolicy
 import com.example.domain.FileEntry
+import com.example.domain.PairingQrPayload
 import com.example.domain.StorageCategory
 import com.example.domain.StoragePolicy
+import com.example.ui.auth.QrCodeCanvas
 import com.example.ui.settings.StorageSummary
 import com.example.ui.settings.TemporaryFilesCard
 import com.example.ui.status.MediaCaptionDialog
@@ -85,5 +88,22 @@ class Phase3UiTest {
         compose.onNodeWithTag("media_send").performClick()
         assertEquals(0, sent)
         compose.onNodeWithTag("media_edit").assertExists()
+    }
+
+    @Test
+    fun qrCodeCanvasRendersPairingPayloadWithoutError() {
+        val uri = DevicePairingPolicy.buildQrUri(
+            PairingQrPayload(
+                version = 1,
+                sessionId = "sess_1234567890abcdefghij",
+                codeVerifier = "verifier_1234567890abcdef",
+                keyFingerprint = "0123456789abcdef01234567",
+            )
+        )
+        compose.setContent {
+            PulseChatTheme {
+                QrCodeCanvas(content = uri)
+            }
+        }
     }
 }

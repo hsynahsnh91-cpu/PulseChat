@@ -441,3 +441,242 @@ describe("built-in media store (used when Cloud Storage is unavailable)", () => 
     await assertFails(setDoc(doc(fs, "media/mdChunkLimit00000001/chunks/1"), chunk("bob")));
   });
 });
+
+describe("device linking and linked-device revocation", () => {
+  const SESS = "sess_0123456789abcdefghijk";
+  const SECRET = "secret_token_0123456789abcdef";
+  const SECRET_HASH = "e05b8e30f924f5eb1c0264e32f040560d52b9b05a0808b4981197b3c9b7f4438"; // replaced dynamically below
+  const VERIFIER = "verifier_tok_0123456789abcdef";
+
+  async function sha256Hex(str) {
+    const { createHash } = await import("node:crypto");
+    return createHash("sha256").update(str, "utf8").digest("hex");
+  }
+
+  async function makeSession(overrides = {}) {
+    const secretHash = await sha256Hex(SECRET);
+    const codeChallenge = await sha256Hex(VERIFIER);
+    const manualCodeHash = await sha256Hex("ABCD2345");
+    return {
+      sessionId: SESS,
+      status: "pending",
+      requesterDeviceId: "dev_new_0001",
+      requesterDeviceName: "Pixel 8 Pro",
+      requesterDeviceType: "android_phone",
+      requesterPlatform: "android",
+      requesterPublicKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0123456789abcdef0123456789abcdef",
+      requesterKeyFingerprint: "0123456789abcdef01234567",
+      ephemeralPublicKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfedcba9876543210fedcba9876543210",
+      secretHash,
+      codeChallenge,
+      manualCodeHash,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      expiresAt: Timestamp.fromMillis(Date.now() + 120_000),
+      ownerUid: null,
+      approvedByDeviceId: null,
+      approvedAt: null,
+      completedAt: null,
+      consumed: false,
+      ...overrides,
+    };
+  }
+
+  test("unauthenticated new device creates a short-lived pairing session; listing is forbidden", async () => {
+    const data = await makeSession();
+    const batch = writeBatch(anon());
+    batch.set(doc(anon(), `devicePairings/${SESS}`), data);
+    batch.set(doc(anon(), `devicePairingCodes/${data.manualCodeHash}`), {
+      sessionId: SESS,
+      codeVerifier: VERIFIER,
+      keyFingerprint: data.requesterKeyFingerprint,
+      createdAt: serverTimestamp(),
+      expiresAt: data.expiresAt,
+    });
+    await assertSucceeds(batch.commit());
+    await assertSucceeds(getDoc(doc(anon(), `devicePairings/${SESS}`)));
+    await assertFails(getDocs(collection(anon(), "devicePairings")));
+    await assertFails(getDocs(collection(db("alice"), "devicePairings")));
+    await assertFails(getDocs(collection(db("alice"), "devicePairingCodes")));
+
+    // Reject pre-approved, pre-owned, or long-TTL sessions
+    await assertFails(setDoc(doc(anon(), "devicePairings/sess_bad_status_012345678"), await makeSession({ sessionId: "sess_bad_status_012345678", status: "approved" })));
+    await assertFails(setDoc(doc(anon(), "devicePairings/sess_bad_owner_0123456789"), await makeSession({ sessionId: "sess_bad_owner_0123456789", ownerUid: "alice" })));
+    await assertFails(setDoc(doc(anon(), "devicePairings/sess_bad_ttl_012345678901"), await makeSession({
+      sessionId: "sess_bad_ttl_012345678901",
+      expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60_000),
+    })));
+  });
+
+  test("approval requires authenticated owner and valid QR codeVerifier proof; consumo is strictly one-time", async () => {
+    await seedPeople();
+    const data = await makeSession();
+    await setDoc(doc(anon(), `devicePairings/${SESS}`), data);
+
+    // Unauthenticated or wrong codeVerifier Proof fails
+    await assertFails(updateDoc(doc(anon(), `devicePairings/${SESS}`), {
+      status: "approved",
+      ownerUid: "alice",
+      approvedByDeviceId: "dev_primary_01",
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      codeVerifierProof: VERIFIER,
+    }));
+    await assertFails(updateDoc(doc(db("alice"), `devicePairings/${SESS}`), {
+      status: "approved",
+      ownerUid: "alice",
+      approvedByDeviceId: "dev_primary_01",
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      codeVerifierProof: "wrong_verifier_0123456789abc",
+    }));
+
+    // Cannot substitute requesterDeviceId or requesterPublicKey during approval
+    await assertFails(updateDoc(doc(db("alice"), `devicePairings/${SESS}`), {
+      status: "approved",
+      ownerUid: "alice",
+      approvedByDeviceId: "dev_primary_01",
+      requesterDeviceId: "dev_attacker_99",
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      codeVerifierProof: VERIFIER,
+    }));
+
+    // Valid approval + ECDH envelope creation in one batch succeeds
+    const appBatch = writeBatch(db("alice"));
+    appBatch.update(doc(db("alice"), `devicePairings/${SESS}`), {
+      status: "approved",
+      ownerUid: "alice",
+      approvedByDeviceId: "dev_primary_01",
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      codeVerifierProof: VERIFIER,
+    });
+    appBatch.set(doc(db("alice"), `devicePairings/${SESS}/exchange/envelope`), {
+      approverEphemeralPublicKey: data.ephemeralPublicKey,
+      ivBase64Url: "0123456789abcdef",
+      ciphertextBase64Url: "0123456789abcdef0123456789abcdef",
+      createdAt: serverTimestamp(),
+    });
+    await assertSucceeds(appBatch.commit());
+
+    // Concurrent second approval by bob fails
+    await assertFails(updateDoc(doc(db("bob"), `devicePairings/${SESS}`), {
+      status: "approved",
+      ownerUid: "bob",
+      approvedByDeviceId: "dev_bob_01",
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      codeVerifierProof: VERIFIER,
+    }));
+
+    // Requesting device reads envelope while approved & unconsumed
+    await assertSucceeds(getDoc(doc(anon(), `devicePairings/${SESS}/exchange/envelope`)));
+
+    // Completing without valid secretProof fails
+    await assertFails(updateDoc(doc(db("alice"), `devicePairings/${SESS}`), {
+      status: "completed",
+      consumed: true,
+      completedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      secretProof: "wrong_secret_0123456789abcdef",
+      deviceSignature: "MEUCIQDz0123456789abcdef0123456789abcdef",
+    }));
+
+    // Valid one-time completion + linkedDevice creation + envelope deletion succeeds
+    const compBatch = writeBatch(db("alice"));
+    compBatch.update(doc(db("alice"), `devicePairings/${SESS}`), {
+      status: "completed",
+      consumed: true,
+      completedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      secretProof: SECRET,
+      deviceSignature: "MEUCIQDz0123456789abcdef0123456789abcdef",
+    });
+    compBatch.set(doc(db("alice"), "users/alice/linkedDevices/dev_new_0001"), {
+      deviceId: "dev_new_0001",
+      uid: "alice",
+      deviceName: "Pixel 8 Pro",
+      deviceType: "android_phone",
+      platform: "android",
+      publicKey: data.requesterPublicKey,
+      keyFingerprint: data.requesterKeyFingerprint,
+      authMethod: "qr_linked",
+      status: "active",
+      online: true,
+      linkedAt: serverTimestamp(),
+      lastActiveAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      revokedAt: null,
+      revokedByDeviceId: null,
+      pairedByDeviceId: "dev_primary_01",
+      sessionId: SESS,
+    });
+    compBatch.delete(doc(db("alice"), `devicePairings/${SESS}/exchange/envelope`));
+    await assertSucceeds(compBatch.commit());
+
+    // Replay of completion or reading envelope after consumption fails
+    await assertFails(getDoc(doc(anon(), `devicePairings/${SESS}/exchange/envelope`)));
+    await assertFails(updateDoc(doc(db("alice"), `devicePairings/${SESS}`), {
+      status: "completed",
+      consumed: true,
+      completedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      secretProof: SECRET,
+      deviceSignature: "MEUCIQDz0123456789abcdef0123456789abcdef",
+    }));
+  });
+
+  test("revoking a linked device blocks its custom-token claim, FCM token registration, and pairing approvals", async () => {
+    await seedPeople();
+    await seedDm();
+    const alicePrimary = db("alice");
+    const pubKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0123456789abcdef0123456789abcdef";
+
+    // Register primary and secondary linked devices
+    for (const devId of ["dev_primary_01", "dev_linked_02"]) {
+      await assertSucceeds(setDoc(doc(alicePrimary, `users/alice/linkedDevices/${devId}`), {
+        deviceId: devId,
+        uid: "alice",
+        deviceName: devId,
+        deviceType: "android_phone",
+        platform: "android",
+        publicKey: pubKey,
+        keyFingerprint: "0123456789abcdef01234567",
+        authMethod: "primary_login",
+        status: "active",
+        online: true,
+        linkedAt: serverTimestamp(),
+        lastActiveAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        revokedAt: null,
+        revokedByDeviceId: null,
+        pairedByDeviceId: null,
+        sessionId: null,
+      }));
+    }
+
+    const aliceLinked = env.authenticatedContext("alice", { linkedDeviceId: "dev_linked_02" }).firestore();
+    // While active, dev_linked_02 can read conversations and register FCM token
+    await assertSucceeds(getDoc(doc(aliceLinked, `conversations/${DM}`)));
+    await assertSucceeds(setDoc(doc(aliceLinked, "users/alice/devices/dev_linked_02"), { token: "fcm_tok_2" }));
+
+    // Primary device revokes dev_linked_02 and deletes its FCM token
+    const revBatch = writeBatch(alicePrimary);
+    revBatch.update(doc(alicePrimary, "users/alice/linkedDevices/dev_linked_02"), {
+      status: "revoked",
+      online: false,
+      revokedAt: serverTimestamp(),
+      revokedByDeviceId: "dev_primary_01",
+      updatedAt: serverTimestamp(),
+    });
+    revBatch.delete(doc(alicePrimary, "users/alice/devices/dev_linked_02"));
+    await assertSucceeds(revBatch.commit());
+
+    // Even with an unexpired ID token, dev_linked_02 is now rejected across Firestore
+    await assertFails(getDoc(doc(aliceLinked, `conversations/${DM}`)));
+    await assertFails(setDoc(doc(alicePrimary, "users/alice/devices/dev_linked_02"), { token: "fcm_tok_readd" }));
+    // But dev_linked_02 can still read its own linkedDevices doc to observe that it was revoked
+    await assertSucceeds(getDoc(doc(aliceLinked, "users/alice/linkedDevices/dev_linked_02")));
+  });
+});

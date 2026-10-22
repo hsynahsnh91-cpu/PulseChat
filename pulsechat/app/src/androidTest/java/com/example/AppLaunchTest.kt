@@ -47,4 +47,13 @@ class AppLaunchTest {
         compose.onNodeWithTag("register_button").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Passwords don't match.").fetchSemanticsNodes().isNotEmpty() }
     }
+
+    @Test
+    fun authScreenDeviceLinkingEntryAndReturnToLogin() {
+        compose.waitUntil(20_000) { compose.onAllNodesWithTag("login_button").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("auth_link_existing_device_button").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("device_link_back_to_login").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("device_link_back_to_login").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("login_button").fetchSemanticsNodes().isNotEmpty() }
+    }
 }

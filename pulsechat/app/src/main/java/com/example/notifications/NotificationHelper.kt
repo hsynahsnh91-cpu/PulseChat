@@ -325,9 +325,45 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         return builder.build()
     }
 
+    /** Security notification informing the account owner that a new device was linked. */
+    @SuppressLint("MissingPermission")
+    fun showDeviceLinkedNotification(deviceName: String) {
+        if (!canPost()) return
+        val label = deviceName.ifBlank { context.getString(R.string.device_link_unknown_device) }
+        val notification = NotificationCompat.Builder(context, CH_REMINDERS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.pulse_accent))
+            .setContentTitle(context.getString(R.string.device_linked_notification_title))
+            .setContentText(context.getString(R.string.device_linked_notification_body, label))
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(openIntent(EXTRA_OPEN_LINKED_DEVICES, "1", 4401))
+            .build()
+        nm.notify(DEVICE_SECURITY_NOTIFICATION_ID, notification)
+    }
+
+    /** Security notification shown when this device's access is revoked remotely. */
+    @SuppressLint("MissingPermission")
+    fun showDeviceRevokedNotification() {
+        if (!canPost()) return
+        val notification = NotificationCompat.Builder(context, CH_REMINDERS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.pulse_accent))
+            .setContentTitle(context.getString(R.string.device_revoked_notification_title))
+            .setContentText(context.getString(R.string.device_revoked_notification_body))
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(DEVICE_SECURITY_NOTIFICATION_ID + 1, notification)
+    }
+
     companion object {
         const val CH_LIVE_LOCATION = "live_location"
         const val LIVE_LOCATION_NOTIFICATION_ID = 6
+        const val DEVICE_SECURITY_NOTIFICATION_ID = 7
+        const val EXTRA_OPEN_LINKED_DEVICES = "open_linked_devices"
         const val ACTION_STOP_LIVE_LOCATION = "com.example.pulsechat.STOP_LIVE_LOCATION"
         const val CH_MESSAGES = "messages"
         const val CH_GROUPS = "groups"

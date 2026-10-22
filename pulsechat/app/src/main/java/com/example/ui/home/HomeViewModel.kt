@@ -60,6 +60,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
     val me: String = c.authRepository.currentUid.orEmpty()
     private val _events = MutableSharedFlow<ChatError>(extraBufferCapacity = 4)
     val events: SharedFlow<ChatError> = _events.asSharedFlow()
+    val linkSuccessEvents: SharedFlow<String> = c.deviceLinkRepository.linkSuccessEvents
 
     val meUser: StateFlow<User?> = c.userRepository.observeUser(me).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val filter = MutableStateFlow(ChatFilter.ALL)

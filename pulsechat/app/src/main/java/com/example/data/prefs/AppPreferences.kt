@@ -199,6 +199,24 @@ class AppPreferences(context: Context) {
         get() = secure.getString("push_token", null)
         set(value) { secure.edit().putString("push_token", value).apply() }
 
+    /** How the current session authenticated on this device ("primary_login" or "qr_linked"). */
+    var currentAuthMethod: String?
+        get() = secure.getString("auth_method", null)
+        set(value) {
+            secure.edit().apply {
+                if (value == null) remove("auth_method") else putString("auth_method", value)
+            }.apply()
+        }
+
+    /** Pairing session ID that authorized this device when [currentAuthMethod] is "qr_linked". */
+    var currentPairingSessionId: String?
+        get() = secure.getString("pairing_session_id", null)
+        set(value) {
+            secure.edit().apply {
+                if (value == null) remove("pairing_session_id") else putString("pairing_session_id", value)
+            }.apply()
+        }
+
     /** Clears per-account settings on sign-out (device-wide appearance settings are kept). */
     fun clearAccountScoped() {
         prefs.edit()
@@ -207,7 +225,7 @@ class AppPreferences(context: Context) {
             .remove("ai_consent").remove("ai_smart_replies")
             .apply()
         // App lock belongs to the signed-in account (and signing out is the way out of a forgotten PIN).
-        secure.edit().remove("push_token")
+        secure.edit().remove("push_token").remove("auth_method").remove("pairing_session_id")
             .putBoolean("app_lock", false).remove("app_lock_pin").remove("app_lock_biometric")
             .remove("app_lock_failures").remove("app_lock_lockout_until")
             .apply()

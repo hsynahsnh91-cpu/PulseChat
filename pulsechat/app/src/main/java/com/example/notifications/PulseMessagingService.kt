@@ -34,6 +34,18 @@ class PulseMessagingService : FirebaseMessagingService() {
                 val callId = data["callId"] ?: return
                 container.callManager.onRemoteCallEnded(callId)
             }
+            "device_linked" -> {
+                val deviceId = data["deviceId"].orEmpty()
+                if (deviceId.isNotBlank() && deviceId != container.prefs.deviceId) {
+                    container.notifications.showDeviceLinkedNotification(data["deviceName"].orEmpty())
+                }
+            }
+            "device_revoked" -> {
+                val deviceId = data["deviceId"] ?: return
+                if (deviceId == container.prefs.deviceId) {
+                    runBlocking { withTimeoutOrNull(9_000) { container.deviceLinkRepository.handleRemoteRevocationPush() } }
+                }
+            }
         }
     }
 }

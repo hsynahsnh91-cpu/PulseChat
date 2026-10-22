@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
@@ -99,11 +100,20 @@ private fun Context.findActivity(): Activity? {
 @Composable
 fun AuthRoute(session: SessionState) {
     val vm: AuthViewModel = viewModel(factory = containerFactory { AuthViewModel(it.app, it.authRepository, it.prefs) })
+    val linkVm: DeviceLinkingViewModel = viewModel(factory = containerFactory { DeviceLinkingViewModel(it.deviceLinkRepository, it.connectivity) })
     val ui by vm.ui.collectAsState()
+    var showDeviceLink by rememberSaveable { mutableStateOf(false) }
     when (session) {
         is SessionState.NeedsProfile -> CompleteProfileScreen(session.suggestedName, ui, vm)
         is SessionState.ProfileUnavailable -> ProfileUnavailableScreen(ui, vm)
-        else -> AuthScreen(ui, vm)
+        else -> if (showDeviceLink) {
+            AuthDeviceLinkScreen(
+                viewModel = linkVm,
+                onBackToSignIn = { showDeviceLink = false },
+            )
+        } else {
+            AuthScreen(ui, vm, onOpenDeviceLinking = { showDeviceLink = true })
+        }
     }
 }
 
@@ -176,7 +186,11 @@ private fun PrimaryButton(text: String, loading: Boolean, enabled: Boolean, tag:
 }
 
 @Composable
-fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
+fun AuthScreen(
+    ui: AuthUiState,
+    vm: AuthViewModel,
+    onOpenDeviceLinking: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var identifier by rememberSaveable { mutableStateOf("") }
@@ -274,6 +288,16 @@ fun AuthScreen(ui: AuthUiState, vm: AuthViewModel) {
             onClick = { context.findActivity()?.let { vm.google(it) } }, enabled = !ui.loading,
             modifier = Modifier.fillMaxWidth().heightIn(min = Spacing.controlHeight).testTag("google_signin_button"),
         ) { Text(stringResource(R.string.sign_in_google), fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = { onOpenDeviceLinking?.invoke() },
+            enabled = !ui.loading,
+            modifier = Modifier.fillMaxWidth().heightIn(min = Spacing.controlHeight).testTag("auth_link_existing_device_button"),
+        ) {
+            Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.size(8.dp))
+            Text(stringResource(R.string.auth_link_existing_device), fontWeight = FontWeight.SemiBold)
+        }
         Spacer(Modifier.height(24.dp))
         Text(stringResource(R.string.auth_security_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }

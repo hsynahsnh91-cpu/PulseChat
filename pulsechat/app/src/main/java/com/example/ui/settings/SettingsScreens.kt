@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Forum
@@ -177,6 +178,12 @@ fun SettingsHomeScreen(nav: SettingsNav) {
             }
         }
         SettingsGroup {
+            SettingsItem(
+                Icons.Rounded.Devices,
+                stringResource(R.string.linked_devices_title),
+                stringResource(R.string.linked_devices_settings_subtitle),
+                modifier = Modifier.testTag("settings_linked_devices"),
+            ) { nav.open("settings/linked-devices") }
             SettingsItem(Icons.Rounded.Lock, stringResource(R.string.settings_privacy), stringResource(R.string.settings_privacy_sub)) { nav.open("settings/privacy") }
             SettingsItem(Icons.Rounded.Palette, stringResource(R.string.settings_chats), stringResource(R.string.settings_chats_sub)) { nav.open("settings/chats") }
             SettingsItem(Icons.Rounded.Notifications, stringResource(R.string.settings_notifications), stringResource(R.string.settings_notifications_sub)) { nav.open("settings/notifications") }

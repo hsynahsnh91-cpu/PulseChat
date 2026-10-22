@@ -14,6 +14,7 @@ import com.example.data.repository.AutoReplyManager
 import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.ChatSettingsRepository
+import com.example.data.repository.DeviceLinkRepository
 import com.example.data.repository.LiveLocationRepository
 import com.example.data.repository.DiagnosticsLog
 import com.example.data.repository.FolderRepository
@@ -32,6 +33,7 @@ import com.example.media.VoicePlayer
 import com.example.notifications.NotificationHelper
 import com.example.notifications.PushTokenManager
 import com.example.security.AppLockManager
+import com.example.security.DeviceKeyManager
 import com.example.util.AppForeground
 import com.example.util.ConnectivityMonitor
 import com.example.util.EmulatorConfig
@@ -54,6 +56,7 @@ import kotlinx.coroutines.launch
 class AppContainer(val app: Application) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val prefs = AppPreferences(app)
+    val keyManager by lazy { DeviceKeyManager(app, prefs) }
     val db: AppDatabase = AppDatabase.getDatabase(app)
     val connectivity = ConnectivityMonitor(app)
     val serverClock = ServerClock()
@@ -79,7 +82,7 @@ class AppContainer(val app: Application) {
     /** Settings › Storage: what PulseChat keeps on this phone, and clearing temporary files. */
     val storageManager by lazy { StorageManager(app, db, media) }
     val authRepository: AuthRepository by lazy {
-        AuthRepository(auth, firestore, db, prefs, FirebaseApp.getInstance().options.projectId ?: "pulsechat", appScope)
+        AuthRepository(auth, firestore, db, prefs, FirebaseApp.getInstance().options.projectId ?: "pulsechat", appScope, keyManager)
     }
     private val uid: () -> String? = { authRepository.currentUid }
     val userRepository by lazy { UserRepository(firestore, db, prefs, media, serverClock, appScope, uid) }
@@ -90,6 +93,20 @@ class AppContainer(val app: Application) {
     val aiRepository by lazy { AiRepository() }
     val notifications by lazy { NotificationHelper(app, prefs, db) }
     val pushTokens by lazy { PushTokenManager(firestore, prefs, appScope, uid) }
+    val deviceLinkRepository by lazy {
+        DeviceLinkRepository(
+            context = app,
+            firestore = firestore,
+            authRepository = authRepository,
+            prefs = prefs,
+            keyManager = keyManager,
+            pushTokens = pushTokens,
+            notifications = notifications,
+            serverClock = serverClock,
+            projectId = FirebaseApp.getInstance().options.projectId ?: "pulsechat",
+            scope = appScope,
+        )
+    }
     val callDiagnostics by lazy { CallDiagnostics(prefs, BuildConfig.DEBUG) }
     val callManager by lazy { CallManager(app, firestore, db, callRepository, userRepository, notifications, prefs, callDiagnostics, appScope, uid) }
     val voicePlayer by lazy { VoicePlayer(app) }
@@ -139,11 +156,15 @@ class AppContainer(val app: Application) {
                     // Read before the app lock forgets that the user is returning from PulseChat's own picker.
                     chatSettings.onAppForeground(appLock.isReturningFromOwnScreen())
                     appLock.onForeground()
-                    uid()?.let { startRealtime(it) }
+                    uid()?.let {
+                        startRealtime(it)
+                        appScope.launch { deviceLinkRepository.touchCurrentDevice(it, online = true) }
+                    }
                 } else {
                     appLock.onBackground()
                     chatSettings.onAppBackground()
                     voicePlayer.stop()
+                    uid()?.let { appScope.launch { deviceLinkRepository.touchCurrentDevice(it, online = false) } }
                     backgroundJob?.cancel()
                     // Keep listeners briefly (e.g. app switching), then rely on push messages.
                     backgroundJob = appScope.launch {
@@ -184,6 +205,7 @@ class AppContainer(val app: Application) {
         // A live location whose service did not survive a restart is ended, never resumed silently.
         liveLocation.endIfOrphaned()
         startRealtime(id)
+        deviceLinkRepository.onSignedIn(id)
         userRepository.startPresence()
         pushTokens.registerCurrentToken()
         userRepository.pullOwnSettings()
@@ -216,6 +238,7 @@ class AppContainer(val app: Application) {
         runCatching { reminders.clearForSignOut(id) }
         userRepository.goOffline(id)
         userRepository.stopPresence()
+        deviceLinkRepository.onSignedOut(id)
         pushTokens.unregister(id)
         stopRealtime()
         notifications.cancelAllMessages()

@@ -1072,4 +1072,86 @@
     <string name="storage_temp_clear_title">مسح الملفات المؤقتة؟</string>
     <string name="storage_temp_clear_body">تُحمَّل المعاينات من جديد عند الحاجة. تبقى رسائلك وصورك ومقاطع الفيديو والملفات.</string>
     <string name="storage_temp_cleared">تم تحرير %1$s</string>
+
+    <!-- Secure Device Linking & Linked Devices -->
+    <string name="auth_link_existing_device">ربط جهاز موجود</string>
+    <string name="device_link_auth_title">ربط هذا الجهاز</string>
+    <string name="device_link_auth_subtitle">سجّل الدخول دون كتابة كلمة المرور عبر الموافقة على هذا الجهاز من هاتف آخر مسجّل الدخول فيه إلى PulseChat.</string>
+    <string name="device_link_tab_show_code">رمز QR ورمز الربط</string>
+    <string name="device_link_tab_scan_or_enter">مسح أو إدخال الرمز</string>
+    <string name="device_link_preparing_session">جارٍ تجهيز جلسة ربط آمنة…</string>
+    <string name="device_link_scan_with_primary">امسح الرمز بهاتفك المسجّل الدخول فيه</string>
+    <string name="device_link_steps_hint">افتح PulseChat على هاتفك المسجّل الدخول فيه ← القائمة أو الإعدادات ← الأجهزة المرتبطة ← ربط جهاز جديد، ثم امسح رمز QR هذا أو أدخل الرمز أدناه.</string>
+    <string name="device_link_expires_in">ينتهي خلال %1$s</string>
+    <string name="device_link_or_enter_manual_code">أو أدخل رمز الربط المكون من ٨ أحرف</string>
+    <string name="device_link_this_device_meta">هذا الجهاز: %1$s، %2$s</string>
+    <string name="device_link_completing_sign_in">تمت الموافقة! جارٍ إكمال تسجيل الدخول…</string>
+    <string name="device_link_success_title">تم ربط الجهاز بنجاح</string>
+    <string name="device_link_generate_new_qr">إنشاء رمز جديد</string>
+    <string name="device_link_back_to_login">العودة لتسجيل الدخول</string>
+    <string name="device_link_scan_tab_help">إذا كنت تريد ربط هذا الهاتف بحساب موجود، افتح تبويب رمز QR ورمز الربط وامسحه من هاتفك المسجّل الدخول فيه.</string>
+    <string name="device_link_sign_in_required_to_approve">الموافقة على جهاز آخر تتطلب حساباً مسجّل الدخول فيه. لربط هذا الهاتف، انتقل إلى تبويب رمز QR ورمز الربط وامسحه من هاتفك الأساسي.</string>
+    <string name="device_link_camera_permission_title">يلزم إذن الكاميرا</string>
+    <string name="device_link_camera_permission_body">اسمح بالوصول إلى الكاميرا لمسح رمز QR، أو استخدم رمز الربط المكون من ٨ أحرف بدلاً من ذلك.</string>
+    <string name="device_link_grant_camera">السماح بالكاميرا</string>
+    <string name="device_link_camera_unavailable">الكاميرا غير متاحة على هذا الجهاز. يمكنك الربط باستخدام رمز الربط المكون من ٨ أحرف بدلاً من ذلك.</string>
+    <string name="device_link_use_manual_code">إدخال رمز الربط</string>
+    <string name="device_link_use_camera_scanner">مسح رمز QR</string>
+    <string name="device_link_scan_hint">ضع رمز QR داخل الإطار</string>
+    <string name="device_link_manual_code_label">رمز الربط المكون من ٨ أحرف</string>
+    <string name="device_link_verify_code">متابعة</string>
+
+    <string name="linked_devices_title">الأجهزة المرتبطة</string>
+    <string name="linked_devices_settings_subtitle">إدارة الأجهزة المسجّل الدخول فيها وربط جهاز جديد</string>
+    <string name="linked_devices_header_subtitle">استخدم حسابك في PulseChat على هاتف أو جهاز لوحي آخر، وألغِ وصول أي جهاز في أي وقت.</string>
+    <string name="link_new_device_action">ربط جهاز جديد</string>
+    <string name="linked_devices_current_section">هذا الجهاز</string>
+    <string name="linked_devices_other_section">الأجهزة المرتبطة الأخرى</string>
+    <string name="linked_devices_empty">لا توجد أجهزة أخرى مرتبطة بحسابك.</string>
+    <string name="device_this_device_badge">هذا الجهاز</string>
+    <string name="device_status_active_now">نشط الآن</string>
+    <string name="device_linked_at_label">تاريخ الربط: %1$s</string>
+    <string name="device_last_active_label">آخر نشاط: %1$s</string>
+    <string name="device_revoke_action">إلغاء الربط</string>
+    <string name="device_revoke_confirm_title">إلغاء ربط %1$s؟</string>
+    <string name="device_revoke_confirm_body">سيتم تسجيل خروج %1$s (%2$s) فوراً ولن يتلقى أي رسائل أو إشعارات بعد الآن.</string>
+    <string name="device_link_unknown_device">جهاز PulseChat</string>
+    <string name="device_kind_android_phone">هاتف أندرويد</string>
+    <string name="device_kind_android_tablet">جهاز لوحي أندرويد</string>
+    <string name="device_kind_web">متصفح ويب</string>
+    <string name="device_kind_other">جهاز مرتبط</string>
+
+    <string name="device_link_approver_scan_instructions">على جهازك الجديد، افتح PulseChat واضغط على \"ربط جهاز موجود\"، ثم وجّه الكاميرا نحو رمز QR المعروض هناك.</string>
+    <string name="device_link_approver_manual_instructions">أدخل رمز الربط المكون من ٨ أحرف المعروض على الجهاز الجديد الذي تريد ربطه.</string>
+    <string name="device_link_loading_request">جارٍ التحقق من طلب الربط…</string>
+    <string name="device_link_authorizing">جارٍ تفويض الجهاز…</string>
+    <string name="device_link_confirm_title">هل تريد ربط هذا الجهاز بحسابك؟</string>
+    <string name="device_link_security_warning">وافق فقط إذا بدأت هذا الطلب بنفسك على جهازك الآن. الموافقة تمنح هذا الجهاز وصولاً كاملاً إلى حسابك ومحادثاتك في PulseChat.</string>
+    <string name="device_link_approve_action">موافقة وربط الجهاز</string>
+    <string name="device_link_reject_action">رفض الطلب</string>
+    <string name="device_link_confirm_owner_password_title">تأكيد كلمة المرور لمرة واحدة</string>
+    <string name="device_link_confirm_owner_password_body">أدخل كلمة مرور حسابك مرة واحدة على هذا الهاتف لإنشاء مفتاح تفويض آمن للجهاز %1$s.</string>
+    <string name="device_link_approved_done">تم تفويض %1$s ويجري تسجيل دخوله الآن.</string>
+    <string name="device_link_rejected_done">تم رفض طلب الربط.</string>
+
+    <string name="device_linked_notification_title">تم ربط جهاز جديد</string>
+    <string name="device_linked_notification_body">تم ربط %1$s بحسابك في PulseChat. اضغط لمراجعة الأجهزة المرتبطة.</string>
+    <string name="device_revoked_notification_title">تم إلغاء ربط الجهاز</string>
+    <string name="device_revoked_notification_body">تم إلغاء ربط هذا الجهاز من حسابك في PulseChat.</string>
+
+    <string name="device_link_err_invalid_qr">رمز QR هذا ليس رمز ربط صالحاً لتطبيق PulseChat.</string>
+    <string name="device_link_err_unsupported_version">يستخدم رمز الربط هذا إصداراً أحدث. يرجى تحديث PulseChat على الجهازين.</string>
+    <string name="device_link_err_invalid_code">أدخل رمز ربط صالحاً مكوناً من ٨ أحرف.</string>
+    <string name="device_link_err_expired">انتهت صلاحية رمز الربط هذا. أنشئ رمزاً جديداً وحاول مرة أخرى.</string>
+    <string name="device_link_err_already_used">تم استخدام رمز الربط هذا بالفعل.</string>
+    <string name="device_link_err_rejected">تم رفض طلب الربط من الجهاز الأساسي.</string>
+    <string name="device_link_err_cancelled">تم إلغاء عملية الربط.</string>
+    <string name="device_link_err_unauthorized">غير مصرح لك بإكمال طلب الربط هذا.</string>
+    <string name="device_link_err_device_mismatch">تعذّر التحقق من هوية الجهاز. يرجى إنشاء رمز ربط جديد.</string>
+    <string name="device_link_err_device_revoked">لم يعد هذا الجهاز مفوضاً للوصول إلى حسابك.</string>
+    <string name="device_link_err_already_signed_in">هذا الجهاز مسجّل الدخول بالفعل إلى حساب.</string>
+    <string name="device_link_err_rate_limited">محاولات ربط كثيرة جداً. يرجى الانتظار دقيقة والمحاولة مرة أخرى.</string>
+    <string name="device_link_err_not_found">جلسة الربط غير موجودة أو انتهت صلاحيتها.</string>
+    <string name="device_link_err_invalid_state">طلب الربط هذا لم يعد نشطاً.</string>
+    <string name="device_link_err_crypto">تعذّر التحقق من مظروف الربط الآمن. يرجى المحاولة مرة أخرى.</string>
 </resources>

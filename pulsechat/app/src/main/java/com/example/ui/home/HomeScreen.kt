@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Lock
@@ -114,6 +115,7 @@ data class HomeNav(
     val openReminders: () -> Unit = {},
     val openFolders: () -> Unit = {},
     val openLocked: () -> Unit = {},
+    val openLinkedDevices: () -> Unit = {},
 )
 
 private const val TAB_CHATS = 0
@@ -158,6 +160,7 @@ fun HomeScreen(nav: HomeNav) {
 
     LaunchedEffect(Unit) { vm.events.collect { snackbar.showSnackbar(chatErrorText(context, it)) } }
     LaunchedEffect(Unit) { vm.statusErrors.collect { snackbar.showSnackbar(context.getString(it)) } }
+    LaunchedEffect(Unit) { vm.linkSuccessEvents.collect { snackbar.showSnackbar(context.getString(R.string.device_link_success_title)) } }
 
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) pendingMedia = uri to (context.contentResolver.getType(uri)?.startsWith("video/") == true)
@@ -275,6 +278,8 @@ fun HomeScreen(nav: HomeNav) {
                                         enabled = calls.isNotEmpty(), onClick = { menuOpen = false; clearCalls = true }, modifier = Modifier.testTag("menu_clear_calls"))
                                 }
                             }
+                            DropdownMenuItem(text = { Text(stringResource(R.string.linked_devices_title)) }, leadingIcon = { Icon(Icons.Rounded.Devices, null) },
+                                onClick = { menuOpen = false; nav.openLinkedDevices() }, modifier = Modifier.testTag("menu_linked_devices"))
                             DropdownMenuItem(text = { Text(stringResource(R.string.settings_title)) }, leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                                 onClick = { menuOpen = false; nav.openSettings() }, modifier = Modifier.testTag("menu_settings"))
                         }

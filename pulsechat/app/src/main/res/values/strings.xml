@@ -1018,4 +1018,86 @@
     <string name="storage_temp_clear_title">Clear temporary files?</string>
     <string name="storage_temp_clear_body">Previews are loaded again when needed. Your messages, photos, videos and files stay.</string>
     <string name="storage_temp_cleared">Freed %1$s</string>
+
+    <!-- Secure Device Linking & Linked Devices -->
+    <string name="auth_link_existing_device">Link an existing device</string>
+    <string name="device_link_auth_title">Link this device</string>
+    <string name="device_link_auth_subtitle">Sign in without typing your password by approving this device from another phone where you are already signed in to PulseChat.</string>
+    <string name="device_link_tab_show_code">QR &amp; pairing code</string>
+    <string name="device_link_tab_scan_or_enter">Scan or enter code</string>
+    <string name="device_link_preparing_session">Preparing secure pairing session…</string>
+    <string name="device_link_scan_with_primary">Scan with your signed-in phone</string>
+    <string name="device_link_steps_hint">Open PulseChat on your signed-in phone → Menu or Settings → Linked devices → Link a new device, then scan this QR code or enter the code below.</string>
+    <string name="device_link_expires_in">Expires in %1$s</string>
+    <string name="device_link_or_enter_manual_code">Or enter this 8-character pairing code</string>
+    <string name="device_link_this_device_meta">This device: %1$s · %2$s</string>
+    <string name="device_link_completing_sign_in">Approved! Completing sign-in…</string>
+    <string name="device_link_success_title">Device linked successfully</string>
+    <string name="device_link_generate_new_qr">Generate new code</string>
+    <string name="device_link_back_to_login">Back to sign in</string>
+    <string name="device_link_scan_tab_help">If you are trying to link this phone to an existing account, use the QR &amp; pairing code tab and scan it from your signed-in phone.</string>
+    <string name="device_link_sign_in_required_to_approve">Approving another device requires an active signed-in account. To link this phone, switch to the QR &amp; pairing code tab and scan it from your signed-in phone.</string>
+    <string name="device_link_camera_permission_title">Camera permission required</string>
+    <string name="device_link_camera_permission_body">Allow camera access to scan the QR code, or link using the 8-character pairing code instead.</string>
+    <string name="device_link_grant_camera">Allow camera access</string>
+    <string name="device_link_camera_unavailable">Camera is unavailable on this device. You can link using the 8-character pairing code instead.</string>
+    <string name="device_link_use_manual_code">Enter pairing code</string>
+    <string name="device_link_use_camera_scanner">Scan QR code</string>
+    <string name="device_link_scan_hint">Center the QR code inside the frame</string>
+    <string name="device_link_manual_code_label">8-character pairing code</string>
+    <string name="device_link_verify_code">Continue</string>
+
+    <string name="linked_devices_title">Linked devices</string>
+    <string name="linked_devices_settings_subtitle">Manage signed-in devices and link a new device</string>
+    <string name="linked_devices_header_subtitle">Use your PulseChat account on another phone or tablet, and revoke access for any device at any time.</string>
+    <string name="link_new_device_action">Link a new device</string>
+    <string name="linked_devices_current_section">This device</string>
+    <string name="linked_devices_other_section">Other linked devices</string>
+    <string name="linked_devices_empty">No other devices are linked to your account.</string>
+    <string name="device_this_device_badge">This device</string>
+    <string name="device_status_active_now">Active now</string>
+    <string name="device_linked_at_label">Linked: %1$s</string>
+    <string name="device_last_active_label">Last active: %1$s</string>
+    <string name="device_revoke_action">Revoke</string>
+    <string name="device_revoke_confirm_title">Revoke %1$s?</string>
+    <string name="device_revoke_confirm_body">%1$s (%2$s) will be signed out immediately and will no longer receive messages or notifications.</string>
+    <string name="device_link_unknown_device">PulseChat device</string>
+    <string name="device_kind_android_phone">Android phone</string>
+    <string name="device_kind_android_tablet">Android tablet</string>
+    <string name="device_kind_web">Web browser</string>
+    <string name="device_kind_other">Linked device</string>
+
+    <string name="device_link_approver_scan_instructions">On your new device, open PulseChat and tap \"Link an existing device\", then point your camera at the QR code shown there.</string>
+    <string name="device_link_approver_manual_instructions">Enter the 8-character pairing code shown on the new device you want to link.</string>
+    <string name="device_link_loading_request">Verifying pairing request…</string>
+    <string name="device_link_authorizing">Authorizing device…</string>
+    <string name="device_link_confirm_title">Link this device to your account?</string>
+    <string name="device_link_security_warning">Only approve if you started this request on your own device right now. Approving grants full access to your PulseChat account and chats.</string>
+    <string name="device_link_approve_action">Approve &amp; link device</string>
+    <string name="device_link_reject_action">Reject request</string>
+    <string name="device_link_confirm_owner_password_title">Confirm your password once</string>
+    <string name="device_link_confirm_owner_password_body">Enter your account password once on this phone to seal a secure pairing key for %1$s.</string>
+    <string name="device_link_approved_done">%1$s has been authorized and is signing in now.</string>
+    <string name="device_link_rejected_done">Pairing request rejected.</string>
+
+    <string name="device_linked_notification_title">New device linked</string>
+    <string name="device_linked_notification_body">%1$s was linked to your PulseChat account. Tap to review your linked devices.</string>
+    <string name="device_revoked_notification_title">Device access revoked</string>
+    <string name="device_revoked_notification_body">This device was unlinked from your PulseChat account.</string>
+
+    <string name="device_link_err_invalid_qr">That QR code is not a valid PulseChat pairing code.</string>
+    <string name="device_link_err_unsupported_version">This pairing code uses a newer version. Please update PulseChat on both devices.</string>
+    <string name="device_link_err_invalid_code">Enter a valid 8-character pairing code.</string>
+    <string name="device_link_err_expired">This pairing code has expired. Generate a new code and try again.</string>
+    <string name="device_link_err_already_used">This pairing code has already been used.</string>
+    <string name="device_link_err_rejected">The pairing request was declined on the primary device.</string>
+    <string name="device_link_err_cancelled">Pairing cancelled.</string>
+    <string name="device_link_err_unauthorized">You are not authorized to complete this pairing request.</string>
+    <string name="device_link_err_device_mismatch">Device identity verification failed. Please generate a new pairing code.</string>
+    <string name="device_link_err_device_revoked">This device is no longer authorized on your account.</string>
+    <string name="device_link_err_already_signed_in">This device is already signed in to an account.</string>
+    <string name="device_link_err_rate_limited">Too many pairing attempts. Please wait a minute and try again.</string>
+    <string name="device_link_err_not_found">Pairing session not found or already expired.</string>
+    <string name="device_link_err_invalid_state">This pairing request is no longer active.</string>
+    <string name="device_link_err_crypto">Could not verify the secure pairing envelope. Please try again.</string>
 </resources>

@@ -9,7 +9,18 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ------------------------------------------------------------------ helpers
-    function signedIn() { return request.auth != null; }
+    function isDeviceRevoked(userId, deviceId) {
+      return deviceId is string && deviceId.size() > 0
+        && exists(/databases/$(database)/documents/users/$(userId)/linkedDevices/$(deviceId))
+        && get(/databases/$(database)/documents/users/$(userId)/linkedDevices/$(deviceId)).data.status == 'revoked';
+    }
+
+    function activeDeviceClaim() {
+      let did = request.auth.token.get('linkedDeviceId', null);
+      return did == null || !isDeviceRevoked(request.auth.uid, did);
+    }
+
+    function signedIn() { return request.auth != null && activeDeviceClaim(); }
     function uid() { return request.auth.uid; }
     function isOwner(userId) { return signedIn() && uid() == userId; }
 
@@ -87,7 +98,63 @@ service cloud.firestore {
       }
       match /devices/{deviceId} {
         allow read, delete: if isOwner(userId);
-        allow create, update: if isOwner(userId) && request.resource.data.token is string && request.resource.data.token.size() < 4096;
+        allow create, update: if isOwner(userId)
+          && !isDeviceRevoked(userId, deviceId)
+          && request.resource.data.token is string && request.resource.data.token.size() < 4096;
+      }
+      // Account-owned linked-device authorization records (distinct from FCM notification tokens).
+      match /linkedDevices/{deviceId} {
+        function dchanged() { return request.resource.data.diff(resource.data).affectedKeys(); }
+        function validDeviceFields(d) {
+          return d.keys().hasOnly(['deviceId', 'uid', 'deviceName', 'deviceType', 'platform', 'publicKey', 'keyFingerprint',
+               'authMethod', 'status', 'online', 'linkedAt', 'lastActiveAt', 'updatedAt', 'revokedAt', 'revokedByDeviceId',
+               'pairedByDeviceId', 'sessionId'])
+            && d.deviceId == deviceId && d.uid == userId
+            && d.deviceName is string && d.deviceName.size() > 0 && d.deviceName.size() <= 80
+            && d.deviceType in ['android_phone', 'android_tablet', 'web', 'unknown']
+            && d.platform in ['android', 'web']
+            && d.publicKey is string && d.publicKey.size() >= 32 && d.publicKey.size() <= 512
+            && d.keyFingerprint is string && d.keyFingerprint.matches('^[0-9a-f]{16,64}$')
+            && d.authMethod in ['primary_login', 'qr_linked']
+            && d.status in ['active', 'revoked']
+            && d.online is bool
+            && d.updatedAt == request.time;
+        }
+        function validActiveCreate(d) {
+          return validDeviceFields(d)
+            && d.status == 'active'
+            && d.linkedAt == request.time && d.lastActiveAt == request.time
+            && d.get('revokedAt', null) == null
+            && (d.authMethod == 'primary_login' || (
+                 d.authMethod == 'qr_linked'
+                 && d.get('sessionId', null) is string
+                 && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.ownerUid == userId
+                 && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.requesterDeviceId == deviceId
+               ));
+        }
+
+        // A device may always read its own record so it observes revocation immediately; listing requires active session.
+        allow get: if request.auth != null && request.auth.uid == userId;
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && validActiveCreate(request.resource.data);
+        allow update: if isOwner(userId) && validDeviceFields(request.resource.data) && (
+          // 1. Heartbeat / activity update on an active device
+          (resource.data.status == 'active' && request.resource.data.status == 'active'
+            && dchanged().hasOnly(['deviceName', 'online', 'lastActiveAt', 'updatedAt', 'publicKey', 'keyFingerprint'])
+            && request.resource.data.lastActiveAt == request.time)
+          ||
+          // 2. Revocation by an active owner device
+          (resource.data.status == 'active' && request.resource.data.status == 'revoked'
+            && dchanged().hasOnly(['status', 'online', 'revokedAt', 'revokedByDeviceId', 'updatedAt'])
+            && request.resource.data.online == false
+            && request.resource.data.revokedAt == request.time
+            && request.resource.data.revokedByDeviceId is string
+            && !isDeviceRevoked(userId, request.resource.data.revokedByDeviceId))
+          ||
+          // 3. Re-linking a device after fresh authentication
+          (validActiveCreate(request.resource.data))
+        );
+        allow delete: if false;
       }
       match /chatPrefs/{cid} {
         allow read, write: if isOwner(userId);
@@ -261,13 +328,15 @@ service cloud.firestore {
           let before = resource.data.get('edits', []);
           let after = request.resource.data.get('edits', null);
           let n = before.size();
-          return after is list && after.size() == n + 1 && n < 20
+          return !mchanged().hasAny(['edits']) || (
+            after is list && after.size() == n + 1 && n < 20
             && (n == 0 || after[0:n] == before)
             && after[n].keys().hasOnly(['text', 'at'])
             && after[n].text == resource.data.text
             && after[n].at is timestamp
             && after[n].at > resource.data.createdAt - duration.value(10, 'm')
-            && after[n].at < request.time + duration.value(10, 'm');
+            && after[n].at < request.time + duration.value(10, 'm')
+          );
         }
 
         function editByAuthor() {
@@ -467,6 +536,144 @@ service cloud.firestore {
           && parent().owner == uid() && int(index) < parent().chunks;
         allow delete: if signedIn() && resource.data.owner == uid();
       }
+    }
+
+    // ------------------------------------------------------------------ device pairing sessions
+    // Short-lived (~2 min) QR pairing sessions with one-time consumption and cryptographic proof.
+    match /devicePairings/{sessionId} {
+      function validSessionId() { return sessionId.matches('^[A-Za-z0-9_-]{20,40}$'); }
+      function pchanged() { return request.resource.data.diff(resource.data).affectedKeys(); }
+      function immutablePairingFieldsUnchanged() {
+        return !pchanged().hasAny(['sessionId', 'requesterDeviceId', 'requesterDeviceName', 'requesterDeviceType',
+          'requesterPlatform', 'requesterPublicKey', 'requesterKeyFingerprint', 'ephemeralPublicKey',
+          'secretHash', 'codeChallenge', 'manualCodeHash', 'createdAt', 'expiresAt']);
+      }
+      function validCodeVerifierProof() {
+        let proof = request.resource.data.get('codeVerifierProof', '');
+        return proof is string && proof.size() >= 20 && proof.size() <= 48
+          && hashing.sha256(proof.toUtf8()).toHexString().lower() == resource.data.codeChallenge;
+      }
+      function validSecretProof() {
+        let proof = request.resource.data.get('secretProof', '');
+        return proof is string && proof.size() >= 20 && proof.size() <= 64
+          && hashing.sha256(proof.toUtf8()).toHexString().lower() == resource.data.secretHash;
+      }
+
+      allow get: if validSessionId();
+      allow list: if false;
+
+      allow create: if validSessionId()
+        && request.resource.data.keys().hasOnly(['sessionId', 'status', 'requesterDeviceId', 'requesterDeviceName',
+             'requesterDeviceType', 'requesterPlatform', 'requesterPublicKey', 'requesterKeyFingerprint',
+             'ephemeralPublicKey', 'secretHash', 'codeChallenge', 'manualCodeHash', 'createdAt', 'updatedAt',
+             'expiresAt', 'ownerUid', 'approvedByDeviceId', 'approvedAt', 'completedAt', 'consumed'])
+        && request.resource.data.sessionId == sessionId
+        && request.resource.data.status == 'pending'
+        && request.resource.data.consumed == false
+        && request.resource.data.ownerUid == null
+        && request.resource.data.approvedByDeviceId == null
+        && request.resource.data.approvedAt == null
+        && request.resource.data.completedAt == null
+        && request.resource.data.requesterDeviceId is string && request.resource.data.requesterDeviceId.size() >= 8 && request.resource.data.requesterDeviceId.size() <= 64
+        && request.resource.data.requesterDeviceName is string && request.resource.data.requesterDeviceName.size() > 0 && request.resource.data.requesterDeviceName.size() <= 80
+        && request.resource.data.requesterDeviceType in ['android_phone', 'android_tablet', 'web', 'unknown']
+        && request.resource.data.requesterPlatform in ['android', 'web']
+        && request.resource.data.requesterPublicKey is string && request.resource.data.requesterPublicKey.size() >= 32 && request.resource.data.requesterPublicKey.size() <= 512
+        && request.resource.data.requesterKeyFingerprint is string && request.resource.data.requesterKeyFingerprint.matches('^[0-9a-f]{16,64}$')
+        && request.resource.data.ephemeralPublicKey is string && request.resource.data.ephemeralPublicKey.size() >= 32 && request.resource.data.ephemeralPublicKey.size() <= 512
+        && request.resource.data.secretHash is string && request.resource.data.secretHash.matches('^[0-9a-f]{64}$')
+        && request.resource.data.codeChallenge is string && request.resource.data.codeChallenge.matches('^[0-9a-f]{64}$')
+        && request.resource.data.manualCodeHash is string && request.resource.data.manualCodeHash.matches('^[0-9a-f]{64}$')
+        && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(3, 'm');
+
+      allow update: if validSessionId() && immutablePairingFieldsUnchanged() && (
+        // 1. Authenticated account owner approves a pending, non-expired session after scanning QR / code
+        (signedIn()
+          && resource.data.status == 'pending' && resource.data.consumed == false && resource.data.ownerUid == null
+          && request.time < resource.data.expiresAt
+          && pchanged().hasOnly(['status', 'ownerUid', 'approvedByDeviceId', 'approvedAt', 'updatedAt', 'codeVerifierProof'])
+          && request.resource.data.status == 'approved'
+          && request.resource.data.ownerUid == uid()
+          && request.resource.data.approvedByDeviceId is string && request.resource.data.approvedByDeviceId.size() >= 8
+          && !isDeviceRevoked(uid(), request.resource.data.approvedByDeviceId)
+          && request.resource.data.approvedAt == request.time && request.resource.data.updatedAt == request.time
+          && validCodeVerifierProof()
+          && exists(/databases/$(database)/documents/users/$(uid())))
+        ||
+        // 2. Authenticated account user rejects a pending session
+        (signedIn()
+          && resource.data.status == 'pending' && resource.data.consumed == false
+          && request.time < resource.data.expiresAt
+          && pchanged().hasOnly(['status', 'updatedAt', 'codeVerifierProof'])
+          && request.resource.data.status == 'rejected'
+          && request.resource.data.updatedAt == request.time
+          && validCodeVerifierProof())
+        ||
+        // 3. Requesting device cancels or expires its own pending session by proving possession of sessionSecret
+        (resource.data.status == 'pending' && resource.data.consumed == false
+          && pchanged().hasOnly(['status', 'updatedAt', 'secretProof'])
+          && request.resource.data.status in ['expired', 'revoked']
+          && request.resource.data.updatedAt == request.time
+          && validSecretProof())
+        ||
+        // 4. Requesting device completes one-time consumption of an approved, non-expired session
+        (signedIn() && uid() == resource.data.ownerUid
+          && resource.data.status == 'approved' && resource.data.consumed == false
+          && request.time < resource.data.expiresAt
+          && !isDeviceRevoked(resource.data.ownerUid, resource.data.approvedByDeviceId)
+          && pchanged().hasOnly(['status', 'consumed', 'completedAt', 'updatedAt', 'secretProof', 'deviceSignature'])
+          && request.resource.data.status == 'completed'
+          && request.resource.data.consumed == true
+          && request.resource.data.completedAt == request.time && request.resource.data.updatedAt == request.time
+          && validSecretProof()
+          && request.resource.data.deviceSignature is string && request.resource.data.deviceSignature.size() >= 32
+          && request.resource.data.deviceSignature.size() <= 512)
+      );
+
+      allow delete: if false;
+
+      // One-time ECDH-P256 AES-256-GCM sealed authentication envelope.
+      match /exchange/{docId} {
+        function parentSession() { return get(/databases/$(database)/documents/devicePairings/$(sessionId)).data; }
+        function parentAfter() { return getAfter(/databases/$(database)/documents/devicePairings/$(sessionId)).data; }
+
+        allow get: if docId == 'envelope'
+          && parentSession().status == 'approved'
+          && parentSession().consumed == false
+          && request.time < parentSession().expiresAt;
+        allow list: if false;
+        allow create: if signedIn() && docId == 'envelope'
+          && parentAfter().status == 'approved'
+          && parentAfter().ownerUid == uid()
+          && parentAfter().consumed == false
+          && request.resource.data.keys().hasOnly(['approverEphemeralPublicKey', 'ivBase64Url', 'ciphertextBase64Url', 'createdAt'])
+          && request.resource.data.approverEphemeralPublicKey is string && request.resource.data.approverEphemeralPublicKey.size() >= 32 && request.resource.data.approverEphemeralPublicKey.size() <= 512
+          && request.resource.data.ivBase64Url is string && request.resource.data.ivBase64Url.size() >= 12 && request.resource.data.ivBase64Url.size() <= 32
+          && request.resource.data.ciphertextBase64Url is string && request.resource.data.ciphertextBase64Url.size() >= 16 && request.resource.data.ciphertextBase64Url.size() <= 4096
+          && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        allow delete: if signedIn() && parentSession().ownerUid == uid();
+      }
+    }
+
+    // Manual pairing-code lookup (keyed by SHA-256 of normalized 8-character code; never listable).
+    match /devicePairingCodes/{codeHash} {
+      allow get: if signedIn() && codeHash.matches('^[0-9a-f]{64}$');
+      allow list: if false;
+      allow create: if codeHash.matches('^[0-9a-f]{64}$')
+        && request.resource.data.keys().hasOnly(['sessionId', 'codeVerifier', 'keyFingerprint', 'createdAt', 'expiresAt'])
+        && request.resource.data.sessionId is string && request.resource.data.sessionId.matches('^[A-Za-z0-9_-]{20,40}$')
+        && request.resource.data.codeVerifier is string && request.resource.data.codeVerifier.matches('^[A-Za-z0-9_-]{20,48}$')
+        && request.resource.data.keyFingerprint is string && request.resource.data.keyFingerprint.matches('^[0-9a-f]{16,64}$')
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(3, 'm')
+        && getAfter(/databases/$(database)/documents/devicePairings/$(request.resource.data.sessionId)).data.manualCodeHash == codeHash;
+      allow update, delete: if false;
     }
 
     // ------------------------------------------------------------------ admin-managed config (e.g. TURN servers)

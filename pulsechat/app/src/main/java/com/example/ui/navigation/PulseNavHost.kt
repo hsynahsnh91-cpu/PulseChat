@@ -61,6 +61,10 @@ import com.example.ui.settings.ProfileSettingsScreen
 import com.example.ui.settings.SettingsHomeScreen
 import com.example.ui.settings.SettingsNav
 import com.example.ui.settings.StorageSettingsScreen
+import com.example.ui.auth.DeviceLinkingViewModel
+import com.example.ui.auth.LinkedDevicesScreen
+import com.example.ui.common.containerFactory
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.status.StatusViewerScreen
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -124,6 +128,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
         val i = intent ?: return@LaunchedEffect
         i.getStringExtra(NotificationHelper.EXTRA_CONVERSATION)?.let { openChatAt(it, i.getStringExtra(NotificationHelper.EXTRA_MESSAGE)) }
         if (i.getBooleanExtra(NotificationHelper.EXTRA_OPEN_REMINDERS, false)) nav.go("reminders")
+        if (i.getStringExtra(NotificationHelper.EXTRA_OPEN_LINKED_DEVICES) != null) nav.go("settings/linked-devices")
         i.getStringExtra(NotificationHelper.EXTRA_CALL_ID)?.let { callId ->
             container.callManager.handleIncoming(callId)
             val ui = container.callManager.ui.value
@@ -188,6 +193,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                     openReminders = { nav.go("reminders") },
                     openFolders = { nav.go("folders") },
                     openLocked = { nav.go(Routes.LOCKED) },
+                    openLinkedDevices = { nav.go("settings/linked-devices") },
                 )
             )
         }
@@ -296,6 +302,15 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
             })
         }
         composable("settings") { SettingsHomeScreen(settingsNav) }
+        composable("settings/linked-devices") {
+            val linkVm: DeviceLinkingViewModel = viewModel(
+                factory = containerFactory { DeviceLinkingViewModel(it.deviceLinkRepository, it.connectivity) }
+            )
+            LinkedDevicesScreen(
+                viewModel = linkVm,
+                onBack = { nav.popBackStack() },
+            )
+        }
         composable("settings/profile") { ProfileSettingsScreen(settingsNav) }
         composable("settings/privacy") { PrivacySettingsScreen(settingsNav) }
         composable("settings/status-privacy") { StatusPrivacyScreen(settingsNav) }

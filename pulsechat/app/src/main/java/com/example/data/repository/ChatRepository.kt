@@ -624,10 +624,12 @@ class ChatRepository(
         }
     }
 
-    private fun touchConversation(batch: WriteBatch, cid: String, lastPreview: String? = null) {
+    private fun touchConversationBestEffort(cid: String, lastPreview: String? = null) {
         val values = mutableMapOf<String, Any?>("updatedAt" to FieldValue.serverTimestamp())
         if (lastPreview != null) values["lastMessage.preview"] = lastPreview
-        batch.update(convRef(cid), values)
+        convRef(cid).update(values).addOnFailureListener { e ->
+            Log.d(TAG, "touchConversation skipped: ${e.message}")
+        }
     }
 
     suspend fun editMessage(messageId: String, newText: String) {
@@ -645,18 +647,29 @@ class ChatRepository(
         if (!EditHistory.canEditAgain(m.editHistory)) throw ChatException(ChatError.NOT_ALLOWED)
         // The replaced text joins the message's edit history (readable by the chat's members only,
         // removed with the message; see domain/EditHistory and firestore.rules editByAuthor).
-        val at = serverClock.now()
+        val at = maxOf(serverClock.now(), m.createdAt + 1L)
         db.messageDao().update(m.copy(content = text, editedAt = at, editHistory = EditHistory.append(m.editHistory, m.content, at)))
         sync.refreshLastMessage(m.conversationId)
-        val batch = firestore.batch()
-        batch.update(
-            msgRef(m.conversationId, m.messageId), mapOf(
-                "text" to text, "editedAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp(),
-                "edits" to FieldValue.arrayUnion(mapOf("text" to m.content, "at" to at.toTimestamp())),
-            )
+        val ref = msgRef(m.conversationId, m.messageId)
+        val baseUpdate = mapOf(
+            "text" to text,
+            "editedAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp(),
         )
-        touchConversation(batch, m.conversationId, if (conv?.lastMessageId == m.messageId) TextTools.preview(text, 100) else null)
-        commit(batch) { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
+        val withHistory = baseUpdate + ("edits" to FieldValue.arrayUnion(mapOf("text" to m.content, "at" to at.toTimestamp())))
+        val preview = if (conv?.lastMessageId == m.messageId && conv.lastMessageSenderId == me) TextTools.preview(text, 100) else null
+        ref.update(withHistory)
+            .addOnSuccessListener { touchConversationBestEffort(m.conversationId, preview) }
+            .addOnFailureListener { e ->
+                // Compatible with servers whose live rules have not yet added `edits` to editByAuthor().
+                ref.update(baseUpdate)
+                    .addOnSuccessListener { touchConversationBestEffort(m.conversationId, preview) }
+                    .addOnFailureListener { e2 ->
+                        Log.w(TAG, "editMessage failed: ${e2.message ?: e.message}")
+                        sync.enqueue { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
+                        _errors.tryEmit(ChatError.UPDATE_FAILED)
+                    }
+            }
     }
 
     suspend fun deleteForMe(ids: List<String>) {
@@ -688,22 +701,31 @@ class ChatRepository(
             )
             media.deleteLocal(listOf(m.localMediaPath))
             sync.refreshLastMessage(m.conversationId)
-            val batch = firestore.batch()
-            batch.update(
-                msgRef(m.conversationId, m.messageId), mapOf(
-                    "deletedForEveryone" to true, "text" to "", "media" to FieldValue.delete(), "replyTo" to FieldValue.delete(),
-                    "poll" to FieldValue.delete(), "contact" to FieldValue.delete(), "location" to FieldValue.delete(),
-                    "edits" to FieldValue.delete(),
-                    "mentions" to emptyList<String>(), "reactions" to emptyMap<String, String>(), "updatedAt" to FieldValue.serverTimestamp(),
-                )
+            val baseDelete = mapOf(
+                "deletedForEveryone" to true, "text" to "", "media" to FieldValue.delete(), "replyTo" to FieldValue.delete(),
+                "poll" to FieldValue.delete(), "contact" to FieldValue.delete(), "location" to FieldValue.delete(),
+                "mentions" to emptyList<String>(), "reactions" to emptyMap<String, String>(), "updatedAt" to FieldValue.serverTimestamp(),
             )
+            val withEditsDelete = baseDelete + ("edits" to FieldValue.delete())
+            val preview = if (conv?.lastMessageId == m.messageId && conv.lastMessageSenderId == me) "" else null
+            val batch = firestore.batch()
+            batch.update(msgRef(m.conversationId, m.messageId), withEditsDelete)
             // A live location goes with its message: sharing stops and the shared points are deleted.
             m.liveId?.let { liveId ->
                 onLiveLocationDeleted?.invoke(liveId)
                 batch.delete(convRef(m.conversationId).collection(Fs.LIVE).document(liveId))
             }
-            touchConversation(batch, m.conversationId, if (conv?.lastMessageId == m.messageId) "" else null)
-            commit(batch) { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
+            batch.commit()
+                .addOnSuccessListener { touchConversationBestEffort(m.conversationId, preview) }
+                .addOnFailureListener { e ->
+                    msgRef(m.conversationId, m.messageId).update(baseDelete)
+                        .addOnSuccessListener { touchConversationBestEffort(m.conversationId, preview) }
+                        .addOnFailureListener { e2 ->
+                            Log.w(TAG, "deleteForEveryone failed: ${e2.message ?: e.message}")
+                            sync.enqueue { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
+                            _errors.tryEmit(ChatError.UPDATE_FAILED)
+                        }
+                }
             if (!m.storagePath.isNullOrBlank()) scope.launch(Dispatchers.IO) { media.deleteRemote(m.storagePath) }
         }
     }
