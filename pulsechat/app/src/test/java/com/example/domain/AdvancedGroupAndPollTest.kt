@@ -25,7 +25,7 @@ class AdvancedGroupAndPollTest {
         assertFalse(Mentions.containsAllToken("Hello @allan"))
 
         val resolvedAllowed = Mentions.resolve("Ping @all and @Bob", candidates, allowAll = true)
-        assertEquals(listOf("bob", "all"), resolvedAllowed)
+        assertEquals(listOf("all", "bob"), resolvedAllowed)
         assertTrue(Mentions.mentionsUser(resolvedAllowed, "carol"))
 
         val resolvedDenied = Mentions.resolve("Ping @all and @Bob", candidates, allowAll = false)

@@ -99,8 +99,8 @@ class Migration6To7Test {
             insert(db, "conversations", mapOf("conversationId" to "g1", "isGroup" to 1, "title" to "Zürich Team", "participantIds" to "u1,u2"))
             insert(db, "messages", mapOf("messageId" to "p1", "conversationId" to "g1", "senderId" to "u1", "content" to "Lunch?", "type" to "POLL",
                 "status" to "SENT", "createdAt" to 1500L, "transferState" to "NONE", "pollQuestion" to "Lunch?", "pollOptions" to "Fondue|Rösti"))
-            insert(db, "statuses", mapOf("statusId" to "s1", "userId" to "u1", "authorName" to "Alice", "contentText" to "Sunny day",
-                "type" to "TEXT", "createdAt" to 1000L, "expiresAt" to 90_000L))
+            insert(db, "statuses", mapOf("statusId" to "s1", "userId" to "u1", "authorName" to "Alice", "text" to "Sunny day",
+                "mediaType" to "TEXT", "createdAt" to 1000L, "expiresAt" to 90_000L))
         }
 
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
