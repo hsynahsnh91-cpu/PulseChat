@@ -207,6 +207,7 @@ class DeviceLinkRepository(
     private val locallyApprovedDeviceIds = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var initialDeviceSnapshotLoaded = false
     @Volatile private var handlingSelfRevocation = false
+    @Volatile private var usePrivateFallback = false
 
     val currentDeviceId: String get() = keyManager.deviceId
     val currentFriendlyId: String get() = keyManager.friendlyId()
@@ -326,6 +327,17 @@ class DeviceLinkRepository(
 
     // ================================================================ Signed-in device lifecycle & watchdog
 
+    private fun startPrivateFallbackListener(uid: String) {
+        if (privateLinkedDevicesListener != null) return
+        privateLinkedDevicesListener = privateLinkedDevicesRef(uid)
+            .addSnapshotListener { snap, err ->
+                if (err != null || snap == null) return@addSnapshotListener
+                val now = serverClock.now()
+                val records = parsePrivateLinkedDevices(snap, uid, now)
+                applyObservedRecords(uid, records, now)
+            }
+    }
+
     fun onSignedIn(uid: String) {
         handlingSelfRevocation = false
         stopWatchingLinkedDevices()
@@ -341,15 +353,9 @@ class DeviceLinkRepository(
             registerOrUpdateCurrentDevice(uid, online = true)
         }
 
-        privateLinkedDevicesListener = privateLinkedDevicesRef(uid)
-            .addSnapshotListener { snap, err ->
-                if (err != null || snap == null) return@addSnapshotListener
-                val now = serverClock.now()
-                val records = parsePrivateLinkedDevices(snap, uid, now)
-                if (records.isNotEmpty() || _devicesLoading.value) {
-                    applyObservedRecords(uid, records, now)
-                }
-            }
+        if (usePrivateFallback) {
+            startPrivateFallbackListener(uid)
+        }
 
         linkedDevicesListener = firestore.collection(Fs.USERS).document(uid)
             .collection(Fs.LINKED_DEVICES)
@@ -358,6 +364,22 @@ class DeviceLinkRepository(
                     Log.w(TAG, "linkedDevices listener fallback to private/linkedDevices: ${err.message}")
                     if ((err as? FirebaseFirestoreException)?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                         // Live rules do not yet include users/{uid}/linkedDevices; rely on users/{uid}/private/linkedDevices without error banner
+                        usePrivateFallback = true
+                        startPrivateFallbackListener(uid)
+                        scope.launch {
+                            upsertPrivateLinkedDevice(
+                                uid = uid,
+                                deviceId = keyManager.deviceId,
+                                deviceName = currentDeviceName(),
+                                deviceKind = currentDeviceKind(),
+                                platform = "android",
+                                publicKey = keyManager.publicKeySpkiBase64(),
+                                keyFingerprint = keyManager.keyFingerprint(),
+                                authMethod = if (prefs.currentAuthMethod == "qr_linked") "qr_linked" else "primary_login",
+                                online = true,
+                                sessionId = prefs.currentPairingSessionId,
+                            )
+                        }
                         _devicesLoading.value = false
                         _devicesError.value = null
                         if (_linkedDevices.value.isEmpty()) {
@@ -386,35 +408,38 @@ class DeviceLinkRepository(
 
     suspend fun onSignedOut(uid: String) {
         stopWatchingLinkedDevices()
-        if (!handlingSelfRevocation) {
+        if (!handlingSelfRevocation && authRepository.currentUid == uid) {
             withTimeoutOrNull(3_000L) {
-                runCatching {
-                    val now = serverClock.now()
-                    privateLinkedDevicesRef(uid).set(
-                        mapOf(
-                            "devices" to mapOf(
-                                keyManager.deviceId to mapOf(
-                                    "online" to false,
-                                    "lastActiveAtMs" to now,
-                                )
-                            ),
-                            "updatedAt" to FieldValue.serverTimestamp(),
-                        ),
-                        SetOptions.merge(),
-                    ).await()
-                }
-                runCatching {
-                    val docRef = firestore.collection(Fs.USERS).document(uid)
-                        .collection(Fs.LINKED_DEVICES).document(keyManager.deviceId)
-                    val snap = docRef.get().await()
-                    if (snap.exists() && snap.getString("status") == LinkedDeviceStatus.ACTIVE.wire) {
-                        docRef.update(
+                if (usePrivateFallback) {
+                    runCatching {
+                        val now = serverClock.now()
+                        privateLinkedDevicesRef(uid).set(
                             mapOf(
-                                "online" to false,
-                                "lastActiveAt" to FieldValue.serverTimestamp(),
+                                "devices" to mapOf(
+                                    keyManager.deviceId to mapOf(
+                                        "online" to false,
+                                        "lastActiveAtMs" to now,
+                                    )
+                                ),
                                 "updatedAt" to FieldValue.serverTimestamp(),
-                            )
+                            ),
+                            SetOptions.merge(),
                         ).await()
+                    }
+                } else {
+                    runCatching {
+                        val docRef = firestore.collection(Fs.USERS).document(uid)
+                            .collection(Fs.LINKED_DEVICES).document(keyManager.deviceId)
+                        val snap = docRef.get().await()
+                        if (snap.exists() && snap.getString("status") == LinkedDeviceStatus.ACTIVE.wire) {
+                            docRef.update(
+                                mapOf(
+                                    "online" to false,
+                                    "lastActiveAt" to FieldValue.serverTimestamp(),
+                                    "updatedAt" to FieldValue.serverTimestamp(),
+                                )
+                            ).await()
+                        }
                     }
                 }
             }
@@ -443,6 +468,8 @@ class DeviceLinkRepository(
             applyObservedRecords(uid, records, now)
         } catch (e: Exception) {
             if ((e as? FirebaseFirestoreException)?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                usePrivateFallback = true
+                startPrivateFallbackListener(uid)
                 runCatching {
                     val privSnap = privateLinkedDevicesRef(uid).get(Source.SERVER).await()
                     val records = parsePrivateLinkedDevices(privSnap, uid, now)
@@ -459,27 +486,30 @@ class DeviceLinkRepository(
 
     suspend fun touchCurrentDevice(uid: String, online: Boolean) {
         val now = serverClock.now()
-        runCatching {
-            val privSnap = privateLinkedDevicesRef(uid).get().await()
-            val privRecords = parsePrivateLinkedDevices(privSnap, uid, now)
-            val myPriv = privRecords.firstOrNull { it.deviceId == keyManager.deviceId }
-            if (myPriv != null && myPriv.status == LinkedDeviceStatus.REVOKED) {
-                handleSelfRevoked(uid)
-                return
-            }
-            privateLinkedDevicesRef(uid).set(
-                mapOf(
-                    "devices" to mapOf(
-                        keyManager.deviceId to mapOf(
-                            "deviceName" to currentDeviceName(),
-                            "online" to online,
-                            "lastActiveAtMs" to now,
-                        )
+        if (usePrivateFallback) {
+            runCatching {
+                val privSnap = privateLinkedDevicesRef(uid).get().await()
+                val privRecords = parsePrivateLinkedDevices(privSnap, uid, now)
+                val myPriv = privRecords.firstOrNull { it.deviceId == keyManager.deviceId }
+                if (myPriv != null && myPriv.status == LinkedDeviceStatus.REVOKED) {
+                    handleSelfRevoked(uid)
+                    return
+                }
+                privateLinkedDevicesRef(uid).set(
+                    mapOf(
+                        "devices" to mapOf(
+                            keyManager.deviceId to mapOf(
+                                "deviceName" to currentDeviceName(),
+                                "online" to online,
+                                "lastActiveAtMs" to now,
+                            )
+                        ),
+                        "updatedAt" to FieldValue.serverTimestamp(),
                     ),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
-                SetOptions.merge(),
-            ).await()
+                    SetOptions.merge(),
+                ).await()
+            }
+            return
         }
         runCatching {
             val ref = firestore.collection(Fs.USERS).document(uid)
@@ -550,29 +580,6 @@ class DeviceLinkRepository(
         val pubKey = keyManager.publicKeySpkiBase64()
         val fp = keyManager.keyFingerprint()
 
-        // Always keep private/linkedDevices mirror updated for live servers
-        runCatching {
-            val privSnap = privateLinkedDevicesRef(uid).get().await()
-            val myPriv = parsePrivateLinkedDevices(privSnap, uid, serverClock.now())
-                .firstOrNull { it.deviceId == keyManager.deviceId }
-            if (myPriv != null && myPriv.status == LinkedDeviceStatus.REVOKED && authMethod == "qr_linked") {
-                handleSelfRevoked(uid)
-                return
-            }
-            upsertPrivateLinkedDevice(
-                uid = uid,
-                deviceId = keyManager.deviceId,
-                deviceName = currentDeviceName(),
-                deviceKind = currentDeviceKind(),
-                platform = "android",
-                publicKey = pubKey,
-                keyFingerprint = fp,
-                authMethod = authMethod,
-                online = online,
-                sessionId = prefs.currentPairingSessionId,
-            )
-        }
-
         try {
             val ref = firestore.collection(Fs.USERS).document(uid)
                 .collection(Fs.LINKED_DEVICES).document(keyManager.deviceId)
@@ -621,7 +628,33 @@ class DeviceLinkRepository(
                 )
             ).await()
         } catch (e: Exception) {
-            Log.w(TAG, "could not register current linkedDevice: ${e.message}")
+            if ((e as? FirebaseFirestoreException)?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                usePrivateFallback = true
+                startPrivateFallbackListener(uid)
+                runCatching {
+                    val privSnap = privateLinkedDevicesRef(uid).get().await()
+                    val myPriv = parsePrivateLinkedDevices(privSnap, uid, serverClock.now())
+                        .firstOrNull { it.deviceId == keyManager.deviceId }
+                    if (myPriv != null && myPriv.status == LinkedDeviceStatus.REVOKED && authMethod == "qr_linked") {
+                        handleSelfRevoked(uid)
+                        return
+                    }
+                    upsertPrivateLinkedDevice(
+                        uid = uid,
+                        deviceId = keyManager.deviceId,
+                        deviceName = currentDeviceName(),
+                        deviceKind = currentDeviceKind(),
+                        platform = "android",
+                        publicKey = pubKey,
+                        keyFingerprint = fp,
+                        authMethod = authMethod,
+                        online = online,
+                        sessionId = prefs.currentPairingSessionId,
+                    )
+                }
+            } else {
+                Log.w(TAG, "could not register current linkedDevice: ${e.message}")
+            }
         }
     }
 
@@ -630,14 +663,17 @@ class DeviceLinkRepository(
      */
     suspend fun verifyCurrentDeviceActive(): Boolean {
         val uid = authRepository.currentUid ?: return false
-        runCatching {
-            val privSnap = privateLinkedDevicesRef(uid).get(Source.SERVER).await()
-            val myPriv = parsePrivateLinkedDevices(privSnap, uid, serverClock.now())
-                .firstOrNull { it.deviceId == keyManager.deviceId }
-            if (myPriv != null && myPriv.status == LinkedDeviceStatus.REVOKED) {
-                handleSelfRevoked(uid)
-                return false
+        if (usePrivateFallback) {
+            runCatching {
+                val privSnap = privateLinkedDevicesRef(uid).get(Source.SERVER).await()
+                val myPriv = parsePrivateLinkedDevices(privSnap, uid, serverClock.now())
+                    .firstOrNull { it.deviceId == keyManager.deviceId }
+                if (myPriv != null && myPriv.status == LinkedDeviceStatus.REVOKED) {
+                    handleSelfRevoked(uid)
+                    return false
+                }
             }
+            return true
         }
         return try {
             val snap = firestore.collection(Fs.USERS).document(uid)
@@ -679,22 +715,6 @@ class DeviceLinkRepository(
         val uid = authRepository.currentUid ?: throw PairingException(PairingError.UNAUTHORIZED)
         if (!verifyCurrentDeviceActive()) throw PairingException(PairingError.DEVICE_REVOKED)
         val now = serverClock.now()
-        runCatching {
-            privateLinkedDevicesRef(uid).set(
-                mapOf(
-                    "devices" to mapOf(
-                        targetDeviceId to mapOf(
-                            "status" to LinkedDeviceStatus.REVOKED.wire,
-                            "online" to false,
-                            "revokedAtMs" to now,
-                            "revokedByDeviceId" to keyManager.deviceId,
-                        )
-                    ),
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
-                SetOptions.merge(),
-            ).await()
-        }
         try {
             val batch = firestore.batch()
             val linkedRef = firestore.collection(Fs.USERS).document(uid)
@@ -718,6 +738,23 @@ class DeviceLinkRepository(
             }
         } catch (e: Exception) {
             if ((e as? FirebaseFirestoreException)?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                usePrivateFallback = true
+                runCatching {
+                    privateLinkedDevicesRef(uid).set(
+                        mapOf(
+                            "devices" to mapOf(
+                                targetDeviceId to mapOf(
+                                    "status" to LinkedDeviceStatus.REVOKED.wire,
+                                    "online" to false,
+                                    "revokedAtMs" to now,
+                                    "revokedByDeviceId" to keyManager.deviceId,
+                                )
+                            ),
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                        ),
+                        SetOptions.merge(),
+                    ).await()
+                }
                 runCatching {
                     firestore.collection(Fs.USERS).document(uid)
                         .collection(Fs.DEVICES).document(targetDeviceId)
@@ -1751,23 +1788,37 @@ class DeviceLinkRepository(
                             put("ciphertextBase64Url", sealedEnvelope.ciphertextBase64Url)
                         }
                     )
+                    upsertPrivateLinkedDevice(
+                        uid = uid,
+                        deviceId = preview.requesterDeviceId,
+                        deviceName = preview.requesterDeviceName,
+                        deviceKind = preview.requesterDeviceKind,
+                        platform = preview.requesterPlatform,
+                        publicKey = preview.requesterPublicKey,
+                        keyFingerprint = preview.keyFingerprint,
+                        authMethod = "qr_linked",
+                        online = true,
+                        sessionId = preview.sessionId,
+                    )
                 } else {
                     throw txErr
                 }
             }
 
-            upsertPrivateLinkedDevice(
-                uid = uid,
-                deviceId = preview.requesterDeviceId,
-                deviceName = preview.requesterDeviceName,
-                deviceKind = preview.requesterDeviceKind,
-                platform = preview.requesterPlatform,
-                publicKey = preview.requesterPublicKey,
-                keyFingerprint = preview.keyFingerprint,
-                authMethod = "qr_linked",
-                online = true,
-                sessionId = preview.sessionId,
-            )
+            if (usePrivateFallback) {
+                upsertPrivateLinkedDevice(
+                    uid = uid,
+                    deviceId = preview.requesterDeviceId,
+                    deviceName = preview.requesterDeviceName,
+                    deviceKind = preview.requesterDeviceKind,
+                    platform = preview.requesterPlatform,
+                    publicKey = preview.requesterPublicKey,
+                    keyFingerprint = preview.keyFingerprint,
+                    authMethod = "qr_linked",
+                    online = true,
+                    sessionId = preview.sessionId,
+                )
+            }
 
             locallyApprovedDeviceIds.add(preview.requesterDeviceId)
             _approverState.value = ApproverScanState.Approved(preview.requesterDeviceName)

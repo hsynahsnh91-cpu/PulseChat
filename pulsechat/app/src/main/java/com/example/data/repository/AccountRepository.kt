@@ -67,31 +67,11 @@ class AccountRepository(
     private var activeWorkspaceUid: String? = null
 
     /**
-     * Called when [uid] signs in on this device. Ensures the active Room workspace belongs to [uid]
-     * (archiving any previous account's workspace if needed) and registers [uid] in [savedAccounts].
+     * Called when [uid] signs in on this device. Registers [uid] in [savedAccounts] and updates
+     * its isolated per-account snapshot without wiping rows already written during sign-in.
      */
     suspend fun onAccountSignedIn(uid: String) = mutex.withLock {
         withContext(Dispatchers.IO) {
-            val previousUid = activeWorkspaceUid
-            if (previousUid != null && previousUid != uid) {
-                runCatching { snapshotAccountInternal(previousUid) }
-                clearSqlTables(db.openHelper.writableDatabase)
-                val targetAcctDb = AppDatabase.getDatabaseForAccount(context, uid)
-                copySqlTables(targetAcctDb.openHelper.readableDatabase, db.openHelper.writableDatabase)
-                db.invalidationTracker.refreshVersionsAsync()
-                prefs.restoreAccountPrefs(uid)
-            } else if (previousUid == null) {
-                // If the active DB has messages/conversations belonging to a different account, isolate first.
-                val targetAcctDb = AppDatabase.getDatabaseForAccount(context, uid)
-                val activeHasTargetUser = db.userDao().get(uid) != null
-                val isolatedHasTargetUser = targetAcctDb.userDao().get(uid) != null
-                if (!activeHasTargetUser && isolatedHasTargetUser) {
-                    clearSqlTables(db.openHelper.writableDatabase)
-                    copySqlTables(targetAcctDb.openHelper.readableDatabase, db.openHelper.writableDatabase)
-                    db.invalidationTracker.refreshVersionsAsync()
-                    prefs.restoreAccountPrefs(uid)
-                }
-            }
             activeWorkspaceUid = uid
             val user = db.userDao().get(uid)
             upsertStoredAccount(uid, user, sessionValid = true)
