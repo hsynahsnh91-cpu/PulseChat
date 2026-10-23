@@ -187,6 +187,9 @@ object StatusMusicPolicy {
         }
     }
 
+    fun attributionLabel(title: String?, artist: String?, separator: String = " · "): String =
+        formatAttribution(title, artist, separator)
+
     fun mmSs(ms: Long): String {
         val totalSeconds = (ms.coerceAtLeast(0L) / 1000L).toInt()
         val minutes = totalSeconds / 60

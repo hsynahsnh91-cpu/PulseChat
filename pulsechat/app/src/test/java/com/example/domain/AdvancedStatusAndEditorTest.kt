@@ -107,11 +107,11 @@ class AdvancedStatusAndEditorTest {
     @Test
     fun `status mentions, likes, and reshare eligibility enforce audience and privacy`() {
         val mentions = StatusPolicy.validateMentions(
-            requestedMentionIds = listOf("alice", "bob", "carol", "dave", "bob"),
-            ownerId = "alice",
-            audience = setOf("bob", "carol"),
+            requestedIds = listOf("alice", "bob", "carol", "dave", "bob"),
+            authorId = "alice",
             blockedIds = setOf("carol"),
-        )
+            allowedAudience = setOf("bob", "carol"),
+        ).allowedMentionIds
         assertEquals(listOf("bob"), mentions)
 
         assertTrue(

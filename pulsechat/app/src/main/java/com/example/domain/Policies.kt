@@ -56,18 +56,6 @@ object StatusPolicy {
         return MentionValidation(allowed, excluded)
     }
 
-    fun validateMentions(
-        requestedMentionIds: Collection<String>,
-        ownerId: String,
-        audience: Set<String>,
-        blockedIds: Set<String>,
-    ): List<String> = validateMentions(
-        requestedIds = requestedMentionIds,
-        authorId = ownerId,
-        blockedIds = blockedIds,
-        allowedAudience = audience,
-    ).allowedMentionIds
-
     /** Whether [viewerId] can like or unlike a status update. */
     fun canLike(
         ownerId: String,

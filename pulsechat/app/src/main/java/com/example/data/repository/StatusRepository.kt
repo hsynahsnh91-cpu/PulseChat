@@ -345,7 +345,7 @@ class StatusRepository(
                 var remoteMusicUrl: String? = item.musicUrl
                 if (musicSelection != null && musicSelection.isLocalCustom && !musicSelection.localUri.isNullOrBlank()) {
                     runCatching {
-                        val imported = media.importUri(Uri.parse(musicSelection.localUri), MessageType.AUDIO, MediaLimits.MAX_AUDIO_BYTES)
+                        val imported = media.importUri(Uri.parse(musicSelection.localUri), MessageType.AUDIO, StatusMusicPolicy.MAX_AUDIO_BYTES)
                         val musicStoragePath = "status-media/${item.userId}/${item.statusId}_music.${MediaRepository.extensionFor(imported.mime, imported.fileName)}"
                         val uploadedMusic = media.upload(
                             key = "${item.statusId}_music",
