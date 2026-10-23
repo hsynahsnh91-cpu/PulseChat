@@ -50,8 +50,6 @@ object StatusCollageMath {
         )
     }
 
-    typealias CellTransform = CellState
-
     data class CollageItem(
         val id: String,
         val uriString: String,

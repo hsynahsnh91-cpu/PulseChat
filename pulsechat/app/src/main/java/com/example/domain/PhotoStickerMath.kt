@@ -35,8 +35,6 @@ object PhotoStickerMath {
         val halfHeight: Float get() = (scale / (if (aspectRatio >= 1f) aspectRatio else 1f)) / 2f
     }
 
-    typealias StickerItem = Sticker
-
     fun createSticker(
         id: String,
         uriString: String,
