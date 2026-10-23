@@ -4,12 +4,12 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.util.Log
-import com.example.EmulatorConfig
 import com.example.R
 import com.example.data.prefs.AppPreferences
 import com.example.data.remote.Fs
 import com.example.data.remote.millisOr
 import com.example.data.remote.toTimestamp
+import com.example.util.EmulatorConfig
 import com.example.util.ServerClock
 import com.example.domain.DeviceKind
 import com.example.domain.DevicePairingPolicy
