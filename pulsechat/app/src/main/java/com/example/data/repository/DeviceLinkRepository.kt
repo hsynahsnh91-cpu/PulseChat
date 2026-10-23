@@ -4,9 +4,9 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.util.Log
+import com.example.EmulatorConfig
 import com.example.R
 import com.example.data.prefs.AppPreferences
-import com.example.data.remote.EmulatorConfig
 import com.example.data.remote.Fs
 import com.example.data.remote.millisOr
 import com.example.data.remote.toTimestamp
