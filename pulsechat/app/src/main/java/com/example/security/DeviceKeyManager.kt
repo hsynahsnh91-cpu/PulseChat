@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
+import com.example.BuildConfig
 import com.example.data.prefs.AppPreferences
 import com.example.domain.DevicePairingPolicy
 import com.example.domain.DevicePairingPolicy.DeviceKind
@@ -133,7 +135,11 @@ class DeviceKeyManager(
         }.getOrNull()
         if (keystorePair != null) return keystorePair
 
-        // Fallback for unit-test JVM / Robolectric where AndroidKeyStore is not registered
+        // Fallback for unit-test JVM / Robolectric where AndroidKeyStore is not registered.
+        // DEBUG BUILDS ONLY: this stores the EC private key in plain SharedPreferences. A release
+        // build on a device whose Keystore is broken must fail closed (device linking unavailable)
+        // rather than silently downgrade the device identity key to plaintext.
+        check(BuildConfig.DEBUG) { "AndroidKeyStore unavailable; refusing plaintext device-key storage" }
         val savedPub = secure.getString("fallback_ec_pub_$deviceId", null)
         val savedPriv = secure.getString("fallback_ec_priv_$deviceId", null)
         if (savedPub != null && savedPriv != null) {
@@ -153,12 +159,19 @@ class DeviceKeyManager(
     }
 
     private fun encryptWithKeystoreAes(alias: String, plaintext: ByteArray): String {
-        val key = getOrCreateAesKey(alias)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key)
-        val iv = cipher.iv
-        val ciphertext = cipher.doFinal(plaintext)
-        return "${DevicePairingPolicy.UrlBase64.encode(iv)}:${DevicePairingPolicy.UrlBase64.encode(ciphertext)}"
+        // If the key was invalidated (new biometric enrolled), drop it so the next sign-in stores
+        // a fresh delegation blob under a new key instead of failing forever.
+        try {
+            val key = getOrCreateAesKey(alias)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            val iv = cipher.iv
+            val ciphertext = cipher.doFinal(plaintext)
+            return "${DevicePairingPolicy.UrlBase64.encode(iv)}:${DevicePairingPolicy.UrlBase64.encode(ciphertext)}"
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            deleteKeystoreEntry(alias)
+            throw e
+        }
     }
 
     private fun decryptWithKeystoreAes(alias: String, encoded: String): ByteArray? {
@@ -166,10 +179,24 @@ class DeviceKeyManager(
         if (parts.size != 2) return null
         val iv = DevicePairingPolicy.UrlBase64.decode(parts[0])
         val ciphertext = DevicePairingPolicy.UrlBase64.decode(parts[1])
-        val key = getOrCreateAesKey(alias)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
-        return cipher.doFinal(ciphertext)
+        return try {
+            val key = getOrCreateAesKey(alias)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
+            cipher.doFinal(ciphertext)
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            // Sealed under a key the phone no longer trusts: the blob is unrecoverable by design;
+            // pairing simply asks for a fresh sign-in on this device.
+            deleteKeystoreEntry(alias)
+            null
+        }
+    }
+
+    private fun deleteKeystoreEntry(alias: String) {
+        runCatching {
+            val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            if (ks.containsAlias(alias)) ks.deleteEntry(alias)
+        }
     }
 
     private fun getOrCreateAesKey(alias: String): SecretKey {
@@ -178,21 +205,30 @@ class DeviceKeyManager(
             val existing = (ks.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey
             if (existing != null) existing else {
                 val kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-                kg.init(
-                    KeyGenParameterSpec.Builder(
-                        alias,
-                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-                    )
-                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                        .setKeySize(256)
-                        .build()
+                val spec = KeyGenParameterSpec.Builder(
+                    alias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
                 )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    // Enrolling a new fingerprint/face permanently invalidates this key, so a
+                    // sealed password can never be read after someone adds their biometric to an
+                    // unlocked phone. The delegation is then re-stored on the next password sign-in.
+                    .setInvalidatedByBiometricEnrollment(true)
+                    .apply {
+                        // The sealed credential is only usable while the device itself is unlocked.
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) setUnlockedDeviceRequired(true)
+                    }
+                    .build()
+                kg.init(spec)
                 kg.generateKey()
             }
         }.getOrNull()
         if (ksKey != null) return ksKey
 
+        // DEBUG BUILDS ONLY (same rule as the EC fallback above): a raw AES key in preferences.
+        check(BuildConfig.DEBUG) { "AndroidKeyStore unavailable; refusing plaintext AES-key storage" }
         val saved = secure.getString("fallback_aes_$alias", null)
         if (saved != null) {
             return SecretKeySpec(DevicePairingPolicy.UrlBase64.decode(saved), "AES")

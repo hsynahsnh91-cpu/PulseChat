@@ -6,4 +6,14 @@
              device does not flash white when the app starts. -->
         <item name="android:windowBackground">@color/pulse_window_background</item>
     </style>
+
+    <!-- Android 12+ splash screen (backported by androidx.core:core-splashscreen). MainActivity
+         installs it in onCreate and holds it until the first Compose frame is ready, then the
+         post-splash theme takes over. pulse_window_background has a values-night variant, so the
+         splash already matches the device theme. -->
+    <style name="Theme.PulseChat.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/pulse_window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.MyApplication</item>
+    </style>
 </resources>

@@ -66,7 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -131,16 +131,16 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val conv by vm.conversation.collectAsState()
-    val members by vm.members.collectAsState()
-    val peer by vm.peer.collectAsState()
-    val contact by vm.contact.collectAsState()
-    val presence by vm.presence.collectAsState()
-    val media by vm.media.collectAsState()
-    val blocked by vm.blocked.collectAsState()
-    val contacts by vm.contacts.collectAsState()
-    val notifSettings by vm.notificationSettings.collectAsState()
-    val appPreviews by vm.appPreviews.collectAsState()
+    val conv by vm.conversation.collectAsStateWithLifecycle()
+    val members by vm.members.collectAsStateWithLifecycle()
+    val peer by vm.peer.collectAsStateWithLifecycle()
+    val contact by vm.contact.collectAsStateWithLifecycle()
+    val presence by vm.presence.collectAsStateWithLifecycle()
+    val media by vm.media.collectAsStateWithLifecycle()
+    val blocked by vm.blocked.collectAsStateWithLifecycle()
+    val contacts by vm.contacts.collectAsStateWithLifecycle()
+    val notifSettings by vm.notificationSettings.collectAsStateWithLifecycle()
+    val appPreviews by vm.appPreviews.collectAsStateWithLifecycle()
     val startCall = rememberCallStarter(onStarted = nav.openCall)
 
     var dialog by remember { mutableStateOf<String?>(null) }
@@ -178,7 +178,7 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                             Box(Modifier.size(112.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Rounded.Groups, contentDescription = null, modifier = Modifier.size(56.dp))
                             }
-                        } else UserAvatar(title, avatarUrl = if (c.isGroup) c.avatarUrl else peer?.avatarUrl, size = 112.dp, colorHex = peer?.avatarColorHex)
+                        } else UserAvatar(title, avatarUrl = if (c.isGroup) c.avatarUrl else peer?.avatarUrl, size = 112.dp, colorHex = peer?.avatarColorHex, sharedKey = c.conversationId)
                         if (canEdit) {
                             Box(Modifier.size(36.dp).align(Alignment.BottomEnd).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
                                 .clickable { editName = c.title; editDescription = c.description.orEmpty(); newPhoto = null; dialog = "editGroup" }, contentAlignment = Alignment.Center) {

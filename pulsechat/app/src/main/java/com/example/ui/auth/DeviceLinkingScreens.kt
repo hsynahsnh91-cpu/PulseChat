@@ -67,7 +67,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -161,8 +161,8 @@ fun AuthDeviceLinkScreen(
     viewModel: DeviceLinkingViewModel,
     onBackToSignIn: () -> Unit,
 ) {
-    val requestState by viewModel.requestState.collectAsState()
-    val network by viewModel.connectivity.network.collectAsState()
+    val requestState by viewModel.requestState.collectAsStateWithLifecycle()
+    val network by viewModel.connectivity.network.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         if (requestState is PairingRequestUiState.Idle || requestState is PairingRequestUiState.Cancelled) {
@@ -521,13 +521,13 @@ fun LinkedDevicesScreen(
     onBack: () -> Unit,
     startInScanner: Boolean = false,
 ) {
-    val devices by viewModel.linkedDevices.collectAsState()
-    val loading by viewModel.devicesLoading.collectAsState()
-    val error by viewModel.devicesError.collectAsState()
-    val actionError by viewModel.actionError.collectAsState()
-    val revokingDeviceId by viewModel.revokingDeviceId.collectAsState()
-    val approverState by viewModel.approverState.collectAsState()
-    val network by viewModel.connectivity.network.collectAsState()
+    val devices by viewModel.linkedDevices.collectAsStateWithLifecycle()
+    val loading by viewModel.devicesLoading.collectAsStateWithLifecycle()
+    val error by viewModel.devicesError.collectAsStateWithLifecycle()
+    val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+    val revokingDeviceId by viewModel.revokingDeviceId.collectAsStateWithLifecycle()
+    val approverState by viewModel.approverState.collectAsStateWithLifecycle()
+    val network by viewModel.connectivity.network.collectAsStateWithLifecycle()
 
     var showScannerSheet by rememberSaveable { mutableStateOf(startInScanner) }
     var devicePendingRevoke by remember { mutableStateOf<LinkedDeviceRecord?>(null) }

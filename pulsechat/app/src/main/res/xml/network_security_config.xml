@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Release network policy (the src/debug copy additionally allows cleartext to the local
+     Firebase emulators only). All PulseChat traffic is HTTPS (Firebase, map tiles); cleartext is
+     denied explicitly and only system CAs are trusted, so user-installed MITM proxy CAs are not
+     honoured by release builds. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

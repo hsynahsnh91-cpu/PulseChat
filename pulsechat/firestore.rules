@@ -868,5 +868,12 @@ service cloud.firestore {
       allow read: if signedIn();
       allow write: if false;
     }
+
+    // Everything not matched above is denied. Firestore already denies by default; stating it
+    // explicitly means any collection added to the schema later starts closed until its own
+    // rules are written and tested (firebase/rules-tests).
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }

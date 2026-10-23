@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.example.ui.navigation.sharedPulseBounds
 import com.example.ui.theme.AvatarPalette
 import com.example.ui.theme.PulseTheme
 
@@ -41,13 +42,20 @@ fun UserAvatar(
     colorHex: String? = null,
     /** Background colour used when the person's 'ring' should match a non-default surface. */
     ringColor: Color = MaterialTheme.colorScheme.background,
+    /**
+     * Shared-element key (usually the conversationId): the avatar flies from the chat list into
+     * the chat header / conversation info instead of cross-fading. No-op outside nav destinations
+     * that provide the shared scopes (previews, tests, lite devices).
+     */
+    sharedKey: String? = null,
 ) {
     val initial = remember(displayName) { displayName.trim().firstOrNull()?.uppercase().orEmpty() }
     val avatarColor = remember(colorHex, displayName) { AvatarPalette.resolve(colorHex, displayName) }
     // The letter keeps its proportion to the circle at every font scale.
     val letterSize = with(LocalDensity.current) { (size * 0.42f).toSp() }
+    val sharedModifier = if (sharedKey != null) Modifier.sharedPulseBounds("avatar:$sharedKey") else Modifier
 
-    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.then(sharedModifier).size(size), contentAlignment = Alignment.Center) {
         when {
             !avatarUrl.isNullOrEmpty() -> AsyncImage(
                 model = avatarUrl,

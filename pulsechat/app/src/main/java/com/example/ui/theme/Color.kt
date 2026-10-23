@@ -81,6 +81,12 @@ internal object GraphiteLight {
     val Background = Color(0xFFF4F6F8)
     val Surface = Color(0xFFFFFFFF)
     val SurfaceDim = Color(0xFFE3E8EE)
+    // Tonal container steps (dark theme already had the full ramp): from the white surface down
+    // through the chat background, so cards/pills/sheets separate by tone instead of by shadows.
+    val ContainerLowest = Color(0xFFFFFFFF)
+    val ContainerLow = Color(0xFFFBFCFD)
+    val Container = Color(0xFFF4F6F8)
+    val ContainerHigh = Color(0xFFEDF1F5)
     val ContainerHighest = Color(0xFFE9EEF3)
     val Border = Color(0xFFD7E0E8)
     val Outline = Color(0xFF7F90A1)

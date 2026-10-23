@@ -57,7 +57,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -146,22 +146,22 @@ fun HomeScreen(nav: HomeNav) {
     var clearCalls by remember { mutableStateOf(false) }
     var assignFolders by remember { mutableStateOf(false) }
 
-    val chats by vm.chats.collectAsState()
-    val filter by vm.filter.collectAsState()
-    val query by vm.query.collectAsState()
-    val selection by vm.selection.collectAsState()
-    val meUser by vm.meUser.collectAsState()
-    val updates by vm.updates.collectAsState()
-    val groups by vm.groups.collectAsState()
-    val calls by vm.calls.collectAsState()
-    val contacts by vm.contacts.collectAsState()
-    val myStatusViews by vm.myStatusViews.collectAsState()
-    val unread by vm.unreadChats.collectAsState()
-    val sync by vm.sync.collectAsState()
-    val network by vm.network.collectAsState()
-    val folders by vm.folders.collectAsState()
-    val foldersWithCounts by vm.foldersWithCounts.collectAsState()
-    val selectedFolder by vm.selectedFolder.collectAsState()
+    val chats by vm.chats.collectAsStateWithLifecycle()
+    val filter by vm.filter.collectAsStateWithLifecycle()
+    val query by vm.query.collectAsStateWithLifecycle()
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    val meUser by vm.meUser.collectAsStateWithLifecycle()
+    val updates by vm.updates.collectAsStateWithLifecycle()
+    val groups by vm.groups.collectAsStateWithLifecycle()
+    val calls by vm.calls.collectAsStateWithLifecycle()
+    val contacts by vm.contacts.collectAsStateWithLifecycle()
+    val myStatusViews by vm.myStatusViews.collectAsStateWithLifecycle()
+    val unread by vm.unreadChats.collectAsStateWithLifecycle()
+    val sync by vm.sync.collectAsStateWithLifecycle()
+    val network by vm.network.collectAsStateWithLifecycle()
+    val folders by vm.folders.collectAsStateWithLifecycle()
+    val foldersWithCounts by vm.foldersWithCounts.collectAsStateWithLifecycle()
+    val selectedFolder by vm.selectedFolder.collectAsStateWithLifecycle()
     val startCall = rememberCallStarter(onStarted = nav.openCall)
 
     LaunchedEffect(Unit) { vm.events.collect { snackbar.showSnackbar(chatErrorText(context, it)) } }

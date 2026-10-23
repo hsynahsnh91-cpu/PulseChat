@@ -12,6 +12,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -26,6 +27,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import com.example.ui.common.LightSystemBarIcons
+import com.example.ui.common.pressScale
+import com.example.ui.common.rememberPulseHaptics
 import com.example.ui.common.rememberReducedMotion
 import com.example.ui.theme.CallPalette
 import com.example.ui.theme.Motion
@@ -38,6 +41,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +52,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -70,25 +76,35 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
+import kotlin.math.roundToInt
 import com.example.R
 import com.example.calls.CallManager
 import com.example.calls.CallUiState
@@ -106,11 +122,11 @@ fun CallScreen(onClose: () -> Unit) {
     val container = appContainer()
     val manager = container.callManager
     val context = LocalContext.current
-    val ui by manager.ui.collectAsState()
-    val routes by manager.audioRoutes.collectAsState()
-    val stats by manager.stats.collectAsState()
-    val quality by manager.quality.collectAsState()
-    val settings by container.prefs.settings.collectAsState()
+    val ui by manager.ui.collectAsStateWithLifecycle()
+    val routes by manager.audioRoutes.collectAsStateWithLifecycle()
+    val stats by manager.stats.collectAsStateWithLifecycle()
+    val quality by manager.quality.collectAsStateWithLifecycle()
+    val settings by container.prefs.settings.collectAsStateWithLifecycle()
     var routeMenu by remember { mutableStateOf(false) }
     val view = LocalView.current
     DisposableEffect(Unit) {
@@ -133,12 +149,34 @@ fun CallScreen(onClose: () -> Unit) {
     LaunchedEffect(ui.state) { while (ui.state == CallState.CONNECTED) { now = System.currentTimeMillis(); delay(1000) } }
 
     LightSystemBarIcons()
-    Box(Modifier.fillMaxSize().background(CallPalette.Background)) {
+    // Measured so the draggable self-preview (PiP) can be clamped/snapped inside the screen.
+    var rootSize by remember { mutableStateOf(IntSize.Zero) }
+    Box(Modifier.fillMaxSize().onSizeChanged { rootSize = it }.background(CallPalette.Background)) {
         val showVideo = ui.isVideo && (ui.state.isActive || ui.state == CallState.RINGING && ui.direction == CallDirection.OUTGOING || ui.state == CallState.INITIATING)
         // If the other side's video stops arriving (weak network), their photo replaces a frozen frame.
         val remoteVideoShown = showVideo && ui.remoteVideo && ui.state.isActive && !ui.remoteVideoPaused
         if (remoteVideoShown) {
             VideoRenderer(manager, remote = true, modifier = Modifier.fillMaxSize())
+        }
+        // Ambient backdrop while there is no remote video: the peer's photo, heavily blurred and
+        // darkened towards the controls (the treatment Telegram/WhatsApp use). Modifier.blur is a
+        // RenderEffect on Android 12+ and a dimmed no-op below that, which still reads fine under
+        // the gradient.
+        if (!remoteVideoShown && !ui.peerAvatar.isNullOrBlank()) {
+            AsyncImage(
+                model = ui.peerAvatar, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(56.dp).graphicsLayer { alpha = 0.45f },
+            )
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(
+                            CallPalette.Background.copy(alpha = 0.35f),
+                            CallPalette.Background.copy(alpha = 0.9f),
+                        )
+                    )
+                )
+            )
         }
         BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             val compact = maxHeight < 600.dp
@@ -216,7 +254,38 @@ fun CallScreen(onClose: () -> Unit) {
             CallDetailsPanel(stats, quality, ui.isVideo, routes.current, Modifier.align(Alignment.TopStart).statusBarsPadding().padding(Spacing.md))
         }
         if (ui.isVideo && ui.cameraOn && (ui.state.isActive || ui.state == CallState.RINGING || ui.state == CallState.INITIATING)) {
-            VideoRenderer(manager, remote = false, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(Spacing.lg).size(width = 110.dp, height = 160.dp).clip(RoundedCornerShape(Radii.md)))
+            // Draggable self-preview: follows the finger (smoothed by a spatial spring), then snaps
+            // to the nearer horizontal edge on release, clamped to the screen on both axes.
+            val density = LocalDensity.current
+            val pipWpx = with(density) { 110.dp.roundToPx() }
+            val pipHpx = with(density) { 160.dp.roundToPx() }
+            val marginPx = with(density) { Spacing.lg.roundToPx() }
+            val maxLeft = -(rootSize.width - pipWpx - marginPx * 2).coerceAtLeast(0)
+            val maxDown = (rootSize.height - pipHpx - marginPx * 2).coerceAtLeast(0)
+            var pipOffset by remember { mutableStateOf(IntOffset.Zero) }
+            val pipAnimated by animateIntOffsetAsState(pipOffset, Motion.spatial(), label = "pip")
+            VideoRenderer(
+                manager, remote = false,
+                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(Spacing.lg)
+                    .offset { pipAnimated }
+                    .size(width = 110.dp, height = 160.dp).clip(RoundedCornerShape(Radii.md))
+                    .pointerInput(maxLeft, maxDown) {
+                        detectDragGestures(
+                            onDragEnd = {
+                                pipOffset = IntOffset(
+                                    if (pipOffset.x < maxLeft / 2) maxLeft else 0,
+                                    pipOffset.y.coerceIn(0, maxDown),
+                                )
+                            },
+                        ) { change, dragAmount ->
+                            change.consume()
+                            pipOffset = IntOffset(
+                                (pipOffset.x + dragAmount.x.roundToInt()).coerceIn(maxLeft, 0),
+                                (pipOffset.y + dragAmount.y.roundToInt()).coerceIn(0, maxDown),
+                            )
+                        }
+                    },
+            )
         }
     }
 }
@@ -290,8 +359,12 @@ private fun RoundButton(
     icon: ImageVector, label: String, container: Color, content: Color, large: Boolean = false,
     modifier: Modifier = Modifier, onClick: () -> Unit,
 ) {
+    // Physical press feel: the disc shrinks slightly while pressed (spring back on release) with a
+    // light haptic tick, so call controls confirm themselves even without looking at them.
+    val interaction = remember { MutableInteractionSource() }
+    val haptics = rememberPulseHaptics()
     Column(modifier.widthIn(max = 88.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledIconButton(onClick = onClick, modifier = Modifier.size(if (large) 68.dp else 60.dp), shape = CircleShape,
+        FilledIconButton(onClick = { haptics.tick(); onClick() }, interactionSource = interaction, modifier = Modifier.size(if (large) 68.dp else 60.dp).pressScale(interaction), shape = CircleShape,
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = container, contentColor = content)) {
             Icon(icon, contentDescription = label, modifier = Modifier.size(if (large) 30.dp else 26.dp))
         }

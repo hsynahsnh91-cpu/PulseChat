@@ -1,9 +1,12 @@
 package com.example.ui.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -92,10 +95,10 @@ private val LightColorScheme: ColorScheme = with(GraphiteLight) {
         scrim = Color.Black,
         surfaceBright = Surface,
         surfaceDim = SurfaceDim,
-        surfaceContainerLowest = Surface,
-        surfaceContainerLow = Surface,
-        surfaceContainer = Surface,
-        surfaceContainerHigh = Surface,
+        surfaceContainerLowest = ContainerLowest,
+        surfaceContainerLow = ContainerLow,
+        surfaceContainer = Container,
+        surfaceContainerHigh = ContainerHigh,
         surfaceContainerHighest = ContainerHighest,
     )
 }
@@ -201,14 +204,27 @@ fun isAppInDarkTheme(themeMode: ThemeMode): Boolean = when (themeMode) {
 @Composable
 fun PulseChatTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /**
+     * Material You dynamic colour (Android 12+): the *chrome* (app bars, buttons, menus) follows
+     * the wallpaper while [PulseColors] — bubbles, ticks, sender colours — stay brand Graphite, so
+     * conversations keep their checked contrast in every wallpaper palette. Off by default; wire
+     * it to a settings toggle when product wants it.
+     */
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val dark = isAppInDarkTheme(themeMode)
     val context = LocalContext.current
     val lite = remember { DevicePerformance.isLite(context) }
+    val scheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        dark -> DarkColorScheme
+        else -> LightColorScheme
+    }
     CompositionLocalProvider(LocalPulseColors provides if (dark) DarkPulse else LightPulse, LocalLiteMode provides lite) {
         MaterialTheme(
-            colorScheme = if (dark) DarkColorScheme else LightColorScheme,
+            colorScheme = scheme,
             typography = Typography,
             shapes = PulseShapes,
             content = content,

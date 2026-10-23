@@ -69,6 +69,7 @@ import com.example.domain.Mentions
 import com.example.media.VoiceRecorder
 import com.example.ui.components.UserAvatar
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -93,6 +94,7 @@ import androidx.compose.ui.text.style.TextAlign
 import com.example.ui.theme.Motion
 import com.example.ui.theme.Radii
 import com.example.ui.theme.Spacing
+import com.example.ui.common.rememberPulseHaptics
 import com.example.ui.common.rememberReducedMotion
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -176,11 +178,14 @@ private fun InputRow(
     focusRequester: FocusRequester?,
 ) {
     val v = value.value
+    val haptics = rememberPulseHaptics()
     // What is typed sets the direction (English in the Arabic UI and vice versa); the hint follows the UI.
     val textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
     val inputStyle = textStyle.copy(textDirection = TextDirection.Content)
     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
-        Surface(shape = RoundedCornerShape(Radii.lg), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.weight(1f)) {
+        // Growing from one line to several is a size change: spring it (critically damped, so the
+        // text never overshoots) instead of snapping the pill taller.
+        Surface(shape = RoundedCornerShape(Radii.lg), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.weight(1f).animateContentSize(Motion.settle())) {
             Row(verticalAlignment = Alignment.Bottom) {
                 IconButton(onClick = onEmojiToggle) {
                     Icon(if (emojiOpen) Icons.Rounded.Keyboard else Icons.Rounded.EmojiEmotions,
@@ -194,7 +199,7 @@ private fun InputRow(
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = if (enterToSend) ImeAction.Send else ImeAction.Default),
-                    keyboardActions = KeyboardActions(onSend = { onSend() }),
+                    keyboardActions = KeyboardActions(onSend = { haptics.confirm(); onSend() }),
                     modifier = Modifier.weight(1f).let { if (focusRequester != null) it.focusRequester(focusRequester) else it }.testTag("composer_input"),
                     decorationBox = { inner ->
                         Box(Modifier.heightIn(min = 48.dp).padding(vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
@@ -228,8 +233,8 @@ private fun InputRow(
         FilledIconButton(
             onClick = {
                 val now = SystemClock.uptimeMillis()
-                if (showSend) { lastSendAt = now; onSend() }
-                else if (now - lastSendAt > 700) onStartRecording()
+                if (showSend) { lastSendAt = now; haptics.confirm(); onSend() }
+                else if (now - lastSendAt > 700) { haptics.tick(); onStartRecording() }
             },
             enabled = !showSend || v.text.isNotBlank(),
             modifier = Modifier.size(48.dp).testTag(if (showSend) "composer_send" else "composer_mic"),
@@ -256,8 +261,9 @@ private fun InputRow(
 @Composable
 private fun RecordingBar(recording: State<VoiceRecorder.State>, onFinish: (Boolean) -> Unit) {
     val state = recording.value
+    val haptics = rememberPulseHaptics()
     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = 6.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { onFinish(false) }) { Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.voice_discard), tint = MaterialTheme.colorScheme.error) }
+        IconButton(onClick = { haptics.tick(); onFinish(false) }) { Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.voice_discard), tint = MaterialTheme.colorScheme.error) }
         RecordingDot()
         Spacer(Modifier.width(Spacing.sm))
         Text(DurationFormat.clock(state.elapsedMs), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
@@ -270,7 +276,7 @@ private fun RecordingBar(recording: State<VoiceRecorder.State>, onFinish: (Boole
             repeat((40 - levels.size).coerceAtLeast(0)) { Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant)) }
         }
         Spacer(Modifier.width(Spacing.sm))
-        FilledIconButton(onClick = { onFinish(true) }, modifier = Modifier.size(48.dp)) {
+        FilledIconButton(onClick = { haptics.confirm(); onFinish(true) }, modifier = Modifier.size(48.dp)) {
             Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.voice_send))
         }
     }

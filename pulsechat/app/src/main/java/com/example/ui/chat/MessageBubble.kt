@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.util.Base64
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,8 +57,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
@@ -120,7 +124,9 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.runtime.State
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
@@ -128,8 +134,12 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.unit.min
 import com.example.ui.common.rememberLocalFile
+import com.example.ui.common.rememberPulseHaptics
+import com.example.ui.common.rememberReducedMotion
+import com.example.ui.navigation.sharedPulseBounds
 import com.example.ui.theme.Spacing
 import com.example.ui.theme.LocalLiteMode
+import com.example.ui.theme.Motion
 import com.example.ui.theme.Radii
 import com.example.ui.theme.MessageTextStyle
 import com.example.ui.theme.EmojiOnlyTextStyle
@@ -137,6 +147,11 @@ import com.example.ui.common.isolateIfForeign
 import com.example.ui.common.ltrIsolate
 import androidx.compose.material.icons.automirrored.rounded.Shortcut
 
+/**
+ * All message actions, created once per chat ViewModel (remember(vm)) and never mutated — marked
+ * stable (and listed in compose-stability.conf) so unchanged rows can skip recomposition.
+ */
+@Stable
 class BubbleCallbacks(
     val onClick: (Message) -> Unit,
     val onLongClick: (Message) -> Unit,
@@ -190,8 +205,27 @@ fun MessageRow(
     val mine = m.senderId == me
     val pulse = PulseTheme.colors
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val haptics = rememberPulseHaptics()
     var drag by remember(m.messageId) { mutableFloatStateOf(0f) }
-    val animatedDrag by animateFloatAsState(drag, label = "swipe")
+    var swipeArmed by remember(m.messageId) { mutableStateOf(false) }
+    // While the finger is down the bubble tracks it 1:1 (snap); on release it springs back to rest
+    // with its velocity intact, instead of restarting a fixed-duration tween.
+    val animatedDrag by animateFloatAsState(
+        drag,
+        animationSpec = if (drag == 0f) Motion.swipe() else snap(),
+        label = "swipe",
+    )
+    // A bubble I just sent lands with a small spring "pop" from its bottom corner. Only freshly
+    // created own messages animate, so scrolling back through history never replays it; lite
+    // devices and "remove animations" skip it entirely.
+    val liteMode = LocalLiteMode.current
+    val reducedMotion = rememberReducedMotion()
+    val pop = remember(m.messageId) {
+        val fresh = mine && !liteMode && !reducedMotion &&
+            (System.currentTimeMillis() - m.createdAt) in 0..2_500
+        Animatable(if (fresh) 0.92f else 1f)
+    }
+    LaunchedEffect(m.messageId) { if (pop.value < 1f) pop.animateTo(1f, Motion.pop()) }
     val rowBackground = when {
         selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
         highlighted -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
@@ -199,16 +233,23 @@ fun MessageRow(
     }
     Box(
         Modifier.fillMaxWidth().background(rowBackground)
-            .combinedClickable(onClick = { callbacks.onClick(m) }, onLongClick = { callbacks.onLongClick(m) })
+            .combinedClickable(
+                onClick = { callbacks.onClick(m) },
+                onLongClick = { haptics.longPress(); callbacks.onLongClick(m) },
+            )
             .let { mod ->
                 if (!canSwipeReply || selectionMode || m.deletedForEveryone) mod
                 else mod.pointerInput(m.messageId) {
                     detectHorizontalDragGestures(
-                        onDragEnd = { if (kotlin.math.abs(drag) > 140f) callbacks.onSwipeReply(m); drag = 0f },
-                        onDragCancel = { drag = 0f },
+                        onDragEnd = { if (kotlin.math.abs(drag) > 140f) callbacks.onSwipeReply(m); drag = 0f; swipeArmed = false },
+                        onDragCancel = { drag = 0f; swipeArmed = false },
                     ) { change, amount ->
                         val directed = if (rtl) -amount else amount
                         drag = if (rtl) (drag - directed).coerceIn(-220f, 0f) else (drag + directed).coerceIn(0f, 220f)
+                        // One haptic tick the moment releasing would trigger the reply.
+                        val past = kotlin.math.abs(drag) > 140f
+                        if (past && !swipeArmed) { swipeArmed = true; haptics.thresholdCrossed() }
+                        else if (!past) swipeArmed = false
                         change.consume()
                     }
                 }
@@ -226,7 +267,13 @@ fun MessageRow(
         ) {
             // Comfortable reading width: most of a phone screen, capped on tablets and in landscape.
             val maxBubble = min(maxWidth * 0.84f, Spacing.bubbleMaxWidth)
-            Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, modifier = Modifier.widthIn(max = maxBubble)) {
+            Column(
+                horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
+                modifier = Modifier.widthIn(max = maxBubble).graphicsLayer {
+                    scaleX = pop.value; scaleY = pop.value
+                    transformOrigin = TransformOrigin(if (mine) 1f else 0f, 1f)
+                },
+            ) {
                 Bubble(item, mine, names, isGroup, isAi, hideTicks, searchQuery, voice, showReadReceipts, callbacks, me)
                 val reactions = remember(m.reactions) { m.reactionMap() }
                 if (reactions.isNotEmpty()) {
@@ -518,7 +565,8 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
         contentAlignment = Alignment.Center,
     ) {
         if (m.type == MessageType.IMAGE) {
-            if (local != null) AsyncImage(model = File(local), contentDescription = m.content.ifBlank { stringResource(R.string.preview_photo) }, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            // Shared element: the photo flies into the media viewer (same key there) instead of fading.
+            if (local != null) AsyncImage(model = File(local), contentDescription = m.content.ifBlank { stringResource(R.string.preview_photo) }, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().sharedPulseBounds("media:${m.messageId}"))
             else Icon(Icons.Rounded.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f), modifier = Modifier.size(56.dp))
         } else {
             // The cover chosen by the sender travels with the message, so it shows at once (even before

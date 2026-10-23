@@ -43,7 +43,12 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      // R8: code shrinking + obfuscation + resource shrinking. Keep rules live in
+      // proguard-rules.pro (Room/Moshi codegen, Firestore mappers, WebRTC JNI, WorkManager,
+      // enum names stored on the wire/in Room). Upload app/build/outputs/mapping/release/
+      // mapping.txt with every release so crash stack traces can be de-obfuscated.
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
@@ -94,6 +99,15 @@ secrets {
 
 // Export Room schemas so every database version change is reviewed and migration-tested.
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
+// Compose compiler: treat the Room entities + chat callback holder as stable (they are immutable
+// value holders; see compose-stability.conf) so message rows can skip recomposition, and emit
+// compiler reports/metrics under app/build/compose-reports for recomposition audits.
+composeCompiler {
+  stabilityConfigurationFiles.add(layout.projectDirectory.file("compose-stability.conf"))
+  reportsDestination.set(layout.buildDirectory.dir("compose-reports"))
+  metricsDestination.set(layout.buildDirectory.dir("compose-reports"))
+}
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
@@ -169,6 +183,11 @@ dependencies {
   implementation(libs.mlkit.language.id)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
+  // Baseline Profiles: installs src/main/baseline-prof.txt (+ startup-prof.txt) so the startup
+  // path is AOT-compiled at install time (faster cold start, less first-scroll jank).
+  implementation(libs.androidx.profileinstaller)
+  // Android 12+ splash screen backport (Theme.PulseChat.Splash + MainActivity).
+  implementation(libs.androidx.core.splashscreen)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)

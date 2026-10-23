@@ -217,7 +217,7 @@ fun ChatRow(
                     Icon(Icons.Rounded.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             } else {
-                UserAvatar(displayName = title, avatarUrl = row.displayAvatar, size = 52.dp, isAiAssistant = c.peerId == Ids.AI_ASSISTANT_ID, colorHex = row.peerColor)
+                UserAvatar(displayName = title, avatarUrl = row.displayAvatar, size = 52.dp, isAiAssistant = c.peerId == Ids.AI_ASSISTANT_ID, colorHex = row.peerColor, sharedKey = c.conversationId)
             }
             if (selected) {
                 Box(

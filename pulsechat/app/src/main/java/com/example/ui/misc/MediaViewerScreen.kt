@@ -29,7 +29,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +57,7 @@ import com.example.domain.model.MessageType
 import com.example.domain.model.TransferState
 import com.example.ui.common.Formatters
 import com.example.ui.common.appContainer
+import com.example.ui.navigation.sharedPulseBounds
 import com.example.ui.common.playerUri
 import com.example.ui.status.VideoPlayerView
 import kotlinx.coroutines.launch
@@ -70,8 +71,8 @@ fun MediaViewerScreen(messageId: String, onBack: () -> Unit) {
     val container = appContainer()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val message by remember { container.chatRepository.observeMessage(messageId) }.collectAsState(initial = null)
-    val sender by remember(message?.senderId) { container.userRepository.observeUser(message?.senderId.orEmpty()) }.collectAsState(initial = null)
+    val message by remember { container.chatRepository.observeMessage(messageId) }.collectAsStateWithLifecycle(initialValue = null)
+    val sender by remember(message?.senderId) { container.userRepository.observeUser(message?.senderId.orEmpty()) }.collectAsStateWithLifecycle(initialValue = null)
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     val m = message
@@ -93,7 +94,8 @@ fun MediaViewerScreen(messageId: String, onBack: () -> Unit) {
                     VideoPlayerView(m.mediaUrl, Modifier.fillMaxWidth().align(Alignment.Center), autoPlay = true)
                 m.type == MessageType.IMAGE && local != null -> AsyncImage(
                     model = File(local), contentDescription = m.content, contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                    // Shared element with the photo in the chat (pinch-zoom still applies on top).
+                    modifier = Modifier.fillMaxSize().sharedPulseBounds("media:${m.messageId}").pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, _ ->
                             scale = (scale * zoom).coerceIn(1f, 5f)
                             offset = if (scale > 1f) offset + pan else Offset.Zero

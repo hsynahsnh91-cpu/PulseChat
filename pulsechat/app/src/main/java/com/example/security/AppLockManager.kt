@@ -153,12 +153,29 @@ class AppLockManager(private val prefs: AppPreferences, private val callLive: ()
 
     // ------------------------------------------------------------------ biometrics
 
+    /**
+     * The strongest biometric class this phone can actually authenticate with. Class 3
+     * (BIOMETRIC_STRONG: fingerprint, secure face/iris) is preferred — Class 2 (BIOMETRIC_WEAK)
+     * face unlock on cheaper phones can be fooled by a photo, so it is only used when nothing
+     * stronger is enrolled. The PIN stays available either way. Null before Android 11, where the
+     * prompt has no authenticator selection.
+     */
+    private fun biometricAuthenticators(context: Context): Int? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        val bm = context.getSystemService(BiometricManager::class.java) ?: return null
+        return if (bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS) {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_WEAK
+        }
+    }
+
     /** Fingerprint/face unlock is offered on Android 10+ when the phone has biometrics enrolled. */
     fun biometricAvailable(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
         val bm = context.getSystemService(BiometricManager::class.java) ?: return false
         val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+            bm.canAuthenticate(biometricAuthenticators(context) ?: BiometricManager.Authenticators.BIOMETRIC_WEAK)
         } else {
             @Suppress("DEPRECATION")
             bm.canAuthenticate()
@@ -172,7 +189,7 @@ class AppLockManager(private val prefs: AppPreferences, private val callLive: ()
         val executor = ContextCompat.getMainExecutor(activity)
         val builder = BiometricPrompt.Builder(activity).setTitle(title).setSubtitle(subtitle)
             .setNegativeButton(usePinLabel, executor) { _, _ -> finishAuth(false, onResult) }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+        biometricAuthenticators(activity)?.let { builder.setAllowedAuthenticators(it) }
         authInProgress = true
         runCatching {
             builder.build().authenticate(CancellationSignal(), executor, object : BiometricPrompt.AuthenticationCallback() {
@@ -200,7 +217,11 @@ class AppLockManager(private val prefs: AppPreferences, private val callLive: ()
      */
     fun authenticateWithDeviceCredential(activity: Activity, title: String, subtitle: String, legacyLauncher: (Intent) -> Unit, onResult: (Boolean) -> Unit) {
         if (authInProgress) return
-        if (!isDeviceSecure(activity)) { onResult(true); return } // nothing left to check against
+        // Fail closed: a legacy lock without a PIN has nothing else to check against once the
+        // phone's screen lock is gone. Silently unlocking would turn the app lock off without
+        // telling the user; staying locked keeps the promise, and the lock screen's sign-out
+        // escape (which resets the lock on sign-out) remains available.
+        if (!isDeviceSecure(activity)) { onResult(false); return }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val builder = BiometricPrompt.Builder(activity).setTitle(title).setSubtitle(subtitle)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -220,7 +241,7 @@ class AppLockManager(private val prefs: AppPreferences, private val callLive: ()
             val km = activity.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
             @Suppress("DEPRECATION")
             val intent = km.createConfirmDeviceCredentialIntent(title, subtitle)
-            if (intent == null) onResult(true) else legacyLauncher(intent)
+            if (intent == null) onResult(false) else legacyLauncher(intent)
         }
     }
 
@@ -230,7 +251,10 @@ class AppLockManager(private val prefs: AppPreferences, private val callLive: ()
         private const val ITERATIONS = 100_000
         private const val FREE_ATTEMPTS = 5
         private const val MAX_WAIT_SECONDS = 300L
-        private const val EXTERNAL_GRACE_MS = 10 * 60 * 1000L
+        // How long a trip to a picker/camera PulseChat opened itself may last without re-locking.
+        // Long enough for real picker/camera flows, short enough that handing the unlocked phone
+        // away after opening one does not stay unlocked for long.
+        private const val EXTERNAL_GRACE_MS = 5 * 60 * 1000L
 
         fun isValidPin(pin: String): Boolean = pin.length in PIN_MIN..PIN_MAX && pin.all { it in '0'..'9' }
     }

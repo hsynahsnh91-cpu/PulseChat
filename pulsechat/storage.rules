@@ -38,6 +38,9 @@ service firebase.storage {
         && request.resource.contentType is string
         && request.resource.contentType.size() > 0
         && request.resource.contentType.size() <= 128
+        // Only media/document MIME families the clients actually send (Android passes the real
+        // type, Web sends File.type); anything else is not chat media and is rejected here.
+        && request.resource.contentType.matches('(image|video|audio|application|text)/.*')
         && (
           (conversationId.matches('^dm_.*') && isDirectParticipant(conversationId))
           || (!conversationId.matches('^dm_.*')

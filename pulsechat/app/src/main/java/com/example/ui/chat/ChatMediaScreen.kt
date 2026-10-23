@@ -42,7 +42,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -106,10 +106,10 @@ fun ChatMediaScreen(conversationId: String, onBack: () -> Unit, openMedia: (Stri
     val container = appContainer()
     val context = LocalContext.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    val media by vm.media.collectAsState()
-    val docs by vm.docs.collectAsState()
-    val links by vm.links.collectAsState()
-    val voice by vm.voice.collectAsState()
+    val media by vm.media.collectAsStateWithLifecycle()
+    val docs by vm.docs.collectAsStateWithLifecycle()
+    val links by vm.links.collectAsStateWithLifecycle()
+    val voice by vm.voice.collectAsStateWithLifecycle()
     Scaffold(topBar = { BackTopBar(stringResource(R.string.media_browser_title), onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = tab) {

@@ -86,7 +86,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -667,8 +667,8 @@ fun StatusMusicPickerSheet(
     var customUri by remember { mutableStateOf(current?.localUri) }
     var customTitle by remember { mutableStateOf(current?.title?.takeIf { current.isLocalCustom }.orEmpty()) }
     var startMs by remember { mutableStateOf(current?.startMs ?: 0L) }
-    val isPlaying by player.isPlaying.collectAsState()
-    val unavailable by player.unavailable.collectAsState()
+    val isPlaying by player.isPlaying.collectAsStateWithLifecycle()
+    val unavailable by player.unavailable.collectAsStateWithLifecycle()
 
     val pickAudioLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {

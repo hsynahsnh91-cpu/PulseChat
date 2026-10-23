@@ -33,7 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -98,10 +98,10 @@ fun openExactAlarmSettings(context: Context) {
 fun RemindersScreen(onBack: () -> Unit, openMessage: (conversationId: String, messageId: String?) -> Unit) {
     val vm: RemindersViewModel = viewModel(factory = containerFactory { RemindersViewModel(it) })
     val context = LocalContext.current
-    val upcoming by vm.upcoming.collectAsState()
-    val past by vm.past.collectAsState()
-    val exact by vm.exactAllowed.collectAsState()
-    val lockedChats by vm.lockedChats.collectAsState()
+    val upcoming by vm.upcoming.collectAsStateWithLifecycle()
+    val past by vm.past.collectAsStateWithLifecycle()
+    val exact by vm.exactAllowed.collectAsStateWithLifecycle()
+    val lockedChats by vm.lockedChats.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<Reminder?>(null) }
     LifecycleResumeEffect(Unit) {
         vm.refresh()

@@ -9,7 +9,7 @@ lifecycleViewmodelCompose = "2.8.7"
 lifecycleRuntimeCompose = "2.8.7"
 activityCompose = "1.10.1"
 kotlin = "2.2.10"
-composeBom = "2024.09.00"
+composeBom = "2025.12.00"
 googleDevtoolsKsp = "2.3.5"
 navigationCompose = "2.8.9"
 roomRuntime = "2.7.0"
@@ -45,6 +45,8 @@ streamWebrtc = "1.3.10"
 workRuntime = "2.11.2"
 mlkitTranslate = "17.0.3"
 mlkitLanguageId = "17.0.6"
+profileinstaller = "1.4.1"
+coreSplashscreen = "1.0.1"
 
 
 [libraries]
@@ -107,6 +109,8 @@ stream-webrtc-android = { group = "io.getstream", name = "stream-webrtc-android"
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
 mlkit-translate = { group = "com.google.mlkit", name = "translate", version.ref = "mlkitTranslate" }
 mlkit-language-id = { group = "com.google.mlkit", name = "language-id", version.ref = "mlkitLanguageId" }
+androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 
 
 [plugins]

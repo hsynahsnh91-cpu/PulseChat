@@ -84,7 +84,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -208,44 +208,44 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     val snackbar = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
 
-    val conversation by vm.conversation.collectAsState()
-    val items by vm.items.collectAsState()
-    val participants by vm.participants.collectAsState()
-    val typing by vm.typing.collectAsState()
-    val presence by vm.presence.collectAsState()
-    val blocked by vm.blockedIds.collectAsState()
-    val settings by vm.settings.collectAsState()
-    val network by vm.network.collectAsState()
+    val conversation by vm.conversation.collectAsStateWithLifecycle()
+    val items by vm.items.collectAsStateWithLifecycle()
+    val participants by vm.participants.collectAsStateWithLifecycle()
+    val typing by vm.typing.collectAsStateWithLifecycle()
+    val presence by vm.presence.collectAsStateWithLifecycle()
+    val blocked by vm.blockedIds.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val network by vm.network.collectAsStateWithLifecycle()
     // Fast-changing state (voice playback position, recording level, the draft being typed) is
     // handed down as State objects and read only by the composables that show it, so typing or
     // playing a voice note does not recompose the whole screen.
-    val voiceState = vm.voice.collectAsState()
-    val recordingState = vm.recording.collectAsState()
-    val draftState = vm.draft.collectAsState()
-    val replyTo by vm.replyTo.collectAsState()
-    val editing by vm.editing.collectAsState()
-    val selection by vm.selection.collectAsState()
-    val searchActive by vm.searchActive.collectAsState()
-    val searchQuery by vm.searchQuery.collectAsState()
-    val searchResults by vm.searchResults.collectAsState()
-    val searchIndex by vm.searchIndex.collectAsState()
-    val highlighted by vm.highlighted.collectAsState()
-    val mentionState = vm.mentionSuggestions.collectAsState()
-    val loadingOlder by vm.loadingOlder.collectAsState()
-    val aiPanel by vm.ai.collectAsState()
-    val aiTyping by vm.aiTyping.collectAsState()
-    val receipts by vm.receipts.collectAsState()
-    val peerContact by vm.peerContact.collectAsState()
-    val scheduled by vm.scheduled.collectAsState()
-    val translations by vm.translations.collectAsState()
-    val transcripts by vm.transcripts.collectAsState()
-    val summary by vm.summary.collectAsState()
-    val suggestions by vm.actionSuggestions.collectAsState()
-    val newSinceVisit by vm.newSinceVisit.collectAsState()
-    val newBannerDismissed by vm.newBannerDismissed.collectAsState()
-    val notificationSettings by vm.notificationSettings.collectAsState()
-    val chatLocked by vm.locked.collectAsState()
-    val liveSession by vm.liveSession.collectAsState()
+    val voiceState = vm.voice.collectAsStateWithLifecycle()
+    val recordingState = vm.recording.collectAsStateWithLifecycle()
+    val draftState = vm.draft.collectAsStateWithLifecycle()
+    val replyTo by vm.replyTo.collectAsStateWithLifecycle()
+    val editing by vm.editing.collectAsStateWithLifecycle()
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    val searchActive by vm.searchActive.collectAsStateWithLifecycle()
+    val searchQuery by vm.searchQuery.collectAsStateWithLifecycle()
+    val searchResults by vm.searchResults.collectAsStateWithLifecycle()
+    val searchIndex by vm.searchIndex.collectAsStateWithLifecycle()
+    val highlighted by vm.highlighted.collectAsStateWithLifecycle()
+    val mentionState = vm.mentionSuggestions.collectAsStateWithLifecycle()
+    val loadingOlder by vm.loadingOlder.collectAsStateWithLifecycle()
+    val aiPanel by vm.ai.collectAsStateWithLifecycle()
+    val aiTyping by vm.aiTyping.collectAsStateWithLifecycle()
+    val receipts by vm.receipts.collectAsStateWithLifecycle()
+    val peerContact by vm.peerContact.collectAsStateWithLifecycle()
+    val scheduled by vm.scheduled.collectAsStateWithLifecycle()
+    val translations by vm.translations.collectAsStateWithLifecycle()
+    val transcripts by vm.transcripts.collectAsStateWithLifecycle()
+    val summary by vm.summary.collectAsStateWithLifecycle()
+    val suggestions by vm.actionSuggestions.collectAsStateWithLifecycle()
+    val newSinceVisit by vm.newSinceVisit.collectAsStateWithLifecycle()
+    val newBannerDismissed by vm.newBannerDismissed.collectAsStateWithLifecycle()
+    val notificationSettings by vm.notificationSettings.collectAsStateWithLifecycle()
+    val chatLocked by vm.locked.collectAsStateWithLifecycle()
+    val liveSession by vm.liveSession.collectAsStateWithLifecycle()
 
     var emojiOpen by rememberSaveable { mutableStateOf(false) }
     // Emoji panel and keyboard replace each other instead of stacking (which pushed the composer
@@ -461,7 +461,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                                     Icon(Icons.Rounded.Groups, contentDescription = null)
                                 }
                             } else {
-                                UserAvatar(title, avatarUrl = if (isGroup) conv?.avatarUrl else peer?.avatarUrl, size = 40.dp, isAiAssistant = isAi, colorHex = peer?.avatarColorHex)
+                                UserAvatar(title, avatarUrl = if (isGroup) conv?.avatarUrl else peer?.avatarUrl, size = 40.dp, isAiAssistant = isAi, colorHex = peer?.avatarColorHex, sharedKey = conversationId)
                             }
                             Spacer(Modifier.width(10.dp))
                             Column {
@@ -712,12 +712,20 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                             onFinishRecording = vm::finishRecording, enterToSend = settings.enterToSend, isAiChat = isAi, editing = edit != null,
                             onSchedule = if (!isAi && edit == null) ({ scheduleDialog = vm.draft.value.text to null }) else null,
                         )
-                        if (emojiOpen) EmojiPickerView(onEmojiSelected = { emoji ->
-                            val v = vm.draft.value
-                            val pos = v.selection.end.coerceIn(0, v.text.length)
-                            val text = v.text.substring(0, pos) + emoji + v.text.substring(pos)
-                            vm.onDraftChange(androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(pos + emoji.length)))
-                        }, modifier = Modifier.height(280.dp))
+                        // The emoji panel grows/shrinks vertically with a fade, mirroring the
+                        // keyboard it replaces, instead of popping into existence.
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = emojiOpen,
+                            enter = androidx.compose.animation.expandVertically(Motion.enter(Motion.STANDARD)) + fadeIn(Motion.enter(Motion.QUICK)),
+                            exit = androidx.compose.animation.shrinkVertically(Motion.exit(Motion.STANDARD)) + fadeOut(Motion.exit(Motion.QUICK)),
+                        ) {
+                            EmojiPickerView(onEmojiSelected = { emoji ->
+                                val v = vm.draft.value
+                                val pos = v.selection.end.coerceIn(0, v.text.length)
+                                val text = v.text.substring(0, pos) + emoji + v.text.substring(pos)
+                                vm.onDraftChange(androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(pos + emoji.length)))
+                            }, modifier = Modifier.height(280.dp))
+                        }
                     }
                 }
             }
@@ -843,7 +851,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     }
     if (contactSheet) {
         // In-app contacts only (saved contacts and people I chat with); the phone's address book is not used.
-        val shareable by vm.shareableContacts.collectAsState()
+        val shareable by vm.shareableContacts.collectAsStateWithLifecycle()
         ShareContactSheet(shareable, onDismiss = { contactSheet = false }) { contact ->
             contactSheet = false
             pendingContact = contact.shownName to ContactSearch.handleOf(contact)

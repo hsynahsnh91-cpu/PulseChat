@@ -2,6 +2,7 @@ package com.example.ui.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
@@ -87,4 +88,25 @@ object Motion {
     fun <T> enter(duration: Int = STANDARD): FiniteAnimationSpec<T> = tween(duration, easing = EnterEasing)
     fun <T> exit(duration: Int = QUICK): FiniteAnimationSpec<T> = tween(duration, easing = ExitEasing)
     fun <T> standard(duration: Int = STANDARD): FiniteAnimationSpec<T> = tween(duration, easing = StandardEasing)
+
+    // ---------------------------------------------------------------------------------- springs
+    // Physics-based specs for anything tied to a finger, a size change or a shared-element flight:
+    // springs keep their velocity when the target changes mid-flight, so interruptions never look
+    // jerky (a tween restarts from zero velocity). The tween tokens above stay in charge of pure
+    // fades and screen-to-screen slides, where a fixed, predictable timing reads better.
+
+    /** Movement through space: shared-element bounds, PiP snapping, panels. Slightly under-damped. */
+    fun <T> spatial(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.86f, stiffness = 380f)
+
+    /** Playful overshoot for small confirmations: a just-sent bubble landing, reaction chips. */
+    fun <T> pop(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.58f, stiffness = 460f)
+
+    /** Critically damped (no overshoot): the composer growing to multiple lines, sheets, lists. */
+    fun <T> settle(): FiniteAnimationSpec<T> = spring(dampingRatio = 1f, stiffness = 320f)
+
+    /** Snap-back after a drag ends (swipe-to-reply returning to rest, press-scale release). */
+    fun <T> swipe(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.75f, stiffness = 420f)
+
+    /** How far pressable discs/buttons shrink while pressed (see Modifier.pressScale). */
+    const val PRESS_SCALE = 0.94f
 }

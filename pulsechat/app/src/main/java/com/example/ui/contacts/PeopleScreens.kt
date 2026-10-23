@@ -48,7 +48,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -115,13 +115,13 @@ fun PeoplePickerScreen(mode: PickMode, conversationId: String?, nav: PeopleNav) 
     val vm: ContactsViewModel = viewModel(key = "people_${mode.name}_$conversationId", factory = containerFactory { ContactsViewModel(it) })
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val contacts by vm.contacts.collectAsState()
-    val blocked by vm.blocked.collectAsState()
-    val query by vm.query.collectAsState()
-    val results by vm.results.collectAsState()
-    val searching by vm.searching.collectAsState()
-    val searchError by vm.searchError.collectAsState()
-    val selected by vm.selected.collectAsState()
+    val contacts by vm.contacts.collectAsStateWithLifecycle()
+    val blocked by vm.blocked.collectAsStateWithLifecycle()
+    val query by vm.query.collectAsStateWithLifecycle()
+    val results by vm.results.collectAsStateWithLifecycle()
+    val searching by vm.searching.collectAsStateWithLifecycle()
+    val searchError by vm.searchError.collectAsStateWithLifecycle()
+    val selected by vm.selected.collectAsStateWithLifecycle()
     var existing by remember { mutableStateOf<List<String>>(emptyList()) }
     var detailsStep by rememberSaveable { mutableStateOf(false) }
     val startCall = rememberCallStarter(onStarted = nav.openCall)
@@ -226,8 +226,8 @@ private fun handlePick(mode: PickMode, userId: String, vm: ContactsViewModel, sc
 @Composable
 private fun GroupDetailsStep(vm: ContactsViewModel, onBack: () -> Unit, onCreated: (String) -> Unit) {
     val scope = rememberCoroutineScope()
-    val busy by vm.busy.collectAsState()
-    val selected by vm.selected.collectAsState()
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val selected by vm.selected.collectAsStateWithLifecycle()
     var name by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var photo by remember { mutableStateOf<Uri?>(null) }

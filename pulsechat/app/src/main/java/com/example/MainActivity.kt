@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -26,7 +27,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -35,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.data.repository.SessionState
 import com.example.notifications.NotificationHelper
 import com.example.ui.auth.AuthRoute
@@ -50,6 +53,9 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val pendingIntent = MutableStateFlow<Intent?>(null)
     private lateinit var legacyUnlock: ActivityResultLauncher<Intent>
+
+    /** Flipped once the first Compose frame is composed; the splash stays up until then. */
+    @Volatile private var contentReady = false
     private val container get() = (application as PulseChatApplication).container
 
     override fun attachBaseContext(newBase: Context) {
@@ -57,15 +63,19 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Android 12+ splash (backported by core-splashscreen): held until the first Compose frame
+        // is ready, so launch shows the branded splash instead of a blank window.
+        val splashScreen = installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        splashScreen.setKeepOnScreenCondition { !contentReady }
         legacyUnlock = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) container.appLock.unlock()
         }
         applyCallWindowFlags(intent)
         if (savedInstanceState == null) pendingIntent.value = intent
         setContent {
-            val settings by container.prefs.settings.collectAsState()
+            val settings by container.prefs.settings.collectAsStateWithLifecycle()
             // System bar icons follow the theme chosen in the app (not only the device setting), so
             // the clock and battery stay readable when the two differ.
             val dark = isAppInDarkTheme(settings.themeMode)
@@ -76,6 +86,15 @@ class MainActivity : ComponentActivity() {
                 )
                 onDispose { }
             }
+            // While the app lock is enabled, block screenshots and blank the Recents thumbnail:
+            // hiding the composables under the lock screen does not stop the system snapshot of
+            // the chats underneath. FLAG_SECURE covers both.
+            DisposableEffect(settings.appLockEnabled) {
+                if (settings.appLockEnabled) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                onDispose { }
+            }
+            LaunchedEffect(Unit) { contentReady = true }
             PulseChatTheme(settings.themeMode) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     if (!container.firebaseAvailable) ConfigErrorScreen()
@@ -128,10 +147,10 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun AppRoot() {
-        val session by container.authRepository.session.collectAsState()
-        val locked by container.appLock.locked.collectAsState()
-        val settings by container.prefs.settings.collectAsState()
-        val call by container.callManager.ui.collectAsState()
+        val session by container.authRepository.session.collectAsStateWithLifecycle()
+        val locked by container.appLock.locked.collectAsStateWithLifecycle()
+        val settings by container.prefs.settings.collectAsStateWithLifecycle()
+        val call by container.callManager.ui.collectAsStateWithLifecycle()
         val scope = rememberCoroutineScope()
         val showLock = locked && settings.appLockEnabled && session is SessionState.SignedIn && !call.isLive
         Box(Modifier.fillMaxSize()) {

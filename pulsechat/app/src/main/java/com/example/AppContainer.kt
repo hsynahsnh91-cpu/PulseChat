@@ -137,6 +137,12 @@ class AppContainer(val app: Application) {
             return
         }
         installAppCheck()
+        // Everything below touches `by lazy` singletons (Firestore, repositories, CallManager...).
+        // initialize() runs on the main thread from Application.onCreate, so do that wiring on the
+        // app scope instead: the first frame only needs prefs + theme, and the session StateFlow
+        // replays its current value to the collectors when they start a moment later. This keeps
+        // cold start (and the Baseline Profile's startup path) free of object-graph construction.
+        appScope.launch {
         chatRepository.diagnostics = diagnosticsLog
         chatRepository.onLiveLocationDeleted = { liveId -> liveLocation.onMessageDeleted(liveId) }
         syncManager.diagnostics = diagnosticsLog
@@ -198,6 +204,7 @@ class AppContainer(val app: Application) {
                     runCatching { statusRepository.purgeExpired() }
                 }
             }
+        }
         }
     }
 

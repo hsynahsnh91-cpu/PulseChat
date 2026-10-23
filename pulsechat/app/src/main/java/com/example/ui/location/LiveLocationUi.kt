@@ -41,7 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -141,10 +141,10 @@ fun LiveLocationBubble(
     },
 ) {
     val flow = remember(message.messageId, message.liveId, support) { support?.observe?.invoke(message) ?: flowOf(null) }
-    val view by flow.collectAsState(initial = null)
+    val view by flow.collectAsStateWithLifecycle(initialValue = null)
     val now = tickingNow(support?.now ?: { System.currentTimeMillis() })
     val phase = phaseOf(view, message.liveUntil, now)
-    val activeLiveId by (support?.activeLiveId ?: NO_ACTIVE_SESSION).collectAsState()
+    val activeLiveId by (support?.activeLiveId ?: NO_ACTIVE_SESSION).collectAsStateWithLifecycle()
     val lat = view?.lat ?: message.locationLat
     val lng = view?.lng ?: message.locationLng
     Column(Modifier.widthIn(min = 230.dp, max = 300.dp).testTag("live_location_bubble")) {
@@ -183,10 +183,10 @@ fun LiveLocationScreen(conversationId: String, liveId: String, onBack: () -> Uni
     val container = appContainer()
     val context = LocalContext.current
     val me = container.authRepository.currentUid.orEmpty()
-    val view by remember(conversationId, liveId) { container.liveLocation.observe(conversationId, liveId) }.collectAsState(initial = null)
-    val message by remember(liveId) { container.db.messageDao().observeByLiveId(liveId) }.collectAsState(initial = null)
+    val view by remember(conversationId, liveId) { container.liveLocation.observe(conversationId, liveId) }.collectAsStateWithLifecycle(initialValue = null)
+    val message by remember(liveId) { container.db.messageDao().observeByLiveId(liveId) }.collectAsStateWithLifecycle(initialValue = null)
     val ownerId = view?.ownerId ?: message?.senderId
-    val owner by remember(ownerId) { if (ownerId == null) flowOf(null) else container.userRepository.observeUser(ownerId) }.collectAsState(initial = null)
+    val owner by remember(ownerId) { if (ownerId == null) flowOf(null) else container.userRepository.observeUser(ownerId) }.collectAsStateWithLifecycle(initialValue = null)
     val now = tickingNow({ container.serverClock.now() }, everyMs = 10_000L)
     val until = message?.liveUntil ?: 0L
     val phase = phaseOf(view, until, now)
@@ -195,7 +195,7 @@ fun LiveLocationScreen(conversationId: String, liveId: String, onBack: () -> Uni
     val lat = view?.lat ?: message?.locationLat
     val lng = view?.lng ?: message?.locationLng
     val mine = ownerId == me
-    val active by container.liveLocation.active.collectAsState()
+    val active by container.liveLocation.active.collectAsStateWithLifecycle()
     val name = if (mine) stringResource(R.string.you) else owner?.displayName?.ifBlank { null } ?: stringResource(R.string.unknown_user)
     Scaffold(topBar = { BackTopBar(stringResource(R.string.live_location_title_short), onBack, subtitle = name) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).testTag("live_location_screen")) {

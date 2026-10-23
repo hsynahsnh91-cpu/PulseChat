@@ -76,7 +76,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -176,9 +176,9 @@ data class SettingsNav(
 @Composable
 fun SettingsHomeScreen(nav: SettingsNav) {
     val vm = settingsVm()
-    val user by vm.user.collectAsState()
-    val savedAccounts by vm.savedAccounts.collectAsState()
-    val switchingAccount by vm.switchingAccount.collectAsState()
+    val user by vm.user.collectAsStateWithLifecycle()
+    val savedAccounts by vm.savedAccounts.collectAsStateWithLifecycle()
+    val switchingAccount by vm.switchingAccount.collectAsStateWithLifecycle()
     var logout by remember { mutableStateOf(false) }
     var switcherOpen by remember { mutableStateOf(false) }
     var removeAccountTarget by remember { mutableStateOf<MultiAccountPolicy.StoredAccount?>(null) }
@@ -408,8 +408,8 @@ fun AccountSwitcherSheet(
 fun ProfileSettingsScreen(nav: SettingsNav) {
     val vm = settingsVm()
     val context = LocalContext.current
-    val user by vm.user.collectAsState()
-    val busy by vm.busy.collectAsState()
+    val user by vm.user.collectAsStateWithLifecycle()
+    val busy by vm.busy.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<String?>(null) }
     var draft by remember { mutableStateOf("") }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) vm.updatePhoto(uri) }
@@ -453,9 +453,9 @@ fun ProfileSettingsScreen(nav: SettingsNav) {
 fun PrivacySettingsScreen(nav: SettingsNav) {
     val vm = settingsVm()
     val context = LocalContext.current
-    val s by vm.settings.collectAsState()
-    val blocked by vm.blockedUsers.collectAsState()
-    val contacts by vm.contacts.collectAsState()
+    val s by vm.settings.collectAsStateWithLifecycle()
+    val blocked by vm.blockedUsers.collectAsStateWithLifecycle()
+    val contacts by vm.contacts.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<String?>(null) }
     val biometricAvailable = remember { vm.biometricAvailable() }
     val options = listOf(Visibility.EVERYONE, Visibility.CONTACTS, Visibility.NOBODY)
@@ -523,8 +523,8 @@ fun PrivacySettingsScreen(nav: SettingsNav) {
 @Composable
 fun StatusPrivacyScreen(nav: SettingsNav) {
     val vm = settingsVm()
-    val s by vm.settings.collectAsState()
-    val contacts by vm.contacts.collectAsState()
+    val s by vm.settings.collectAsStateWithLifecycle()
+    val contacts by vm.contacts.collectAsStateWithLifecycle()
     SettingsScaffold(stringResource(R.string.privacy_status), nav.back, vm) {
         SettingsGroup(stringResource(R.string.status_privacy_who)) {
             Column(Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs)) {
@@ -608,7 +608,7 @@ private fun StatusAudienceDialog(mode: StatusPolicy.AudienceMode, list: Set<Stri
 @Composable
 fun BlockedUsersScreen(nav: SettingsNav) {
     val vm = settingsVm()
-    val blocked by vm.blockedUsers.collectAsState()
+    val blocked by vm.blockedUsers.collectAsStateWithLifecycle()
     SettingsScaffold(stringResource(R.string.privacy_blocked), nav.back, vm) {
         if (blocked.isEmpty()) EmptyState(Icons.Rounded.Block, stringResource(R.string.blocked_empty_title), stringResource(R.string.blocked_empty_body))
         else SettingsGroup { blocked.forEach { u ->
@@ -630,7 +630,7 @@ fun BlockedUsersScreen(nav: SettingsNav) {
 fun ChatSettingsScreen(nav: SettingsNav) {
     val vm = settingsVm()
     val context = LocalContext.current
-    val s by vm.settings.collectAsState()
+    val s by vm.settings.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<String?>(null) }
     SettingsScaffold(stringResource(R.string.settings_chats), nav.back, vm) {
         SettingsGroup(stringResource(R.string.settings_display)) {
@@ -677,7 +677,7 @@ private fun languageLabel(l: AppLanguage) = when (l) {
 fun NotificationSettingsScreen(nav: SettingsNav) {
     val vm = settingsVm()
     val context = LocalContext.current
-    val s by vm.settings.collectAsState()
+    val s by vm.settings.collectAsStateWithLifecycle()
     SettingsScaffold(stringResource(R.string.settings_notifications), nav.back, vm) {
         SettingsGroup {
             SwitchItem(null, stringResource(R.string.notif_messages), null, s.messageNotifications, onChange = vm::setMessageNotifications)
@@ -697,10 +697,10 @@ fun NotificationSettingsScreen(nav: SettingsNav) {
 @Composable
 fun StorageSettingsScreen(nav: SettingsNav) {
     val vm = settingsVm()
-    val s by vm.settings.collectAsState()
-    val byChat by vm.storageByChat.collectAsState()
-    val report by vm.storageReport.collectAsState()
-    val clearingTemporary by vm.clearingTemporary.collectAsState()
+    val s by vm.settings.collectAsStateWithLifecycle()
+    val byChat by vm.storageByChat.collectAsStateWithLifecycle()
+    val report by vm.storageReport.collectAsStateWithLifecycle()
+    val clearingTemporary by vm.clearingTemporary.collectAsStateWithLifecycle()
     var clearing by remember { mutableStateOf<String?>(null) }
     var confirmTemporary by remember { mutableStateOf(false) }
     var autoDialog by remember { mutableStateOf<String?>(null) }
@@ -780,7 +780,7 @@ private fun typesLabel(types: Set<MessageType>): String =
 @Composable
 fun AiSettingsScreen(nav: SettingsNav) {
     val vm = settingsVm()
-    val s by vm.settings.collectAsState()
+    val s by vm.settings.collectAsStateWithLifecycle()
     var autoReplyOpen by remember { mutableStateOf(false) }
     SettingsScaffold(stringResource(R.string.settings_ai), nav.back, vm) {
         Text(stringResource(R.string.ai_settings_intro), modifier = Modifier.padding(start = Spacing.xxxl, end = Spacing.xxxl, top = Spacing.lg), style = MaterialTheme.typography.bodyMedium)

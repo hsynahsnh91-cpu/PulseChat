@@ -38,7 +38,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -201,21 +201,21 @@ fun DiagnosticsScreen(nav: SettingsNav) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val network by vm.network.collectAsState()
-    val sync by vm.sync.collectAsState()
-    val settings by vm.settings.collectAsState()
-    val lastCall by vm.lastCall.collectAsState()
-    val pending by vm.pending.collectAsState()
-    val sending by vm.sending.collectAsState()
-    val failed by vm.failed.collectAsState()
-    val failedUploads by vm.failedUploads.collectAsState()
-    val scheduledPending by vm.scheduledPending.collectAsState()
-    val scheduledFailed by vm.scheduledFailed.collectAsState()
-    val reminders by vm.remindersScheduled.collectAsState()
-    val problems by vm.problems.collectAsState()
-    val health by vm.health.collectAsState()
-    val server by vm.server.collectAsState()
-    val lastSync by vm.lastSync.collectAsState()
+    val network by vm.network.collectAsStateWithLifecycle()
+    val sync by vm.sync.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val lastCall by vm.lastCall.collectAsStateWithLifecycle()
+    val pending by vm.pending.collectAsStateWithLifecycle()
+    val sending by vm.sending.collectAsStateWithLifecycle()
+    val failed by vm.failed.collectAsStateWithLifecycle()
+    val failedUploads by vm.failedUploads.collectAsStateWithLifecycle()
+    val scheduledPending by vm.scheduledPending.collectAsStateWithLifecycle()
+    val scheduledFailed by vm.scheduledFailed.collectAsStateWithLifecycle()
+    val reminders by vm.remindersScheduled.collectAsStateWithLifecycle()
+    val problems by vm.problems.collectAsStateWithLifecycle()
+    val health by vm.health.collectAsStateWithLifecycle()
+    val server by vm.server.collectAsStateWithLifecycle()
+    val lastSync by vm.lastSync.collectAsStateWithLifecycle()
     var echoDialog by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
         vm.refresh()

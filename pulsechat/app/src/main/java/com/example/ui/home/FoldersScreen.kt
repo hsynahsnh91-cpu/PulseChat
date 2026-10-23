@@ -34,7 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,8 +104,8 @@ fun folderErrorText(reason: FolderException.Reason): Int = when (reason) {
 fun FoldersScreen(onBack: () -> Unit) {
     val vm: FoldersViewModel = viewModel(factory = containerFactory { FoldersViewModel(it) })
     val context = LocalContext.current
-    val folders by vm.folders.collectAsState()
-    val chats by vm.chats.collectAsState()
+    val folders by vm.folders.collectAsStateWithLifecycle()
+    val chats by vm.chats.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var editor by remember { mutableStateOf<Pair<FolderWithCount?, Set<String>>?>(null) }
     var deleting by remember { mutableStateOf<FolderWithCount?>(null) }

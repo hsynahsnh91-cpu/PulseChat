@@ -51,7 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -101,7 +101,7 @@ private fun Context.findActivity(): Activity? {
 fun AuthRoute(session: SessionState) {
     val vm: AuthViewModel = viewModel(factory = containerFactory { AuthViewModel(it.app, it.authRepository, it.prefs) })
     val linkVm: DeviceLinkingViewModel = viewModel(factory = containerFactory { DeviceLinkingViewModel(it.deviceLinkRepository, it.connectivity) })
-    val ui by vm.ui.collectAsState()
+    val ui by vm.ui.collectAsStateWithLifecycle()
     var showDeviceLink by rememberSaveable { mutableStateOf(false) }
     when (session) {
         is SessionState.NeedsProfile -> CompleteProfileScreen(session.suggestedName, ui, vm)
@@ -199,7 +199,7 @@ fun AuthScreen(
     var username by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
     var confirm by rememberSaveable { mutableStateOf("") }
-    val usernameCheck by vm.usernameCheck.collectAsState()
+    val usernameCheck by vm.usernameCheck.collectAsStateWithLifecycle()
 
     AuthFrame {
         TabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
@@ -307,7 +307,7 @@ fun AuthScreen(
 private fun CompleteProfileScreen(suggestedName: String, ui: AuthUiState, vm: AuthViewModel) {
     var name by rememberSaveable { mutableStateOf(suggestedName.take(50)) }
     var username by rememberSaveable { mutableStateOf(suggestedName.lowercase().filter { (it in 'a'..'z') || (it in '0'..'9') || it == '_' || it == '.' }.take(20)) }
-    val usernameCheck by vm.usernameCheck.collectAsState()
+    val usernameCheck by vm.usernameCheck.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.onUsernameChanged(username) }
     AuthFrame {
         Text(stringResource(R.string.auth_complete_profile_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)

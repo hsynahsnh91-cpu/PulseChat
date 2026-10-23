@@ -15,8 +15,9 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,6 +72,7 @@ import com.example.ui.status.StatusViewerScreen
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import com.example.ui.theme.LocalLiteMode
@@ -99,14 +101,15 @@ object Routes {
 
 private fun NavHostController.go(route: String) = navigate(route) { launchSingleTop = true }
 
+@OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
 fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, consumeIntent: () -> Unit) {
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val backStack by nav.currentBackStackEntryAsState()
-    val callUi by container.callManager.ui.collectAsState()
-    val intent by pendingIntent.collectAsState()
+    val callUi by container.callManager.ui.collectAsStateWithLifecycle()
+    val intent by pendingIntent.collectAsStateWithLifecycle()
 
     fun openPeer(peerId: String) {
         scope.launch {
@@ -185,6 +188,10 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     // Android 11 and older / low-memory phones: a shorter fade only, so both screens are drawn
     // together for less time (the slide costs a full redraw of both on every frame).
     val lite = LocalLiteMode.current
+    // Shared elements (chat-list avatar -> chat header, message photo -> media viewer) fly between
+    // destinations that provide LocalNavVisibilityScope; see ui/navigation/SharedElement.kt.
+    SharedTransitionLayout {
+    CompositionLocalProvider(LocalSharedTransitionScope provides this) {
     NavHost(
         navController = nav, startDestination = Routes.HOME,
         enterTransition = {
@@ -193,7 +200,13 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                 slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, Motion.enter(Motion.NAVIGATION)) { it / 10 }
         },
         exitTransition = { fadeOut(Motion.exit(if (lite) Motion.NAVIGATION_LITE / 2 else Motion.QUICK)) },
-        popEnterTransition = { fadeIn(Motion.enter(if (lite) Motion.NAVIGATION_LITE else Motion.NAVIGATION)) },
+        // Symmetric with enter: the screen underneath slides back in from the opposite edge
+        // instead of only fading, so Back reads as the exact reverse of opening the screen.
+        popEnterTransition = {
+            if (lite) fadeIn(Motion.enter(Motion.NAVIGATION_LITE))
+            else fadeIn(Motion.enter(Motion.NAVIGATION)) +
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, Motion.enter(Motion.NAVIGATION)) { it / 10 }
+        },
         popExitTransition = {
             if (lite) fadeOut(Motion.exit(Motion.NAVIGATION_LITE / 2))
             else fadeOut(Motion.exit(Motion.NAVIGATION)) +
@@ -201,6 +214,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
         },
     ) {
         composable(Routes.HOME) {
+            CompositionLocalProvider(LocalNavVisibilityScope provides this) {
             HomeScreen(
                 HomeNav(
                     openChat = { nav.go(Routes.chat(it)) },
@@ -222,6 +236,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                     openLinkedDevices = { nav.go("settings/linked-devices") },
                 )
             )
+            }
         }
         // Locked chats (and the list of them) open only after the phone's screen-lock check.
         composable(Routes.LOCKED) {
@@ -244,6 +259,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
             arguments = listOf(navArgument("cid") { type = NavType.StringType }, navArgument("msg") { type = NavType.StringType; nullable = true; defaultValue = null }),
         ) { entry ->
             val cid = entry.arguments?.getString("cid") ?: return@composable
+            CompositionLocalProvider(LocalNavVisibilityScope provides this) {
             ChatLockGuard(cid, onBack = { nav.popBackStack() }) {
                 ChatScreen(cid, entry.arguments?.getString("msg"), ChatNav(
                     back = { nav.popBackStack() },
@@ -255,6 +271,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                     openChat = { target -> if (target != cid) nav.navigate(Routes.chat(target)) },
                     openLiveLocation = { c, live -> nav.go(Routes.live(c, live)) },
                 ))
+            }
             }
         }
         composable("chat-media/{cid}", arguments = listOf(navArgument("cid") { type = NavType.StringType })) { entry ->
@@ -268,6 +285,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
         composable("folders") { FoldersScreen(onBack = { nav.popBackStack() }) }
         composable("info/{cid}", arguments = listOf(navArgument("cid") { type = NavType.StringType })) { entry ->
             val cid = entry.arguments?.getString("cid") ?: return@composable
+            CompositionLocalProvider(LocalNavVisibilityScope provides this) {
             ChatLockGuard(cid, onBack = { nav.popBackStack() }) { ConversationInfoScreen(cid, InfoNav(
                 back = { nav.popBackStack() },
                 openChat = { target -> if (target == cid) nav.popBackStack() else nav.go(Routes.chat(target)) },
@@ -276,6 +294,7 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
                 openCall = { nav.go(Routes.CALL) },
                 closeChat = { nav.popBackStack(Routes.HOME, inclusive = false) },
             )) }
+            }
         }
         composable(
             "pick/{mode}?cid={cid}",
@@ -307,9 +326,11 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
             val mid = entry.arguments?.getString("mid").orEmpty()
             // A photo or video of a locked chat is covered by the same check as the chat.
             val owner by produceState<String?>(null, mid) { value = container.db.messageDao().get(mid)?.conversationId.orEmpty() }
+            CompositionLocalProvider(LocalNavVisibilityScope provides this) {
             owner?.let { cid ->
                 if (cid.isEmpty()) MediaViewerScreen(mid, onBack = { nav.popBackStack() })
                 else ChatLockGuard(cid, onBack = { nav.popBackStack() }) { MediaViewerScreen(mid, onBack = { nav.popBackStack() }) }
+            }
             }
         }
         composable(
@@ -347,6 +368,8 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
         composable("settings/ai") { AiSettingsScreen(settingsNav) }
         composable("settings/about") { AboutScreen(settingsNav) }
         composable("settings/diagnostics") { DiagnosticsScreen(settingsNav) }
+    }
+    }
     }
 }
 

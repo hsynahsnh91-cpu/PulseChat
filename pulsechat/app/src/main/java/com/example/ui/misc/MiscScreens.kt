@@ -35,7 +35,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,7 +70,7 @@ import kotlinx.coroutines.launch
 fun StarredScreen(onBack: () -> Unit, openMessage: (conversationId: String, messageId: String) -> Unit) {
     val container = appContainer()
     val me = container.authRepository.currentUid.orEmpty()
-    val starred by remember { container.chatRepository.observeStarred(me) }.collectAsState(initial = null)
+    val starred by remember { container.chatRepository.observeStarred(me) }.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     Scaffold(topBar = { BackTopBar(stringResource(R.string.starred_messages), onBack) }) { padding ->
@@ -107,8 +107,8 @@ fun StarredScreen(onBack: () -> Unit, openMessage: (conversationId: String, mess
 @Composable
 fun ArchivedScreen(onBack: () -> Unit, openChat: (String) -> Unit) {
     val vm: HomeViewModel = viewModel(key = "archived", factory = containerFactory { HomeViewModel(it) })
-    val archived by vm.archivedChats.collectAsState()
-    val selection by vm.selection.collectAsState()
+    val archived by vm.archivedChats.collectAsStateWithLifecycle()
+    val selection by vm.selection.collectAsStateWithLifecycle()
     Scaffold(topBar = {
         BackTopBar(stringResource(R.string.archived_chats), onBack, subtitle = if (selection.isNotEmpty()) stringResource(R.string.selected_count, selection.size) else null) {
             if (selection.isNotEmpty()) IconButton(onClick = { vm.archiveSelected(false) }) { Icon(Icons.Rounded.Unarchive, stringResource(R.string.action_unarchive)) }
@@ -130,7 +130,7 @@ fun ArchivedScreen(onBack: () -> Unit, openChat: (String) -> Unit) {
 @Composable
 fun LockedChatsScreen(onBack: () -> Unit, openChat: (String) -> Unit) {
     val vm: HomeViewModel = viewModel(key = "locked", factory = containerFactory { HomeViewModel(it) })
-    val locked by vm.lockedChats.collectAsState()
+    val locked by vm.lockedChats.collectAsStateWithLifecycle()
     Scaffold(topBar = { BackTopBar(stringResource(R.string.chat_locked_list_title), onBack) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("locked_chats_list")) {
             item { Text(stringResource(R.string.locked_chats_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }

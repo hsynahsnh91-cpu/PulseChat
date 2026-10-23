@@ -63,7 +63,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableFloatState
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -166,7 +166,7 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
     val density = LocalDensity.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val me = container.authRepository.currentUid.orEmpty()
-    val all by remember { container.statusRepository.observeActive() }.collectAsState(initial = null)
+    val all by remember { container.statusRepository.observeActive() }.collectAsStateWithLifecycle(initialValue = null)
     val list = all
 
     var owner by rememberSaveable { mutableStateOf(ownerId) }
@@ -500,8 +500,8 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
                     }
                     if (sentNotice > 0) SentNotice(sentNotice) { sentNotice = 0 }
                     if (isMine) {
-                        val viewers by remember(current.statusId) { container.statusRepository.observeViewers(current.statusId) }.collectAsState(initial = emptyList())
-                        val likers by remember(current.statusId) { container.statusRepository.observeLikes(current.statusId) }.collectAsState(initial = emptyList())
+                        val viewers by remember(current.statusId) { container.statusRepository.observeViewers(current.statusId) }.collectAsStateWithLifecycle(initialValue = emptyList())
+                        val likers by remember(current.statusId) { container.statusRepository.observeLikes(current.statusId) }.collectAsStateWithLifecycle(initialValue = emptyList())
                         ViewsChip(viewers.size, likers.size) { viewersOpen = true }
                         if (viewersOpen) ViewersSheet(viewers, likers) { viewersOpen = false }
                     } else {

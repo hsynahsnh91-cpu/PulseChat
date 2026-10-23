@@ -12,7 +12,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,11 +29,11 @@ import com.example.ui.common.SwitchItem
 /** Away-message settings. AI-written replies are only available after explicit AI consent. */
 @Composable
 fun AutoReplySettingsDialog(autoReplyManager: AutoReplyManager, aiAllowed: Boolean, onDismiss: () -> Unit) {
-    val enabled by autoReplyManager.isEnabled.collectAsState()
-    val message by autoReplyManager.customMessage.collectAsState()
-    val aiEnabled by autoReplyManager.isAiEnabled.collectAsState()
-    val condition by autoReplyManager.condition.collectAsState()
-    val scheduleOnly by autoReplyManager.isScheduleOnly.collectAsState()
+    val enabled by autoReplyManager.isEnabled.collectAsStateWithLifecycle()
+    val message by autoReplyManager.customMessage.collectAsStateWithLifecycle()
+    val aiEnabled by autoReplyManager.isAiEnabled.collectAsStateWithLifecycle()
+    val condition by autoReplyManager.condition.collectAsStateWithLifecycle()
+    val scheduleOnly by autoReplyManager.isScheduleOnly.collectAsStateWithLifecycle()
     var draft by remember(message) { mutableStateOf(message) }
     AlertDialog(
         onDismissRequest = onDismiss,

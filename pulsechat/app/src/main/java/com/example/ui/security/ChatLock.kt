@@ -34,7 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -138,8 +138,8 @@ fun ChatLockGuard(conversationId: String?, onBack: () -> Unit, content: @Composa
     val container = appContainer()
     val context = LocalContext.current
     val lockedFlow = remember(conversationId) { if (conversationId == null) flowOf(true) else container.chatSettings.observeIsLocked(conversationId) }
-    val locked by lockedFlow.collectAsState(initial = null)
-    val open by container.chatSettings.lockedChatsOpen.collectAsState()
+    val locked by lockedFlow.collectAsStateWithLifecycle(initialValue = null)
+    val open by container.chatSettings.lockedChatsOpen.collectAsStateWithLifecycle()
     val auth = rememberDeviceAuth()
     var unavailable by remember { mutableStateOf(false) }
     val title = stringResource(if (conversationId == null) R.string.chat_locked_list_title else R.string.chat_lock_prompt_title)
