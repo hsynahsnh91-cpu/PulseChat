@@ -163,13 +163,9 @@ fun AuthDeviceLinkScreen(
 ) {
     val requestState by viewModel.requestState.collectAsState()
     val network by viewModel.connectivity.network.collectAsState()
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) } // 0 = Show QR / Code for this device, 1 = Scan / Enter code
-    var scannerUseManual by rememberSaveable { mutableStateOf(false) }
-    var manualInput by rememberSaveable { mutableStateOf("") }
-    var scannerRequiresSignInNotice by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(selectedTab) {
-        if (selectedTab == 0 && (requestState is PairingRequestUiState.Idle || requestState is PairingRequestUiState.Cancelled)) {
+    LaunchedEffect(Unit) {
+        if (requestState is PairingRequestUiState.Idle || requestState is PairingRequestUiState.Cancelled) {
             viewModel.startPairingRequest()
         }
     }
@@ -250,141 +246,16 @@ fun AuthDeviceLinkScreen(
                     }
                 }
 
-                Spacer(Modifier.height(14.dp))
-
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp)),
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = {
-                            selectedTab = 0
-                            scannerRequiresSignInNotice = false
-                        },
-                        text = { Text(stringResource(R.string.device_link_tab_show_code)) },
-                        icon = { Icon(Icons.Default.QrCode2, contentDescription = null) },
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text(stringResource(R.string.device_link_tab_scan_or_enter)) },
-                        icon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null) },
-                    )
-                }
-
                 Spacer(Modifier.height(18.dp))
 
-                if (selectedTab == 0) {
-                    AuthRequestPairingContent(
-                        state = requestState,
-                        onRetry = { viewModel.startPairingRequest() },
-                        onCancel = {
-                            viewModel.cancelPairingRequest()
-                            onBackToSignIn()
-                        },
-                    )
-                } else {
-                    // Camera QR scanner or manual code entry from the Auth screen
-                    Card(
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(18.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(
-                                text = stringResource(R.string.device_link_scan_tab_help),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                            )
-                            Spacer(Modifier.height(14.dp))
-
-                            if (!scannerUseManual) {
-                                QrCameraScannerBox(
-                                    active = selectedTab == 1 && !scannerUseManual,
-                                    onQrDetected = {
-                                        scannerRequiresSignInNotice = true
-                                    },
-                                    onSwitchToManualCode = { scannerUseManual = true },
-                                )
-                                Spacer(Modifier.height(12.dp))
-                                OutlinedButton(
-                                    onClick = { scannerUseManual = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Icon(Icons.Default.Keyboard, contentDescription = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(stringResource(R.string.device_link_use_manual_code))
-                                }
-                            } else {
-                                OutlinedTextField(
-                                    value = manualInput,
-                                    onValueChange = { manualInput = it.uppercase().take(12) },
-                                    label = { Text(stringResource(R.string.device_link_manual_code_label)) },
-                                    placeholder = { Text("ABCD-2345") },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(
-                                        capitalization = KeyboardCapitalization.Characters,
-                                        imeAction = ImeAction.Done,
-                                    ),
-                                    keyboardActions = KeyboardActions(
-                                        onDone = { if (manualInput.isNotBlank()) scannerRequiresSignInNotice = true }
-                                    ),
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                Spacer(Modifier.height(12.dp))
-                                Button(
-                                    onClick = { scannerRequiresSignInNotice = true },
-                                    enabled = manualInput.replace("-", "").trim().length >= 8,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(stringResource(R.string.device_link_verify_code))
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                TextButton(onClick = { scannerUseManual = false }) {
-                                    Icon(Icons.Default.QrCodeScanner, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(stringResource(R.string.device_link_use_camera_scanner))
-                                }
-                            }
-
-                            if (scannerRequiresSignInNotice) {
-                                Spacer(Modifier.height(12.dp))
-                                Surface(
-                                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(14.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.device_link_sign_in_required_to_approve),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                            textAlign = TextAlign.Center,
-                                        )
-                                        Spacer(Modifier.height(8.dp))
-                                        FilledTonalButton(
-                                            onClick = {
-                                                scannerRequiresSignInNotice = false
-                                                selectedTab = 0
-                                            },
-                                        ) {
-                                            Text(stringResource(R.string.device_link_tab_show_code))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                AuthRequestPairingContent(
+                    state = requestState,
+                    onRetry = { viewModel.startPairingRequest() },
+                    onCancel = {
+                        viewModel.cancelPairingRequest()
+                        onBackToSignIn()
+                    },
+                )
 
                 Spacer(Modifier.height(16.dp))
                 TextButton(
@@ -687,11 +558,6 @@ fun LinkedDevicesScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.refreshDevices() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_retry))
                     }
                 },
             )
@@ -1145,7 +1011,13 @@ private fun LinkNewDeviceApproverScreen(
                                 Spacer(Modifier.height(14.dp))
                                 OutlinedTextField(
                                     value = manualCode,
-                                    onValueChange = { manualCode = it.uppercase().take(12) },
+                                    onValueChange = { input ->
+                                        manualCode = if (input.trim().startsWith("pulsechat://", ignoreCase = true)) {
+                                            input.trim().take(256)
+                                        } else {
+                                            input.uppercase().take(12)
+                                        }
+                                    },
                                     label = { Text(stringResource(R.string.device_link_manual_code_label)) },
                                     placeholder = { Text("ABCD-2345") },
                                     singleLine = true,
@@ -1155,8 +1027,11 @@ private fun LinkNewDeviceApproverScreen(
                                     ),
                                     keyboardActions = KeyboardActions(
                                         onDone = {
-                                            if (manualCode.replace("-", "").trim().length >= 8) {
-                                                onSubmitManualCode(manualCode)
+                                            val trimmed = manualCode.trim()
+                                            if (trimmed.startsWith("pulsechat://pair", ignoreCase = true)) {
+                                                onQrDetected(trimmed)
+                                            } else if (trimmed.replace("-", "").length >= 8) {
+                                                onSubmitManualCode(trimmed)
                                             }
                                         }
                                     ),
@@ -1166,8 +1041,16 @@ private fun LinkNewDeviceApproverScreen(
                                 )
                                 Spacer(Modifier.height(14.dp))
                                 Button(
-                                    onClick = { onSubmitManualCode(manualCode) },
-                                    enabled = manualCode.replace("-", "").trim().length >= 8,
+                                    onClick = {
+                                        val trimmed = manualCode.trim()
+                                        if (trimmed.startsWith("pulsechat://pair", ignoreCase = true)) {
+                                            onQrDetected(trimmed)
+                                        } else {
+                                            onSubmitManualCode(trimmed)
+                                        }
+                                    },
+                                    enabled = manualCode.trim().startsWith("pulsechat://pair", ignoreCase = true) ||
+                                        manualCode.replace("-", "").trim().length >= 8,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("approver_verify_code_button"),
