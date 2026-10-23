@@ -758,7 +758,7 @@ fun StatusMusicPickerSheet(
                             Text("${track.artist} · ${track.genre}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(
-                            DurationFormat.mmSs(track.durationMs / 1000L),
+                            StatusMusicPolicy.mmSs(track.durationMs),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -772,7 +772,7 @@ fun StatusMusicPickerSheet(
             Text(
                 stringResource(
                     R.string.status_music_segment_label,
-                    DurationFormat.mmSs(startMs / 1000L),
+                    StatusMusicPolicy.mmSs(startMs),
                     clipSeconds,
                 ),
                 style = MaterialTheme.typography.labelMedium,
@@ -1139,8 +1139,8 @@ fun StatusCollageEditorDialog(
                             .background(Color(0xFF111827))
                             .pointerInput(slots, uris.size) {
                                 detectTapGestures { pos ->
-                                    val nx = pos.x / size.width.coerceAtLeast(1f)
-                                    val ny = pos.y / size.height.coerceAtLeast(1f)
+                                    val nx = pos.x / size.width.toFloat().coerceAtLeast(1f)
+                                    val ny = pos.y / size.height.toFloat().coerceAtLeast(1f)
                                     val hit = slots.indexOfFirst { nx in it.left..it.right && ny in it.top..it.bottom }
                                     if (hit in uris.indices) selectedIndex = hit
                                 }
@@ -1151,8 +1151,8 @@ fun StatusCollageEditorDialog(
                                     val idx = selectedIndex.coerceIn(0, (uris.size - 1).coerceAtLeast(0))
                                     if (idx in cellStates.indices) {
                                         val cur = cellStates[idx]
-                                        val dx = -(dragAmount.x / size.width.coerceAtLeast(1f)) * 2f
-                                        val dy = -(dragAmount.y / size.height.coerceAtLeast(1f)) * 2f
+                                        val dx = -(dragAmount.x / size.width.toFloat().coerceAtLeast(1f)) * 2f
+                                        val dy = -(dragAmount.y / size.height.toFloat().coerceAtLeast(1f)) * 2f
                                         cellStates[idx] = StatusCollageMath.clampState(
                                             cur.copy(panX = cur.panX + dx, panY = cur.panY + dy)
                                         )

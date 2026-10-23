@@ -8,52 +8,69 @@ package com.example.domain
  * messages, drafts, preferences, or notification actions.
  */
 object MultiAccountPolicy {
-    const val MAX_ACCOUNTS_ON_DEVICE = 5
+    const val MAX_STORED_ACCOUNTS = 5
+    const val MAX_ACCOUNTS_ON_DEVICE = MAX_STORED_ACCOUNTS
 
     data class StoredAccount(
         val uid: String,
-        val username: String,
         val displayName: String,
+        val username: String,
+        val email: String = "",
         val uniqueId10: String = "",
         val avatarUrl: String? = null,
         val avatarColorHex: String = "#4F46E5",
         val authMethod: String = "primary_login",
         val addedAt: Long = 0L,
         val lastActiveAt: Long = 0L,
-        val needsReauth: Boolean = false,
+        val sessionValid: Boolean = true,
+        val needsReauth: Boolean = !sessionValid,
     )
 
-    enum class SwitchEligibility {
-        READY,
+    enum class SwitchDenial {
         ALREADY_ACTIVE,
+        CALL_IN_PROGRESS,
+        SWITCH_IN_PROGRESS,
         ACCOUNT_NOT_FOUND,
-        REAUTH_REQUIRED,
     }
 
-    enum class NotificationRoute {
-        /** Notification belongs to the currently active account: handle normally. */
-        ACTIVE_ACCOUNT,
-        /** Notification belongs to another account saved on this device: switch account first, never execute inline as the wrong user. */
-        INACTIVE_SAVED_ACCOUNT,
-        /** Notification is for an account no longer on this device: ignore and drop. */
-        UNKNOWN_OR_REMOVED_ACCOUNT,
+    sealed interface SwitchEligibility {
+        data object Allowed : SwitchEligibility
+        data class Denied(val reason: SwitchDenial) : SwitchEligibility
     }
+
+    sealed interface NotificationRoute {
+        /** Notification belongs to the currently active account: handle normally. */
+        data object OpenDirectly : NotificationRoute
+        /** Notification belongs to another account saved on this device: switch account first, never execute inline as the wrong user. */
+        data class SwitchThenOpen(val targetAccountUid: String) : NotificationRoute
+        /** Notification is for an account no longer on this device: ignore and drop. */
+        data object Ignore : NotificationRoute
+    }
+
+    data class RemovalResult(
+        val remaining: List<StoredAccount>,
+        val nextActiveUid: String?,
+    )
 
     /** Dedicated Room SQLite database filename for [uid]'s isolated local data. */
-    fun databaseNameForAccount(uid: String): String {
+    fun databaseNameFor(uid: String): String {
         val safe = uid.replace(Regex("[^A-Za-z0-9_-]"), "_").take(64)
         require(safe.isNotBlank()) { "Account UID must not be blank" }
         return "pulsechat_account_$safe.db"
     }
 
+    fun databaseNameForAccount(uid: String): String = databaseNameFor(uid)
+
     /** Dedicated SharedPreferences name for [uid]'s isolated local settings. */
-    fun prefsNameForAccount(uid: String): String {
+    fun prefsNameFor(uid: String): String {
         val safe = uid.replace(Regex("[^A-Za-z0-9_-]"), "_").take(64)
         require(safe.isNotBlank()) { "Account UID must not be blank" }
         return "pulse_prefs_acct_$safe"
     }
 
-    /** Upserts [account] in [existing], keeping active/most-recent accounts first and capping at [MAX_ACCOUNTS_ON_DEVICE]. */
+    fun prefsNameForAccount(uid: String): String = prefsNameFor(uid)
+
+    /** Upserts [account] in [existing], keeping active/most-recent accounts first and capping at [MAX_STORED_ACCOUNTS]. */
     fun upsertAccount(
         existing: List<StoredAccount>,
         account: StoredAccount,
@@ -62,41 +79,62 @@ object MultiAccountPolicy {
         if (account.uid.isBlank() || account.username.isBlank()) return existing
         val merged = (listOf(account) + existing.filter { it.uid != account.uid && it.username != account.username })
             .sortedWith(compareByDescending<StoredAccount> { it.uid == activeUid }.thenByDescending { it.lastActiveAt })
-        return merged.take(MAX_ACCOUNTS_ON_DEVICE)
+        return merged.take(MAX_STORED_ACCOUNTS)
     }
 
-    /** Removes [uid] from the device's saved accounts list. */
-    fun removeAccount(existing: List<StoredAccount>, uid: String): List<StoredAccount> =
-        existing.filter { it.uid != uid }
+    /** Removes [removeUid] from the device's saved accounts list and determines the next active account if any. */
+    fun removeAccount(
+        existing: List<StoredAccount>,
+        removeUid: String,
+        currentActiveUid: String? = null,
+    ): RemovalResult {
+        val remaining = existing.filter { it.uid != removeUid }
+        val nextUid = when {
+            currentActiveUid != null && currentActiveUid != removeUid -> currentActiveUid
+            else -> remaining.maxByOrNull { it.lastActiveAt }?.uid
+        }
+        return RemovalResult(remaining = remaining, nextActiveUid = nextUid)
+    }
 
-    /** Determines whether switching to [targetUid] can proceed directly or requires re-authentication. */
+    /** Determines whether switching to [targetUid] can proceed or is denied. */
     fun checkSwitch(
-        accounts: List<StoredAccount>,
         activeUid: String?,
         targetUid: String,
-        hasValidCredential: Boolean,
+        storedAccounts: List<StoredAccount>,
+        isCallActive: Boolean = false,
+        isSwitchInProgress: Boolean = false,
     ): SwitchEligibility {
-        if (targetUid.isBlank()) return SwitchEligibility.ACCOUNT_NOT_FOUND
-        if (targetUid == activeUid) return SwitchEligibility.ALREADY_ACTIVE
-        val target = accounts.firstOrNull { it.uid == targetUid } ?: return SwitchEligibility.ACCOUNT_NOT_FOUND
-        if (target.needsReauth || !hasValidCredential) return SwitchEligibility.REAUTH_REQUIRED
-        return SwitchEligibility.READY
+        if (targetUid.isBlank() || storedAccounts.none { it.uid == targetUid }) {
+            return SwitchEligibility.Denied(SwitchDenial.ACCOUNT_NOT_FOUND)
+        }
+        if (targetUid == activeUid) {
+            return SwitchEligibility.Denied(SwitchDenial.ALREADY_ACTIVE)
+        }
+        if (isCallActive) {
+            return SwitchEligibility.Denied(SwitchDenial.CALL_IN_PROGRESS)
+        }
+        if (isSwitchInProgress) {
+            return SwitchEligibility.Denied(SwitchDenial.SWITCH_IN_PROGRESS)
+        }
+        return SwitchEligibility.Allowed
     }
 
     /**
-     * Decides how a notification or background action tagged with [targetAccountUid] may be routed
+     * Decides how a notification or background action tagged with [notificationAccountUid] may be routed
      * when [activeUid] is currently signed in.
      */
     fun routeNotification(
         activeUid: String?,
-        targetAccountUid: String?,
-        savedAccounts: List<StoredAccount>,
+        notificationAccountUid: String?,
+        storedAccounts: List<StoredAccount>,
     ): NotificationRoute {
-        if (targetAccountUid.isNullOrBlank()) {
-            return if (activeUid != null) NotificationRoute.ACTIVE_ACCOUNT else NotificationRoute.UNKNOWN_OR_REMOVED_ACCOUNT
+        if (notificationAccountUid.isNullOrBlank()) {
+            return if (activeUid != null) NotificationRoute.OpenDirectly else NotificationRoute.Ignore
         }
-        if (targetAccountUid == activeUid) return NotificationRoute.ACTIVE_ACCOUNT
-        if (savedAccounts.any { it.uid == targetAccountUid }) return NotificationRoute.INACTIVE_SAVED_ACCOUNT
-        return NotificationRoute.UNKNOWN_OR_REMOVED_ACCOUNT
+        if (notificationAccountUid == activeUid) return NotificationRoute.OpenDirectly
+        if (storedAccounts.any { it.uid == notificationAccountUid }) {
+            return NotificationRoute.SwitchThenOpen(notificationAccountUid)
+        }
+        return NotificationRoute.Ignore
     }
 }

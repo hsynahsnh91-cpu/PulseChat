@@ -1271,4 +1271,33 @@
     <string name="media_quality_badge_hd">HD</string>
     <string name="media_quality_badge_original">أصلي</string>
     <string name="media_upload_cancel">إلغاء الرفع</string>
+
+    <string name="status_mention_notification_title">أشار إليك %1$s في حالة</string>
+    <string name="status_mention_notification_body">%1$s</string>
+    <string name="mention_all_admin_only">يمكن لمشرفي المجموعة فقط استخدام @all في هذه المجموعة.</string>
+    <string name="mention_all_cooldown">تم استخدام @all مؤخراً. يرجى الانتظار %1$d د قبل استخدامها مرة أخرى.</string>
+    <string name="poll_edited_toast">تم تحديث الاستطلاع</string>
+    <string name="poll_expiration_none">بدون انتهاء</string>
+    <string name="poll_expiration_15m">١٥ دقيقة</string>
+    <string name="poll_expiration_1h">ساعة واحدة</string>
+    <string name="poll_expiration_24h">٢٤ ساعة</string>
+    <string name="poll_expiration_7d">٧ أيام</string>
+    <string name="poll_edit_locked_hint">يمكن تعديل الاستطلاع فقط قبل بدء التصويت.</string>
+    <string name="group_create_confirm_title">تأكيد المجموعة الجديدة</string>
+    <string name="group_create_confirm_admin">المنشئ والمشرف: %1$s</string>
+    <string name="group_created_from_members_toast">تم إنشاء المجموعة الجديدة</string>
+    <string name="accounts_active_badge">نشط</string>
+    <string name="accounts_section_title">الحسابات</string>
+    <string name="accounts_switch">تبديل الحساب</string>
+    <string name="accounts_remove_from_device">إزالة من هذا الجهاز</string>
+    <string name="accounts_add">إضافة حساب</string>
+    <string name="accounts_add_sub">سجّل الدخول إلى حساب آخر موجود أو أنشئ حساباً جديداً</string>
+    <string name="accounts_remove_confirm_title">إزالة %1$s من هذا الجهاز؟</string>
+    <string name="accounts_remove_confirm_body">سيؤدي هذا إلى إزالة الرسائل المحلية والمسودات وبيانات الجلسة المحفوظة للحساب %1$s من هذا الهاتف فقط، دون حذف الحساب السحابي أو بياناته.</string>
+    <string name="accounts_switcher_title">تبديل الحساب</string>
+    <string name="accounts_switched_toast">تم تبديل الحساب</string>
+    <string name="accounts_session_expired">انتهت صلاحية الجلسة. يرجى تسجيل الدخول للمتابعة.</string>
+    <string name="accounts_switch_call_active">لا يمكن تبديل الحسابات أثناء مكالمة نشطة.</string>
+    <string name="accounts_limit_reached">يمكنك الاحتفاظ بما يصل إلى %1$d حسابات على جهاز واحد.</string>
+    <string name="accounts_removed_toast">تمت إزالة الحساب من هذا الجهاز</string>
 </resources>

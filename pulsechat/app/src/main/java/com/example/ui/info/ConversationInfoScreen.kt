@@ -464,8 +464,8 @@ private fun CreateGroupFromMembersSheet(
             }
         }
         contacts.forEach { c ->
-            if (!c.isBlocked && c.contactUserId != me && c.contactUserId != Ids.AI_ASSISTANT_ID && c.contactUserId !in blockedIds && c.contactUserId !in byId) {
-                byId[c.contactUserId] = c.shownName to c.avatarUrl
+            if (c.userId != me && c.userId != Ids.AI_ASSISTANT_ID && c.userId !in blockedIds && c.userId !in byId) {
+                byId[c.userId] = c.shownName to c.avatarUrl
             }
         }
         byId.entries.map { Triple(it.key, it.value.first, it.value.second) }

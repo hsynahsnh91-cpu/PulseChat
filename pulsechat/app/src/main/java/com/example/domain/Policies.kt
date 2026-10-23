@@ -56,6 +56,18 @@ object StatusPolicy {
         return MentionValidation(allowed, excluded)
     }
 
+    fun validateMentions(
+        requestedMentionIds: Collection<String>,
+        ownerId: String,
+        audience: Set<String>,
+        blockedIds: Set<String>,
+    ): List<String> = validateMentions(
+        requestedIds = requestedMentionIds,
+        authorId = ownerId,
+        blockedIds = blockedIds,
+        allowedAudience = audience,
+    ).allowedMentionIds
+
     /** Whether [viewerId] can like or unlike a status update. */
     fun canLike(
         ownerId: String,
@@ -69,6 +81,23 @@ object StatusPolicy {
         if (viewerId == ownerId) return true
         return viewerId in audience && viewerId !in blockedByOwner
     }
+
+    fun canLike(
+        viewerId: String,
+        ownerId: String,
+        audience: Set<String>,
+        blockedByOwner: Set<String>,
+        blockedByViewer: Set<String>,
+        expiresAtMs: Long,
+        nowMs: Long,
+    ): Boolean = ownerId !in blockedByViewer && canLike(
+        ownerId = ownerId,
+        audience = audience,
+        blockedByOwner = blockedByOwner,
+        expiresAt = expiresAtMs,
+        viewerId = viewerId,
+        now = nowMs,
+    )
 
     enum class ReshareDenial {
         DISABLED_BY_AUTHOR,
@@ -103,6 +132,30 @@ object StatusPolicy {
         else -> null
     }
 
+    fun checkReshareEligibility(
+        resharerId: String,
+        ownerId: String,
+        allowReshare: Boolean,
+        isAlreadyReshared: Boolean,
+        originalAudience: Set<String>,
+        blockedByOwner: Set<String>,
+        blockedByResharer: Set<String>,
+        originalExpiresAtMs: Long,
+        nowMs: Long,
+    ): ReshareDenial? {
+        if (ownerId in blockedByResharer) return ReshareDenial.BLOCKED
+        if (isAlreadyReshared) return ReshareDenial.ALREADY_RESHARED_BY_USER
+        return checkReshareEligibility(
+            ownerId = ownerId,
+            allowReshare = allowReshare,
+            audience = originalAudience,
+            blockedByOwner = blockedByOwner,
+            expiresAt = originalExpiresAtMs,
+            viewerId = resharerId,
+            now = nowMs,
+        )
+    }
+
     /**
      * Computes the effective audience and expiration time for a reshared status so a reshare NEVER
      * exposes the status to anyone outside the original status's permitted audience and NEVER
@@ -120,6 +173,27 @@ object StatusPolicy {
         val effectiveAudience = (resharerAudience intersect allowedFromOriginal) - resharerBlockedIds
         val effectiveExpiresAt = minOf(originalExpiresAt, now + LIFETIME_MS).coerceAtLeast(now + 1_000L)
         return effectiveAudience to effectiveExpiresAt
+    }
+
+    fun computeReshareScope(
+        resharerAudience: Set<String>,
+        originalAudience: Set<String>,
+        originalOwnerId: String,
+        resharerId: String,
+        blockedByOriginalOwner: Set<String>,
+        blockedByResharer: Set<String>,
+        originalExpiresAtMs: Long,
+        nowMs: Long,
+    ): Pair<Set<String>, Long> {
+        val (aud, exp) = computeReshareScope(
+            resharerAudience = resharerAudience,
+            originalAudience = originalAudience,
+            originalOwnerId = originalOwnerId,
+            originalExpiresAt = originalExpiresAtMs,
+            resharerBlockedIds = blockedByResharer + blockedByOriginalOwner + setOf(resharerId),
+            now = nowMs,
+        )
+        return aud to exp
     }
 
     data class Item(val statusId: String, val ownerId: String, val createdAt: Long, val expiresAt: Long, val viewed: Boolean)

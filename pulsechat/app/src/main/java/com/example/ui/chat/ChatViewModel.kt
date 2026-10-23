@@ -360,10 +360,10 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
     }
 
     suspend fun probeMedia(uri: Uri, type: MessageType): MediaQualityPolicy.MediaProbe =
-        c.mediaRepository.probeUri(uri, type)
+        c.media.probeUri(uri, type)
 
     fun maxMediaBytes(type: MessageType): Long =
-        c.mediaRepository.effectiveMaxBytes(type)
+        c.media.effectiveMaxBytes(type)
 
     fun sendContact(name: String, phone: String) = launchSafely { repo.sendContact(conversationId, name, phone) }
 

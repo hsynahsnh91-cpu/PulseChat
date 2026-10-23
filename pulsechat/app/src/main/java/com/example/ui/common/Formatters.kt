@@ -87,4 +87,7 @@ object Formatters {
         7_776_000L -> context.getString(R.string.disappearing_90d)
         else -> context.getString(R.string.disappearing_off)
     }
+
+    fun bytes(context: Context, n: Long): String =
+        android.text.format.Formatter.formatShortFileSize(context, n.coerceAtLeast(0L))
 }

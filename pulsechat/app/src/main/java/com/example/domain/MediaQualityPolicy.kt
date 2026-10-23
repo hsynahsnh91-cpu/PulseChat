@@ -22,6 +22,8 @@ enum class MediaQuality {
     companion object {
         fun fromName(raw: String?): MediaQuality =
             entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: STANDARD
+
+        fun fromWire(raw: String?): MediaQuality = fromName(raw)
     }
 }
 
@@ -58,7 +60,12 @@ object MediaQualityPolicy {
         val sourceBelowHdThreshold: Boolean,
         val exceedsSizeLimit: Boolean,
         val maxAllowedBytes: Long,
-    )
+    ) {
+        val estimatedBytes: Long get() = sizeBytes
+        val isEstimated: Boolean get() = isEstimate
+        val canBenefitFromHd: Boolean get() = !sourceBelowHdThreshold
+        val exceedsLimit: Boolean get() = exceedsSizeLimit
+    }
 
     /** True when the source image or video has higher resolution than Standard and benefits from HD. */
     fun canBenefitFromHd(probe: MediaProbe): Boolean = when (probe.type) {
@@ -133,4 +140,10 @@ object MediaQualityPolicy {
             maxAllowedBytes = maxAllowedBytes,
         )
     }
+
+    fun describeOption(
+        quality: MediaQuality,
+        probe: MediaProbe,
+        maxAllowedBytes: Long,
+    ): QualityOptionInfo = describeOption(probe, quality, maxAllowedBytes)
 }

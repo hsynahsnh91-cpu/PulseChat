@@ -1217,4 +1217,33 @@
     <string name="media_quality_badge_hd">HD</string>
     <string name="media_quality_badge_original">ORIG</string>
     <string name="media_upload_cancel">Cancel upload</string>
+
+    <string name="status_mention_notification_title">%1$s mentioned you in a status</string>
+    <string name="status_mention_notification_body">%1$s</string>
+    <string name="mention_all_admin_only">Only group admins can use @all in this group.</string>
+    <string name="mention_all_cooldown">@all was used recently. Please wait %1$d min before using it again.</string>
+    <string name="poll_edited_toast">Poll updated</string>
+    <string name="poll_expiration_none">No expiration</string>
+    <string name="poll_expiration_15m">15 minutes</string>
+    <string name="poll_expiration_1h">1 hour</string>
+    <string name="poll_expiration_24h">24 hours</string>
+    <string name="poll_expiration_7d">7 days</string>
+    <string name="poll_edit_locked_hint">Polls can only be edited before anyone votes.</string>
+    <string name="group_create_confirm_title">Confirm new group</string>
+    <string name="group_create_confirm_admin">Creator &amp; admin: %1$s</string>
+    <string name="group_created_from_members_toast">New group created</string>
+    <string name="accounts_active_badge">Active</string>
+    <string name="accounts_section_title">Accounts</string>
+    <string name="accounts_switch">Switch account</string>
+    <string name="accounts_remove_from_device">Remove from this device</string>
+    <string name="accounts_add">Add account</string>
+    <string name="accounts_add_sub">Sign in to another existing account or create a new one</string>
+    <string name="accounts_remove_confirm_title">Remove %1$s from this device?</string>
+    <string name="accounts_remove_confirm_body">This removes local messages, drafts, and saved sign-in for %1$s on this phone only. The cloud account and its data are not deleted.</string>
+    <string name="accounts_switcher_title">Switch account</string>
+    <string name="accounts_switched_toast">Switched account</string>
+    <string name="accounts_session_expired">Session expired. Please sign in to continue.</string>
+    <string name="accounts_switch_call_active">Cannot switch accounts during an active call.</string>
+    <string name="accounts_limit_reached">You can keep up to %1$d accounts on one device.</string>
+    <string name="accounts_removed_toast">Account removed from this device</string>
 </resources>

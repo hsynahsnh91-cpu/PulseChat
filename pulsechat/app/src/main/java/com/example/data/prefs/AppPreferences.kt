@@ -229,7 +229,7 @@ class AppPreferences(context: Context) {
         prefs.edit()
             .remove("read_receipts").remove("vis_last_seen").remove("vis_photo").remove("vis_about")
             .remove("status_mode").remove("status_list").remove("default_disappearing")
-            .remove("ai_consent").remove("ai_smart_replies")
+            .remove("ai_consent").remove("ai_smart_replies").remove("recent_searches")
             .apply()
         // App lock belongs to the signed-in account (and signing out is the way out of a forgotten PIN).
         secure.edit().remove("push_token").remove("auth_method").remove("pairing_session_id")
@@ -306,6 +306,10 @@ class AppPreferences(context: Context) {
         _savedAccounts.value = list
     }
 
+    fun setSavedAccounts(list: List<MultiAccountPolicy.StoredAccount>) {
+        persistSavedAccounts(list)
+    }
+
     fun upsertSavedAccount(account: MultiAccountPolicy.StoredAccount, activeUid: String? = account.uid) {
         val updated = MultiAccountPolicy.upsertAccount(_savedAccounts.value, account, activeUid)
         persistSavedAccounts(updated)
@@ -314,7 +318,7 @@ class AppPreferences(context: Context) {
 
     fun removeSavedAccount(uid: String) {
         val target = _savedAccounts.value.firstOrNull { it.uid == uid }
-        val updated = MultiAccountPolicy.removeAccount(_savedAccounts.value, uid)
+        val updated = MultiAccountPolicy.removeAccount(_savedAccounts.value, uid).remaining
         persistSavedAccounts(updated)
         target?.let { forgetAccount(it.username) }
         deleteAccountPreferencesSnapshot(uid)
@@ -322,7 +326,7 @@ class AppPreferences(context: Context) {
 
     fun setAccountNeedsReauth(uid: String, needsReauth: Boolean) {
         val updated = _savedAccounts.value.map {
-            if (it.uid == uid) it.copy(needsReauth = needsReauth) else it
+            if (it.uid == uid) it.copy(needsReauth = needsReauth, sessionValid = !needsReauth) else it
         }
         persistSavedAccounts(updated)
     }
@@ -349,10 +353,13 @@ class AppPreferences(context: Context) {
             .putBoolean("ai_consent", c.aiConsent)
             .putBoolean("ai_smart_replies", c.aiSmartReplies)
             .putString("translation_target", c.translationTarget)
+            .putString("recent_searches", prefs.getString("recent_searches", "") ?: "")
             .putString("auth_method", currentAuthMethod)
             .putString("pairing_session_id", currentPairingSessionId)
             .apply()
     }
+
+    fun snapshotAccountPrefs(uid: String) = saveAccountPreferencesSnapshot(uid)
 
     /** Restores per-account settings from [uid]'s isolated preferences file (or defaults if brand new). */
     fun restoreAccountPreferencesSnapshot(uid: String) {
@@ -379,11 +386,14 @@ class AppPreferences(context: Context) {
             .putBoolean("ai_consent", acctPrefs.getBoolean("ai_consent", false))
             .putBoolean("ai_smart_replies", acctPrefs.getBoolean("ai_smart_replies", false))
             .putString("translation_target", acctPrefs.getString("translation_target", "") ?: "")
+            .putString("recent_searches", acctPrefs.getString("recent_searches", "") ?: "")
             .apply()
         currentAuthMethod = acctPrefs.getString("auth_method", "primary_login")
         currentPairingSessionId = acctPrefs.getString("pairing_session_id", null)
         _settings.value = load()
     }
+
+    fun restoreAccountPrefs(uid: String) = restoreAccountPreferencesSnapshot(uid)
 
     fun deleteAccountPreferencesSnapshot(uid: String) {
         if (uid.isBlank()) return
@@ -391,4 +401,6 @@ class AppPreferences(context: Context) {
         appContext.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit()
         prefs.edit().remove("status_mention_notified_$uid").apply()
     }
+
+    fun deleteAccountPrefs(uid: String) = deleteAccountPreferencesSnapshot(uid)
 }

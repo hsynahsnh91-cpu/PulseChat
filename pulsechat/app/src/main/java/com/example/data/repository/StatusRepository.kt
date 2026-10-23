@@ -11,7 +11,9 @@ import com.example.data.model.StatusViewRow
 import com.example.data.prefs.AppPreferences
 import com.example.data.remote.Fs
 import com.example.data.remote.RemoteMappers
+import com.example.data.remote.map
 import com.example.data.remote.millis
+import com.example.data.remote.stringList
 import com.example.data.remote.toTimestamp
 import com.example.domain.Ids
 import com.example.domain.MediaLimits
@@ -49,7 +51,7 @@ class StatusRepository(
     private val prefs: AppPreferences,
     private val scope: CoroutineScope,
     private val currentUid: () -> String?,
-    private val onStatusMentionedMe: ((StatusItem) -> Unit)? = null,
+    var onStatusMentionedMe: ((StatusItem) -> Unit)? = null,
 ) {
     private val regs = mutableListOf<ListenerRegistration>()
     private val viewRegs = ConcurrentHashMap<String, ListenerRegistration>()

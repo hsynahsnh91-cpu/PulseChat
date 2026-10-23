@@ -1026,12 +1026,12 @@ describe("advanced statuses (music, mentions, likes, resharing), group @all ment
 
     // 1. Non-admin bob cannot send @all when onlyAdminsCanMentionAll is true
     await assertFails(setDoc(doc(bob, "conversations/g1/messages/m_bob_all"), {
-      ...newMsg("bob", { mentions: ["all"] }),
+      ...messageData("bob", { mentions: ["all"] }),
     }));
 
     // 2. Admin alice can send @all and bump lastMentionAllAt
     const batch1 = writeBatch(alice);
-    batch1.set(doc(alice, "conversations/g1/messages/m_alice_all_1"), newMsg("alice", { mentions: ["all"] }));
+    batch1.set(doc(alice, "conversations/g1/messages/m_alice_all_1"), messageData("alice", { mentions: ["all"] }));
     batch1.update(doc(alice, "conversations/g1"), {
       lastMessage: { id: "m_alice_all_1", senderId: "alice", type: "TEXT", preview: "@all hi", createdAt: serverTimestamp() },
       lastMessageAt: serverTimestamp(),
@@ -1042,7 +1042,7 @@ describe("advanced statuses (music, mentions, likes, resharing), group @all ment
 
     // 3. Immediate second @all within 5-minute cooldown is rejected by rules
     await assertFails(setDoc(doc(alice, "conversations/g1/messages/m_alice_all_2"), {
-      ...newMsg("alice", { mentions: ["all"] }),
+      ...messageData("alice", { mentions: ["all"] }),
     }));
   });
 
@@ -1054,7 +1054,7 @@ describe("advanced statuses (music, mentions, likes, resharing), group @all ment
     const pollExp = Timestamp.fromMillis(Date.now() + 3600_000);
 
     // 1. Create an anonymous poll with expiration
-    await assertSucceeds(setDoc(doc(alice, "conversations/g1/messages/m_poll_1"), newMsg("alice", {
+    await assertSucceeds(setDoc(doc(alice, "conversations/g1/messages/m_poll_1"), messageData("alice", {
       type: "POLL",
       text: "Where should we meet?",
       poll: {
@@ -1103,7 +1103,7 @@ describe("advanced statuses (music, mentions, likes, resharing), group @all ment
     // 5. Expired poll rejects new votes
     await seed(async (fs) => {
       await setDoc(doc(fs, "conversations/g1/messages/m_poll_exp"), {
-        ...newMsg("alice", {
+        ...messageData("alice", {
           type: "POLL",
           text: "Expired poll",
           poll: {
@@ -1124,24 +1124,24 @@ describe("advanced statuses (music, mentions, likes, resharing), group @all ment
     }));
 
     // 6. Media quality validation: HD and ORIGINAL are accepted; bogus quality is rejected
-    await assertSucceeds(setDoc(doc(alice, "conversations/g1/messages/m_img_hd"), newMsg("alice", {
+    await assertSucceeds(setDoc(doc(alice, "conversations/g1/messages/m_img_hd"), messageData("alice", {
       type: "IMAGE",
       text: "HD photo",
       media: {
-        url: "pulse://media/md000000000000000001",
-        storagePath: "chat-media/g1/alice/m_img_hd.jpg",
+        url: "pulsemedia://md000000000000000001",
+        path: "chat-media/g1/alice/m_img_hd.jpg",
         mime: "image/jpeg",
         size: 1024000,
         originalSize: 2048000,
         quality: "HD",
       },
     })));
-    await assertFails(setDoc(doc(alice, "conversations/g1/messages/m_img_badq"), newMsg("alice", {
+    await assertFails(setDoc(doc(alice, "conversations/g1/messages/m_img_badq"), messageData("alice", {
       type: "IMAGE",
       text: "Bad quality",
       media: {
-        url: "pulse://media/md000000000000000001",
-        storagePath: "chat-media/g1/alice/m_img_badq.jpg",
+        url: "pulsemedia://md000000000000000001",
+        path: "chat-media/g1/alice/m_img_badq.jpg",
         mime: "image/jpeg",
         size: 1024000,
         quality: "ULTRA_8K",

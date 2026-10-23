@@ -807,7 +807,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
         MediaCaptionDialog(
             uri = uri,
             isVideo = video,
-            recipient = title,
+            title = title,
             onDismiss = { pendingMedia = null; editedVideo = null; videoSource = null },
             onEdit = if (!video) ({ editImage = uri }) else ({ editVideo = videoSource ?: uri }),
             note = note,
@@ -815,8 +815,8 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
             sendEnabled = !tooLarge,
             qualityOptions = qualityOptions,
             selectedQuality = selectedQuality,
-            onSelectQuality = { selectedQuality = it },
-            originalSizeBytes = probe?.originalSizeBytes ?: originalBytes,
+            onQualityChange = { selectedQuality = it },
+            sourceProbe = probe,
         ) { caption ->
             pendingMedia = null
             val cover = edited?.let { e -> VideoCover(e.coverMs, e.cover?.let { b -> android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP) }) }

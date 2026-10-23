@@ -42,12 +42,12 @@ class AdvancedStatusAndEditorTest {
 
     @Test
     fun `status collage layouts, crop rects, and cell reordering`() {
-        val cells2H = StatusCollageMath.layoutCells(StatusCollageMath.Layout.SPLIT_2_HORIZONTAL, 2)
-        assertEquals(2, cells2H.size)
-        assertTrue(cells2H[0].width > 0.45f)
-        assertTrue(cells2H[1].left > 0.49f)
+        val cells2V = StatusCollageMath.layoutCells(StatusCollageMath.Layout.SPLIT_VERTICAL, 2)
+        assertEquals(2, cells2V.size)
+        assertTrue(cells2V[0].width > 0.45f)
+        assertTrue(cells2V[1].left > 0.49f)
 
-        val cells4 = StatusCollageMath.layoutCells(StatusCollageMath.Layout.GRID_4, 4)
+        val cells4 = StatusCollageMath.layoutCells(StatusCollageMath.Layout.GRID_2X2, 4)
         assertEquals(4, cells4.size)
 
         val crop = StatusCollageMath.computeSourceCrop(

@@ -101,6 +101,9 @@ abstract class AppDatabase : RoomDatabase() {
             return context.applicationContext.deleteDatabase(dbName)
         }
 
+        fun deleteAccountDatabase(context: Context, uid: String): Boolean =
+            deleteDatabaseForAccount(context, uid)
+
         private fun build(context: Context, dbName: String): AppDatabase =
             Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, dbName)
                 .addMigrations(*Migrations.ALL)
