@@ -34,6 +34,7 @@ import {
   PairingSessionDoc,
   sealCustomTokenEnvelope,
   shouldNotify,
+  statusMentionPayload,
   validatePairingExchange,
 } from "./payloads";
 
@@ -106,10 +107,34 @@ export const onMessageCreated = onDocumentCreated(
           tokens: devices.map((d) => d.token),
         };
         if (!shouldNotify(msg, state, now)) return;
-        await push(uid, messagePayload(cid, mid), 24 * 3600);
+        await push(uid, messagePayload(cid, mid, uid), 24 * 3600);
       }),
     );
     logger.debug("message fan-out done", { cid, mid });
+  },
+);
+
+export const onStatusCreated = onDocumentCreated(
+  { document: "statuses/{sid}", database: DATABASE },
+  async (event) => {
+    const status = event.data?.data();
+    if (!status) return;
+    const sid = event.params.sid;
+    const ownerId = String(status.ownerId ?? "");
+    const audience = new Set<string>(Array.isArray(status.audience) ? status.audience : []);
+    const mentions: string[] = Array.isArray(status.mentions) ? status.mentions : [];
+    const eligible = [...new Set(mentions)].filter((uid) => uid && uid !== ownerId && audience.has(uid));
+    if (eligible.length === 0) return;
+    await Promise.all(
+      eligible.map(async (uid) => {
+        const [blockedByRecipient, blockedByOwner] = await Promise.all([
+          db.doc(`users/${uid}/blocked/${ownerId}`).get(),
+          db.doc(`users/${ownerId}/blocked/${uid}`).get(),
+        ]);
+        if (blockedByRecipient.exists || blockedByOwner.exists) return;
+        await push(uid, statusMentionPayload(sid, ownerId, uid), 24 * 3600);
+      }),
+    );
   },
 );
 
@@ -331,6 +356,19 @@ export const purgeExpired = onSchedule("every 60 minutes", async () => {
       batch.delete(d.ref);
     });
     if (!snap.empty) await batch.commit();
+    // Clean up likes/views subcollections for expired statuses.
+    if (snap.docs.length > 0 && snap.docs[0].ref.parent.id === "statuses") {
+      for (const statusDoc of snap.docs) {
+        for (const sub of ["likes", "views"]) {
+          const subSnap = await statusDoc.ref.collection(sub).limit(400).get();
+          if (!subSnap.empty) {
+            const subBatch = db.batch();
+            subSnap.docs.forEach((s) => subBatch.delete(s.ref));
+            await subBatch.commit();
+          }
+        }
+      }
+    }
     deleted += snap.size;
   }
   logger.info("purged expired documents", { deleted });

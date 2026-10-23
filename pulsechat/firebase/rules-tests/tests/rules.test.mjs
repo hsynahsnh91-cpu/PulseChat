@@ -932,4 +932,221 @@ describe("Cloud Storage rules (storage.rules)", () => {
     await assertSucceeds(getBytes(sRef(aliceSt, path)));
     await assertFails(getBytes(sRef(bobSt, path)));
   });
+
+  test("status audio track uploads are permitted for status owner and readable by audience before expiry", async () => {
+    const aliceSt = st("alice");
+    const bobSt = st("bob");
+    const carolSt = st("carol");
+    const audioPath = "status-media/alice/st_music_1_music.wav";
+
+    await assertSucceeds(uploadBytes(sRef(aliceSt, audioPath), bytes, {
+      contentType: "audio/wav",
+      customMetadata: { audience: "alice,bob", expiresAt: String(Date.now() + 3600_000) },
+    }));
+    await assertSucceeds(getBytes(sRef(bobSt, audioPath)));
+    await assertFails(getBytes(sRef(carolSt, audioPath)));
+  });
 });
+
+describe("advanced statuses (music, mentions, likes, resharing), group @all mentions, advanced polls, and media quality", () => {
+  async function sha256Hex(str) {
+    const { createHash } = await import("node:crypto");
+    return createHash("sha256").update(str, "utf8").digest("hex");
+  }
+
+  test("status music, mentions subset of audience, likes privacy, and resharing rules are enforced", async () => {
+    await seedPeople();
+    const alice = db("alice");
+    const bob = db("bob");
+    const carol = db("carol");
+    const exp = Timestamp.fromMillis(Date.now() + 3600_000);
+
+    // 1. Mentions cannot include users outside audience or self
+    await assertFails(setDoc(doc(alice, "statuses/st_bad_mention"), {
+      ownerId: "alice", type: "TEXT", text: "hi", bgColor: "#000000", font: "sans",
+      audience: ["bob"], mentions: ["carol"], allowReshare: true,
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+    await assertFails(setDoc(doc(alice, "statuses/st_self_mention"), {
+      ownerId: "alice", type: "TEXT", text: "hi", bgColor: "#000000", font: "sans",
+      audience: ["bob"], mentions: ["alice"], allowReshare: true,
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+
+    // 2. Valid status with music metadata, mentions subset of audience, and allowReshare=true
+    await assertSucceeds(setDoc(doc(alice, "statuses/st_music"), {
+      ownerId: "alice", type: "TEXT", text: "morning vibes", bgColor: "#0F766E", font: "sans",
+      audience: ["bob", "carol"], mentions: ["bob"], allowReshare: true,
+      music: {
+        trackId: "sunrise_acoustic", title: "Sunrise Acoustic", artist: "PulseChat Studio",
+        url: null, startMs: 2000, durationMs: 15000,
+      },
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+
+    // 3. Status likes: audience member can like/unlike; non-audience cannot; bob cannot read carol's like; owner (alice) can read all likes
+    const dave = db("dave");
+    await assertFails(setDoc(doc(dave, "statuses/st_music/likes/dave"), { likedAt: serverTimestamp() }));
+    await assertSucceeds(setDoc(doc(bob, "statuses/st_music/likes/bob"), { likedAt: serverTimestamp() }));
+    await assertSucceeds(setDoc(doc(carol, "statuses/st_music/likes/carol"), { likedAt: serverTimestamp() }));
+    await assertSucceeds(getDoc(doc(bob, "statuses/st_music/likes/bob")));
+    await assertFails(getDoc(doc(bob, "statuses/st_music/likes/carol")));
+    await assertSucceeds(getDoc(doc(alice, "statuses/st_music/likes/bob")));
+    await assertSucceeds(getDoc(doc(alice, "statuses/st_music/likes/carol")));
+    await assertSucceeds(deleteDoc(doc(bob, "statuses/st_music/likes/bob")));
+
+    // 4. Status resharing: allowed when allowReshare=true and audience is a subset of original audience
+    await assertFails(setDoc(doc(bob, "statuses/st_reshare_wider"), {
+      ownerId: "bob", type: "TEXT", text: "morning vibes", bgColor: "#0F766E", font: "sans",
+      audience: ["alice", "carol", "dave"], allowReshare: false,
+      resharedFrom: { statusId: "st_music", ownerId: "alice", authorName: "Alice" },
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+    await assertSucceeds(setDoc(doc(bob, "statuses/st_reshare_ok"), {
+      ownerId: "bob", type: "TEXT", text: "morning vibes", bgColor: "#0F766E", font: "sans",
+      audience: ["carol"], allowReshare: false,
+      resharedFrom: { statusId: "st_music", ownerId: "alice", authorName: "Alice" },
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+
+    // 5. Status resharing rejected when allowReshare=false or when resharing a reshare
+    await assertFails(setDoc(doc(carol, "statuses/st_chain_reshare"), {
+      ownerId: "carol", type: "TEXT", text: "morning vibes", bgColor: "#0F766E", font: "sans",
+      audience: ["bob"], allowReshare: false,
+      resharedFrom: { statusId: "st_reshare_ok", ownerId: "bob", authorName: "Bob" },
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+  });
+
+  test("group @all mentions enforce onlyAdminsCanMentionAll and 5-minute cooldown", async () => {
+    await seedPeople();
+    await seedGroup({ onlyAdminsCanMentionAll: true });
+    const alice = db("alice");
+    const bob = db("bob");
+
+    // 1. Non-admin bob cannot send @all when onlyAdminsCanMentionAll is true
+    await assertFails(setDoc(doc(bob, "conversations/g1/messages/m_bob_all"), {
+      ...newMsg("bob", { mentions: ["all"] }),
+    }));
+
+    // 2. Admin alice can send @all and bump lastMentionAllAt
+    const batch1 = writeBatch(alice);
+    batch1.set(doc(alice, "conversations/g1/messages/m_alice_all_1"), newMsg("alice", { mentions: ["all"] }));
+    batch1.update(doc(alice, "conversations/g1"), {
+      lastMessage: { id: "m_alice_all_1", senderId: "alice", type: "TEXT", preview: "@all hi", createdAt: serverTimestamp() },
+      lastMessageAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      lastMentionAllAt: serverTimestamp(),
+    });
+    await assertSucceeds(batch1.commit());
+
+    // 3. Immediate second @all within 5-minute cooldown is rejected by rules
+    await assertFails(setDoc(doc(alice, "conversations/g1/messages/m_alice_all_2"), {
+      ...newMsg("alice", { mentions: ["all"] }),
+    }));
+  });
+
+  test("anonymous polls, poll expiration, poll editing before votes, and HD/ORIGINAL media quality are enforced", async () => {
+    await seedPeople();
+    await seedGroup();
+    const alice = db("alice");
+    const bob = db("bob");
+    const pollExp = Timestamp.fromMillis(Date.now() + 3600_000);
+
+    // 1. Create an anonymous poll with expiration
+    await assertSucceeds(setDoc(doc(alice, "conversations/g1/messages/m_poll_1"), newMsg("alice", {
+      type: "POLL",
+      text: "Where should we meet?",
+      poll: {
+        question: "Where should we meet?",
+        options: ["Zürich HB", "Bahnhofstrasse"],
+        votes: {},
+        anonymous: true,
+        expiresAt: pollExp,
+      },
+    })));
+
+    // 2. Creator alice can edit poll question/options before any votes are cast
+    await assertSucceeds(updateDoc(doc(alice, "conversations/g1/messages/m_poll_1"), {
+      text: "Where should we meet today?",
+      "poll.question": "Where should we meet today?",
+      "poll.options": ["Zürich HB", "Bahnhofstrasse", "Lake Geneva"],
+      editedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+
+    // 3. In an anonymous poll, voting with raw UID is rejected; voting with sha256("poll:" + mid + ":" + uid) succeeds
+    await assertFails(updateDoc(doc(bob, "conversations/g1/messages/m_poll_1"), {
+      "poll.votes.bob": 1,
+      updatedAt: serverTimestamp(),
+    }));
+    const bobAnonKey = await sha256Hex("poll:m_poll_1:bob");
+    const carolAnonKey = await sha256Hex("poll:m_poll_1:carol");
+    await assertFails(updateDoc(doc(bob, "conversations/g1/messages/m_poll_1"), {
+      [`poll.votes.${carolAnonKey}`]: 1,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(bob, "conversations/g1/messages/m_poll_1"), {
+      [`poll.votes.${bobAnonKey}`]: 1,
+      updatedAt: serverTimestamp(),
+    }));
+
+    // 4. Once a vote has been cast, creator can no longer edit the poll
+    await assertFails(updateDoc(doc(alice, "conversations/g1/messages/m_poll_1"), {
+      text: "Changed after vote?",
+      "poll.question": "Changed after vote?",
+      "poll.options": ["A", "B"],
+      editedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+
+    // 5. Expired poll rejects new votes
+    await seed(async (fs) => {
+      await setDoc(doc(fs, "conversations/g1/messages/m_poll_exp"), {
+        ...newMsg("alice", {
+          type: "POLL",
+          text: "Expired poll",
+          poll: {
+            question: "Expired poll",
+            options: ["Yes", "No"],
+            votes: {},
+            anonymous: false,
+            expiresAt: Timestamp.fromMillis(Date.now() - 60_000),
+          },
+        }),
+        createdAt: Timestamp.fromMillis(Date.now() - 120_000),
+        updatedAt: Timestamp.fromMillis(Date.now() - 120_000),
+      });
+    });
+    await assertFails(updateDoc(doc(bob, "conversations/g1/messages/m_poll_exp"), {
+      "poll.votes.bob": 0,
+      updatedAt: serverTimestamp(),
+    }));
+
+    // 6. Media quality validation: HD and ORIGINAL are accepted; bogus quality is rejected
+    await assertSucceeds(setDoc(doc(alice, "conversations/g1/messages/m_img_hd"), newMsg("alice", {
+      type: "IMAGE",
+      text: "HD photo",
+      media: {
+        url: "pulse://media/md000000000000000001",
+        storagePath: "chat-media/g1/alice/m_img_hd.jpg",
+        mime: "image/jpeg",
+        size: 1024000,
+        originalSize: 2048000,
+        quality: "HD",
+      },
+    })));
+    await assertFails(setDoc(doc(alice, "conversations/g1/messages/m_img_badq"), newMsg("alice", {
+      type: "IMAGE",
+      text: "Bad quality",
+      media: {
+        url: "pulse://media/md000000000000000001",
+        storagePath: "chat-media/g1/alice/m_img_badq.jpg",
+        mime: "image/jpeg",
+        size: 1024000,
+        quality: "ULTRA_8K",
+      },
+    })));
+  });
+});
+

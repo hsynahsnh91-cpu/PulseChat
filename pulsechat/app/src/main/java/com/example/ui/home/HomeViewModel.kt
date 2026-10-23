@@ -127,6 +127,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
     val groups: StateFlow<List<Conversation>> = c.chatRepository.observeGroups(me).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val calls: StateFlow<List<CallRecord>> = c.callRepository.observeHistory(me).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val contacts: StateFlow<List<com.example.data.model.ContactRow>> = c.userRepository.observeContacts(me).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val unreadChats: StateFlow<Int> = c.chatRepository.observeUnreadChats(me).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val sync: StateFlow<SyncStatus> = c.syncManager.status
     val network: StateFlow<NetworkKind> = c.connectivity.network
@@ -215,13 +216,44 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
     /** String resource IDs for status posting problems. */
     val statusErrors: SharedFlow<Int> = _statusErrors.asSharedFlow()
 
-    fun postTextStatus(text: String, background: String, font: String) = viewModelScope.launch {
-        try { c.statusRepository.postText(text, background, font) } catch (e: Exception) { _statusErrors.tryEmit(statusError(e)) }
+    fun postTextStatus(
+        text: String,
+        background: String,
+        font: String,
+        extras: com.example.ui.status.StatusComposeExtras = com.example.ui.status.StatusComposeExtras(),
+    ) = viewModelScope.launch {
+        try {
+            c.statusRepository.postText(
+                text = text,
+                backgroundHex = background,
+                font = font,
+                musicSelection = extras.musicSelection,
+                mentions = extras.mentionedUserIds,
+                allowReshare = extras.allowReshare,
+            )
+        } catch (e: Exception) {
+            _statusErrors.tryEmit(statusError(e))
+        }
     }
 
-    fun postMediaStatus(uri: android.net.Uri, video: Boolean, caption: String) = viewModelScope.launch {
-        try { c.statusRepository.postMedia(uri, if (video) com.example.domain.model.MessageType.VIDEO else com.example.domain.model.MessageType.IMAGE, caption) }
-        catch (e: Exception) { _statusErrors.tryEmit(statusError(e)) }
+    fun postMediaStatus(
+        uri: android.net.Uri,
+        video: Boolean,
+        caption: String,
+        extras: com.example.ui.status.StatusComposeExtras = com.example.ui.status.StatusComposeExtras(),
+    ) = viewModelScope.launch {
+        try {
+            c.statusRepository.postMedia(
+                uri = uri,
+                type = if (video) com.example.domain.model.MessageType.VIDEO else com.example.domain.model.MessageType.IMAGE,
+                caption = caption,
+                musicSelection = extras.musicSelection,
+                mentions = extras.mentionedUserIds,
+                allowReshare = extras.allowReshare,
+            )
+        } catch (e: Exception) {
+            _statusErrors.tryEmit(statusError(e))
+        }
     }
 
     private fun statusError(e: Exception): Int = when (e) {

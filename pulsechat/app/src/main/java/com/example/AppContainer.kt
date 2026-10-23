@@ -8,6 +8,7 @@ import com.example.data.db.AppDatabase
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.prefs.AppPreferences
+import com.example.data.repository.AccountRepository
 import com.example.data.repository.AiRepository
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.AutoReplyManager
@@ -84,6 +85,9 @@ class AppContainer(val app: Application) {
     val authRepository: AuthRepository by lazy {
         AuthRepository(auth, firestore, db, prefs, FirebaseApp.getInstance().options.projectId ?: "pulsechat", appScope, keyManager)
     }
+    val accountRepository: AccountRepository by lazy {
+        AccountRepository(app, db, prefs, authRepository, keyManager)
+    }
     private val uid: () -> String? = { authRepository.currentUid }
     val userRepository by lazy { UserRepository(firestore, db, prefs, media, serverClock, appScope, uid) }
     val syncManager by lazy { SyncManager(firestore, db, userRepository, prefs, serverClock, appScope, uid) }
@@ -138,6 +142,12 @@ class AppContainer(val app: Application) {
         syncManager.diagnostics = diagnosticsLog
         authRepository.addSignOutHook { id -> onSignedOut(id) }
         syncManager.onIncoming = { conv, messages -> handleIncoming(conv, messages) }
+        statusRepository.onStatusMentionedMe = { status ->
+            val me = uid()
+            if (me != null) {
+                appScope.launch { notifications.showStatusMention(status, me) }
+            }
+        }
 
         appScope.launch {
             authRepository.session.collect { s ->
@@ -164,6 +174,7 @@ class AppContainer(val app: Application) {
                     appLock.onBackground()
                     chatSettings.onAppBackground()
                     voicePlayer.stop()
+                    appScope.launch { runCatching { accountRepository.snapshotActiveAccount() } }
                     uid()?.let { appScope.launch { deviceLinkRepository.touchCurrentDevice(it, online = false) } }
                     backgroundJob?.cancel()
                     // Keep listeners briefly (e.g. app switching), then rely on push messages.
@@ -201,6 +212,7 @@ class AppContainer(val app: Application) {
     }
 
     private suspend fun onSignedIn(id: String) {
+        runCatching { accountRepository.onAccountSignedIn(id) }
         runCatching { chatSettings.importLegacyMutes(id) }
         // A live location whose service did not survive a restart is ended, never resumed silently.
         liveLocation.endIfOrphaned()

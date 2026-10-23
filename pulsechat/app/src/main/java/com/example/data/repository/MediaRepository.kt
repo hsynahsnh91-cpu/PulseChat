@@ -13,6 +13,8 @@ import androidx.core.content.FileProvider
 import com.example.data.prefs.AppPreferences
 import com.example.data.remote.Fs
 import com.example.domain.MediaLimits
+import com.example.domain.MediaQuality
+import com.example.domain.MediaQualityPolicy
 import com.example.domain.MediaRefs
 import com.example.domain.VideoEditMath
 import com.example.domain.model.MessageType
@@ -55,6 +57,8 @@ data class LocalMedia(
     val width: Int = 0,
     val height: Int = 0,
     val durationMs: Long = 0L,
+    val originalSizeBytes: Long = sizeBytes,
+    val quality: MediaQuality = MediaQuality.STANDARD,
 )
 
 /** Where an uploaded file lives: [url] is what other clients load, [path] is what deletes it. */
@@ -105,7 +109,60 @@ class MediaRepository(
     fun effectiveMaxBytes(type: MessageType): Long =
         if (storageLikelyAvailable()) MediaLimits.maxBytes(type) else minOf(MediaLimits.maxBytes(type), MediaRefs.MAX_BYTES)
 
-    suspend fun importUri(uri: Uri, type: MessageType, maxBytes: Long): LocalMedia = withContext(Dispatchers.IO) {
+    /**
+     * Probes the source [uri] (file size, dimensions, duration, MIME) without copying or
+     * re-encoding so the composer can display Standard / HD / Original size estimates.
+     */
+    suspend fun probeUri(uri: Uri, type: MessageType): MediaQualityPolicy.MediaProbe = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        var name = "file"
+        var size = 0L
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                c.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) ?: name }
+                c.getColumnIndex(OpenableColumns.SIZE).takeIf { it >= 0 }?.let { if (!c.isNull(it)) size = c.getLong(it) }
+            }
+        }
+        if (size <= 0L) {
+            size = runCatching { resolver.openAssetFileDescriptor(uri, "r")?.use { it.length.coerceAtLeast(0L) } ?: 0L }.getOrDefault(0L)
+        }
+        val mime = resolver.getType(uri) ?: guessMime(name)
+        var width = 0
+        var height = 0
+        var duration = 0L
+        if (type == MessageType.IMAGE || mime.startsWith("image/")) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            runCatching { resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } }
+            width = bounds.outWidth.coerceAtLeast(0)
+            height = bounds.outHeight.coerceAtLeast(0)
+        } else if (type == MessageType.VIDEO || mime.startsWith("video/")) {
+            val r = MediaMetadataRetriever()
+            try {
+                r.setDataSource(context, uri)
+                duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                width = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                height = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            } catch (_: Exception) {
+            } finally {
+                runCatching { r.release() }
+            }
+        }
+        MediaQualityPolicy.MediaProbe(
+            type = type,
+            mime = mime,
+            originalSizeBytes = size,
+            width = width,
+            height = height,
+            durationMs = duration,
+        )
+    }
+
+    suspend fun importUri(
+        uri: Uri,
+        type: MessageType,
+        maxBytes: Long,
+        quality: MediaQuality = MediaQuality.STANDARD,
+    ): LocalMedia = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         var name = "file"
         var size = -1L
@@ -116,19 +173,36 @@ class MediaRepository(
             }
         }
         val mime = resolver.getType(uri) ?: guessMime(name)
-        if (size > maxBytes && type != MessageType.IMAGE) throw MediaTooLargeException(maxBytes)
-        val ext = extensionFor(mime, name)
+        val shouldCompressImage = type == MessageType.IMAGE && mime != "image/gif" && quality != MediaQuality.ORIGINAL
+        if (size > maxBytes && !shouldCompressImage) throw MediaTooLargeException(maxBytes)
+        val effectiveMime = if (shouldCompressImage) "image/jpeg" else mime
+        val ext = if (shouldCompressImage) "jpg" else extensionFor(mime, name)
         val target = File(mediaDir, "${UUID.randomUUID()}.$ext")
-        if (type == MessageType.IMAGE && mime != "image/gif") {
-            val bytes = compressImage(uri, 1600, 82) ?: throw IllegalArgumentException("unreadable image")
+        if (shouldCompressImage) {
+            val maxDim = if (quality == MediaQuality.HD) {
+                MediaQualityPolicy.HD_IMAGE_MAX_DIM
+            } else {
+                MediaQualityPolicy.STANDARD_IMAGE_MAX_DIM
+            }
+            val jpegQuality = if (quality == MediaQuality.HD) {
+                MediaQualityPolicy.HD_IMAGE_JPEG_QUALITY
+            } else {
+                MediaQualityPolicy.STANDARD_IMAGE_JPEG_QUALITY
+            }
+            val bytes = compressImage(uri, maxDim, jpegQuality) ?: throw IllegalArgumentException("unreadable image")
             target.writeBytes(bytes)
         } else {
+            // Original mode (or GIF / video / audio / document): copy exact source bytes without recompression
             resolver.openInputStream(uri)?.use { input -> FileOutputStream(target).use { input.copyTo(it) } }
                 ?: throw IllegalArgumentException("unreadable file")
         }
         if (target.length() > maxBytes) { target.delete(); throw MediaTooLargeException(maxBytes) }
         if (target.length() == 0L) { target.delete(); throw IllegalArgumentException("empty file") }
-        describe(target, if (type == MessageType.IMAGE && mime != "image/gif") "image/jpeg" else mime, name)
+        val origBytes = if (size > 0L) size else target.length()
+        describe(target, effectiveMime, name).copy(
+            originalSizeBytes = origBytes,
+            quality = quality,
+        )
     }
 
     /** Moves a finished capture/recording into media storage. */

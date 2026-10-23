@@ -39,16 +39,19 @@ import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -71,12 +75,15 @@ import com.example.data.model.Receipt
 import com.example.data.model.User
 import com.example.domain.DeliveryPolicy
 import com.example.domain.MessagePolicy
+import com.example.domain.PollPolicy
 import com.example.domain.TextTools
 import com.example.domain.model.MessageStatus
 import com.example.ui.common.DeliveryTicks
 import com.example.ui.common.Formatters
 import com.example.ui.components.EmojiPickerView
 import com.example.ui.components.UserAvatar
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.widthIn
@@ -300,29 +307,180 @@ fun DeleteMessagesDialog(count: Int, canDeleteForEveryone: Boolean, onDeleteForM
 
 @Composable
 fun PollDialog(onCreate: (String, List<String>) -> Unit, onDismiss: () -> Unit) {
+    PollDialog(
+        onCreateWithOptions = { q, opts, _, _ -> onCreate(q, opts) },
+        onDismiss = onDismiss,
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PollDialog(
+    onCreateWithOptions: (question: String, options: List<String>, anonymous: Boolean, durationSeconds: Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
     var question by remember { mutableStateOf("") }
     val options = remember { mutableStateListOf("", "") }
+    var anonymous by remember { mutableStateOf(false) }
+    var durationSeconds by remember { mutableLongStateOf(0L) }
+    val durationLabels = listOf(
+        0L to stringResource(R.string.poll_expiration_none),
+        900L to stringResource(R.string.poll_expiration_15m),
+        3600L to stringResource(R.string.poll_expiration_1h),
+        86_400L to stringResource(R.string.poll_expiration_24h),
+        604_800L to stringResource(R.string.poll_expiration_7d),
+    )
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.poll_create)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(value = question, onValueChange = { question = it.take(300) }, label = { Text(stringResource(R.string.poll_question)) }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it.take(PollPolicy.MAX_QUESTION_LENGTH) },
+                    label = { Text(stringResource(R.string.poll_question)) },
+                    modifier = Modifier.fillMaxWidth().testTag("poll_question_input"),
+                )
                 options.forEachIndexed { i, opt ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(value = opt, onValueChange = { options[i] = it.take(100) }, singleLine = true,
-                            label = { Text(stringResource(R.string.poll_option, i + 1)) }, modifier = Modifier.weight(1f).padding(top = 6.dp))
-                        if (options.size > 2) IconButton(onClick = { options.removeAt(i) }) { Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.action_delete)) }
+                        OutlinedTextField(
+                            value = opt,
+                            onValueChange = { options[i] = it.take(PollPolicy.MAX_OPTION_LENGTH) },
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.poll_option, i + 1)) },
+                            modifier = Modifier.weight(1f).padding(top = 6.dp).testTag("poll_option_input_$i"),
+                        )
+                        if (options.size > PollPolicy.MIN_OPTIONS) {
+                            IconButton(onClick = { options.removeAt(i) }) {
+                                Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.action_delete))
+                            }
+                        }
                     }
                 }
-                if (options.size < 12) TextButton(onClick = { options.add("") }) { Text(stringResource(R.string.poll_add_option)) }
+                if (options.size < PollPolicy.MAX_OPTIONS) {
+                    TextButton(onClick = { options.add("") }) {
+                        Text(stringResource(R.string.poll_add_option))
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { anonymous = !anonymous }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.poll_anonymous_voting), fontWeight = FontWeight.Medium)
+                        Text(
+                            stringResource(R.string.poll_anonymous_voting_sub),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Switch(
+                        checked = anonymous,
+                        onCheckedChange = { anonymous = it },
+                        modifier = Modifier.testTag("poll_anonymous_switch"),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.poll_expiration_label),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    durationLabels.forEach { (secs, label) ->
+                        FilterChip(
+                            selected = durationSeconds == secs,
+                            onClick = { durationSeconds = secs },
+                            label = { Text(label) },
+                            modifier = Modifier.testTag("poll_duration_$secs"),
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onCreate(question.trim(), options.map { it.trim() }.filter { it.isNotEmpty() }) },
-                enabled = question.isNotBlank() && options.count { it.isNotBlank() } >= 2,
+                onClick = {
+                    val clean = PollPolicy.cleanOptions(options)
+                    onCreateWithOptions(question.trim(), clean, anonymous, durationSeconds)
+                },
+                enabled = PollPolicy.isValidPoll(question, options),
+                modifier = Modifier.testTag("poll_create_confirm"),
             ) { Text(stringResource(R.string.action_send), fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
+}
+
+@Composable
+fun EditPollDialog(
+    initialQuestion: String,
+    initialOptions: List<String>,
+    onSave: (String, List<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var question by remember(initialQuestion) { mutableStateOf(initialQuestion) }
+    val options = remember(initialOptions) {
+        mutableStateListOf<String>().apply {
+            addAll(if (initialOptions.size >= 2) initialOptions else listOf("", ""))
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.poll_edit_title)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    stringResource(R.string.poll_edit_locked_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it.take(PollPolicy.MAX_QUESTION_LENGTH) },
+                    label = { Text(stringResource(R.string.poll_question)) },
+                    modifier = Modifier.fillMaxWidth().testTag("edit_poll_question_input"),
+                )
+                options.forEachIndexed { i, opt ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = opt,
+                            onValueChange = { options[i] = it.take(PollPolicy.MAX_OPTION_LENGTH) },
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.poll_option, i + 1)) },
+                            modifier = Modifier.weight(1f).padding(top = 6.dp).testTag("edit_poll_option_input_$i"),
+                        )
+                        if (options.size > PollPolicy.MIN_OPTIONS) {
+                            IconButton(onClick = { options.removeAt(i) }) {
+                                Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.action_delete))
+                            }
+                        }
+                    }
+                }
+                if (options.size < PollPolicy.MAX_OPTIONS) {
+                    TextButton(onClick = { options.add("") }) {
+                        Text(stringResource(R.string.poll_add_option))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val clean = PollPolicy.cleanOptions(options)
+                    onSave(question.trim(), clean)
+                },
+                enabled = PollPolicy.isValidPoll(question, options),
+                modifier = Modifier.testTag("edit_poll_save"),
+            ) { Text(stringResource(R.string.action_save), fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )

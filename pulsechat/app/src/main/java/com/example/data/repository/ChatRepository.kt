@@ -23,9 +23,12 @@ import com.example.domain.EditHistory
 import com.example.domain.GroupError
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
+import com.example.domain.MediaQuality
 import com.example.domain.MediaRefs
+import com.example.domain.Mentions
 import com.example.domain.MessageOrder
 import com.example.domain.MessagePolicy
+import com.example.domain.PollPolicy
 import com.example.domain.PresencePolicy
 import com.example.domain.TextTools
 import com.example.domain.VideoEditMath
@@ -200,12 +203,22 @@ class ChatRepository(
             MessagePolicy.TextError.TOO_LONG -> throw ChatException(ChatError.TOO_LONG)
             null -> Unit
         }
+        val cleanMentions = mentions.distinct()
         val now = nextCreatedAt(conv)
+        if (conv.isGroup && Mentions.mentionsAll(cleanMentions)) {
+            if (!GroupPolicy.canMentionAll(conv.roster(), me)) {
+                throw ChatException(ChatError.NOT_ALLOWED)
+            }
+            if (!GroupPolicy.canMentionAllNow(conv.roster(), me, serverClock.now())) {
+                throw ChatException(ChatError.NOT_ALLOWED)
+            }
+            db.conversationDao().updateLastMentionAllAt(cid, now)
+        }
         val m = withReply(
             Message(
                 messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = text.trim(),
                 type = MessageType.TEXT, status = if (conv.isAiConversation) MessageStatus.SENT else initialStatus(),
-                createdAt = now, mentions = mentions.distinct().joinToString(","),
+                createdAt = now, mentions = cleanMentions.joinToString(","),
                 expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
             ), replyTo
         )
@@ -298,33 +311,67 @@ class ChatRepository(
         requireWritable(cid, me)
     }
 
-    suspend fun sendPoll(cid: String, question: String, options: List<String>) {
+    suspend fun sendPoll(
+        cid: String,
+        question: String,
+        options: List<String>,
+        anonymous: Boolean = false,
+        durationSeconds: Long = 0L,
+    ) {
         val me = requireUid()
         val conv = requireWritable(cid, me)
-        val clean = options.map { it.trim().replace("|", "/") }.filter { it.isNotEmpty() }.distinct().take(12)
-        if (question.isBlank() || clean.size < 2) throw ChatException(ChatError.EMPTY)
+        val clean = PollPolicy.cleanOptions(options)
+        if (!PollPolicy.isValidPoll(question, clean)) throw ChatException(ChatError.EMPTY)
         val now = nextCreatedAt(conv)
+        val pollExpiresAt = PollPolicy.expiresAt(now, durationSeconds)
         val m = Message(
-            messageId = Ids.newMessageId(), conversationId = cid, senderId = me, content = question.trim(), type = MessageType.POLL,
-            status = initialStatus(), createdAt = now, pollQuestion = question.trim().take(300), pollOptions = clean.joinToString("|"),
+            messageId = Ids.newMessageId(),
+            conversationId = cid,
+            senderId = me,
+            content = question.trim(),
+            type = MessageType.POLL,
+            status = initialStatus(),
+            createdAt = now,
+            pollQuestion = question.trim().take(PollPolicy.MAX_QUESTION_LENGTH),
+            pollOptions = clean.joinToString("|"),
+            pollAnonymous = anonymous,
+            pollExpiresAt = pollExpiresAt,
             expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
         )
         insertLocal(m)
         pushMessage(m, conv)
     }
 
-    suspend fun sendMediaUri(cid: String, uri: Uri, type: MessageType, caption: String, replyTo: Message?, cover: VideoCover? = null) {
+    suspend fun sendMediaUri(
+        cid: String,
+        uri: Uri,
+        type: MessageType,
+        caption: String,
+        replyTo: Message?,
+        cover: VideoCover? = null,
+        quality: MediaQuality = MediaQuality.STANDARD,
+    ) {
         val me = requireUid()
         val conv = requireWritable(cid, me)
         val local = try {
-            media.importUri(uri, type, media.effectiveMaxBytes(type))
+            media.importUri(uri, type, media.effectiveMaxBytes(type), quality)
         } catch (e: MediaTooLargeException) {
             throw ChatException(ChatError.TOO_LARGE)
         } catch (e: Exception) {
             Log.w(TAG, "import failed", e)
             throw ChatException(ChatError.FILE_UNREADABLE)
         }
-        sendLocalMedia(conv, me, local, MediaRepository.typeForMime(local.mime).let { if (type == MessageType.DOCUMENT) MessageType.DOCUMENT else it }, caption, null, replyTo, forwarded = false, cover = cover)
+        sendLocalMedia(
+            conv = conv,
+            me = me,
+            local = local,
+            type = MediaRepository.typeForMime(local.mime).let { if (type == MessageType.DOCUMENT) MessageType.DOCUMENT else it },
+            caption = caption,
+            waveform = null,
+            replyTo = replyTo,
+            forwarded = false,
+            cover = cover,
+        )
     }
 
     suspend fun sendVoice(cid: String, file: File, durationMs: Long, waveform: List<Int>, replyTo: Message?) {
@@ -357,6 +404,8 @@ class ChatRepository(
                 storagePath = "chat-media/${conv.conversationId}/$me/$id.$ext", isForwarded = forwarded,
                 expiresAt = DisappearingPolicy.expiresAt(now, conv.disappearingSeconds),
                 mediaThumb = thumb, mediaCoverMs = coverMs,
+                mediaQuality = local.quality.name,
+                originalSizeBytes = local.originalSizeBytes,
             ), replyTo
         )
         insertLocal(m, clearDraft = caption.isNotBlank())
@@ -416,17 +465,19 @@ class ChatRepository(
             batch.set(ref, mapOf("type" to Fs.TYPE_DIRECT, "participants" to conv.getParticipantsList().sorted()), SetOptions.merge())
         }
         batch.set(ref.collection(Fs.MESSAGES).document(m.messageId), RemoteMappers.messageCreateMap(m, m.expiresAt) + extra)
-        batch.update(
-            ref, mapOf(
-                "lastMessage" to mapOf(
-                    "id" to m.messageId, "senderId" to m.senderId, "type" to m.type.name,
-                    "preview" to TextTools.preview(SyncManager.previewText(m), 100), "createdAt" to FieldValue.serverTimestamp(),
-                ),
-                "lastMessageAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp(),
-                "typing.${m.senderId}" to FieldValue.delete(),
-            )
+        val convUpdates = mutableMapOf<String, Any?>(
+            "lastMessage" to mapOf(
+                "id" to m.messageId, "senderId" to m.senderId, "type" to m.type.name,
+                "preview" to TextTools.preview(SyncManager.previewText(m), 100), "createdAt" to FieldValue.serverTimestamp(),
+            ),
+            "lastMessageAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp(),
+            "typing.${m.senderId}" to FieldValue.delete(),
         )
+        if (conv.isGroup && Mentions.mentionsAll(m.mentionList())) {
+            convUpdates["lastMentionAllAt"] = FieldValue.serverTimestamp()
+        }
+        batch.update(ref, convUpdates)
         typingState[conv.conversationId] = false
         return batch
     }
@@ -762,16 +813,82 @@ class ChatRepository(
     suspend fun votePoll(messageId: String, optionIndex: Int) {
         val me = requireUid()
         val m = db.messageDao().get(messageId) ?: return
-        if (m.type != MessageType.POLL || m.deletedForEveryone || optionIndex !in m.pollOptionList().indices) return
-        if (m.senderId == me && DeliveryPolicy.isAwaitingServer(m.status)) return
+        if (m.type != MessageType.POLL) return
+        val options = m.pollOptionList()
+        if (!PollPolicy.canVote(
+                isDeleted = m.deletedForEveryone,
+                isAwaitingServerFromMe = m.senderId == me && DeliveryPolicy.isAwaitingServer(m.status),
+                pollExpiresAtMs = m.pollExpiresAt,
+                nowMs = serverClock.now(),
+                optionIndex = optionIndex,
+                optionCount = options.size,
+            )
+        ) return
+        val voterKey = PollPolicy.voterKey(messageId, me, m.pollAnonymous)
         val votes = m.pollVoteMap().toMutableMap()
-        val newValue = if (votes[me] == optionIndex) null else optionIndex
-        if (newValue == null) votes.remove(me) else votes[me] = newValue
+        val newValue = if (votes[voterKey] == optionIndex) null else optionIndex
+        if (newValue == null) votes.remove(voterKey) else votes[voterKey] = newValue
         db.messageDao().update(m.copy(pollVotesByUser = Message.encodeMap(votes)))
         val batch = firestore.batch()
-        batch.update(msgRef(m.conversationId, m.messageId), mapOf("poll.votes.$me" to (newValue ?: FieldValue.delete()), "updatedAt" to FieldValue.serverTimestamp()))
+        batch.update(
+            msgRef(m.conversationId, m.messageId),
+            mapOf("poll.votes.$voterKey" to (newValue ?: FieldValue.delete()), "updatedAt" to FieldValue.serverTimestamp()),
+        )
         touchConversation(batch, m.conversationId)
         commit(batch) { db.messageDao().update(m) }
+    }
+
+    /**
+     * Edits a poll's question and options before any votes have been cast, within the edit window,
+     * and while the poll is still open.
+     */
+    suspend fun editPoll(messageId: String, newQuestion: String, newOptions: List<String>) {
+        val me = requireUid()
+        val m = db.messageDao().get(messageId) ?: throw ChatException(ChatError.NOT_FOUND)
+        if (m.type != MessageType.POLL) throw ChatException(ChatError.NOT_ALLOWED)
+        val now = serverClock.now()
+        val totalVotes = m.pollCounts().sum()
+        if (!PollPolicy.canEditPoll(
+                isMine = m.senderId == me,
+                status = m.status,
+                createdAtMs = m.createdAt,
+                pollExpiresAtMs = m.pollExpiresAt,
+                totalVotes = totalVotes,
+                deletedForEveryone = m.deletedForEveryone,
+                nowMs = now,
+            )
+        ) {
+            throw ChatException(if (totalVotes > 0) ChatError.NOT_ALLOWED else ChatError.EDIT_WINDOW_PASSED)
+        }
+        val cleanQuestion = newQuestion.trim().take(PollPolicy.MAX_QUESTION_LENGTH)
+        val cleanOptions = PollPolicy.cleanOptions(newOptions)
+        if (!PollPolicy.isValidPoll(cleanQuestion, cleanOptions)) {
+            throw ChatException(ChatError.EMPTY)
+        }
+        val updated = m.copy(
+            content = cleanQuestion,
+            pollQuestion = cleanQuestion,
+            pollOptions = cleanOptions.joinToString("|"),
+            editedAt = now,
+            updatedAt = now,
+        )
+        db.messageDao().update(updated)
+        sync.refreshLastMessage(m.conversationId)
+        val conv = db.conversationDao().get(m.conversationId)
+        val preview = if (conv?.lastMessageId == m.messageId) TextTools.preview(SyncManager.previewText(updated), 100) else null
+        val batch = firestore.batch()
+        batch.update(
+            msgRef(m.conversationId, m.messageId),
+            mapOf(
+                "text" to cleanQuestion,
+                "poll.question" to cleanQuestion,
+                "poll.options" to cleanOptions,
+                "editedAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+        )
+        touchConversation(batch, m.conversationId, preview)
+        commit(batch) { db.messageDao().update(m); sync.refreshLastMessage(m.conversationId) }
     }
 
     suspend fun setStarred(ids: List<String>, starred: Boolean) = db.messageDao().setStarred(ids, starred)
@@ -927,11 +1044,19 @@ class ChatRepository(
             systemEvent = JSONObject(mapOf("event" to event, "actor" to me, "targets" to org.json.JSONArray(targets), "value" to (value ?: ""))).toString(),
         )
 
-    suspend fun createGroup(name: String, description: String, photo: Uri?, memberIds: List<String>): String {
+    suspend fun createGroup(
+        name: String,
+        description: String,
+        photo: Uri?,
+        memberIds: List<String>,
+        customGroupId: String? = null,
+    ): String {
         val me = requireUid()
         val errors = GroupPolicy.validateCreate(name, description, memberIds, me)
         if (errors.isNotEmpty()) throw GroupValidationException(errors)
-        val cid = Ids.newId("grp")
+        val cid = customGroupId?.takeIf { it.isNotBlank() } ?: Ids.newId("grp")
+        // Idempotent retry protection: if this group ID was already created locally, return it directly.
+        if (customGroupId != null && db.conversationDao().get(cid) != null) return cid
         val participants = (listOf(me) + memberIds).distinct()
         val photoUrl = photo?.let { uri ->
             runCatching {
@@ -949,7 +1074,8 @@ class ChatRepository(
         val conv = Conversation(
             conversationId = cid, isGroup = true, title = name.trim(), avatarUrl = photoUrl, participantIds = Conversation.joinIds(participants),
             description = description.trim().ifBlank { null }, adminIds = me, createdBy = me, onlyAdminsCanSend = false,
-            onlyAdminsCanEditInfo = true, disappearingSeconds = seconds, lastMessageTimestamp = now, createdAt = now,
+            onlyAdminsCanEditInfo = true, onlyAdminsCanMentionAll = true, lastMentionAllAt = 0L,
+            disappearingSeconds = seconds, lastMessageTimestamp = now, createdAt = now,
         )
         val sys = systemMessage(cid, me, "created", value = name.trim())
         db.withTransaction {
@@ -963,7 +1089,8 @@ class ChatRepository(
                 "type" to Fs.TYPE_GROUP, "participants" to participants, "admins" to listOf(me), "createdBy" to me,
                 "createdAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp(),
                 "title" to name.trim(), "description" to description.trim(), "photoUrl" to photoUrl,
-                "onlyAdminsCanSend" to false, "onlyAdminsCanEditInfo" to true, "disappearingSeconds" to seconds,
+                "onlyAdminsCanSend" to false, "onlyAdminsCanEditInfo" to true, "onlyAdminsCanMentionAll" to true,
+                "disappearingSeconds" to seconds,
                 "lastMessageAt" to FieldValue.serverTimestamp(),
                 "lastMessage" to mapOf("id" to sys.messageId, "senderId" to me, "type" to MessageType.SYSTEM.name, "preview" to "", "createdAt" to FieldValue.serverTimestamp()),
             )
@@ -973,6 +1100,32 @@ class ChatRepository(
             .addOnSuccessListener { sync.enqueue { advance(sys.messageId, MessageStatus.SENT) } }
             .addOnFailureListener { e -> Log.w(TAG, "createGroup failed", e); _errors.tryEmit(ChatError.UPDATE_FAILED); sync.enqueue { markFailed(sys.messageId, reasonFor(e)) } }
         return cid
+    }
+
+    /**
+     * Creates a brand-new, independent group from selected members of an existing conversation:
+     * - Filters out blocked users and AI assistant IDs via [GroupPolicy.eligibleMembersFromGroup],
+     * - Assigns the creator ([me]) as the sole initial admin (`adminIds = me`),
+     * - Never copies old message history or old admin roles from the source group,
+     * - Uses [requestGroupId] to prevent duplicate group creation on retry.
+     */
+    suspend fun createGroupFromExistingMembers(
+        name: String,
+        description: String = "",
+        photo: Uri? = null,
+        selectedMemberIds: List<String>,
+        requestGroupId: String? = null,
+    ): String {
+        val me = requireUid()
+        val blocked = db.contactDao().blockedIds(me).toSet()
+        val eligible = GroupPolicy.eligibleMembersFromGroup(selectedMemberIds, me, blocked)
+        return createGroup(
+            name = name,
+            description = description,
+            photo = photo,
+            memberIds = eligible,
+            customGroupId = requestGroupId,
+        )
     }
 
     private suspend fun groupOp(cid: String, check: (com.example.domain.GroupRoster, String) -> Boolean, update: Map<String, Any?>, event: String, targets: List<String> = emptyList(), value: String? = null) {
@@ -1059,12 +1212,32 @@ class ChatRepository(
         db.conversationDao().upsert(c.copy(title = name.trim(), description = description.trim().ifBlank { null }, avatarUrl = photoUrl))
     }
 
-    suspend fun setGroupPermissions(cid: String, onlyAdminsCanSend: Boolean, onlyAdminsCanEditInfo: Boolean) {
+    suspend fun setGroupPermissions(
+        cid: String,
+        onlyAdminsCanSend: Boolean,
+        onlyAdminsCanEditInfo: Boolean,
+        onlyAdminsCanMentionAll: Boolean? = null,
+    ) {
         val c = db.conversationDao().get(cid) ?: return
-        groupOp(cid, { r, uid -> GroupPolicy.canChangeSettings(r, uid) },
-            mapOf("onlyAdminsCanSend" to onlyAdminsCanSend, "onlyAdminsCanEditInfo" to onlyAdminsCanEditInfo), "settings",
-            value = "send=${if (onlyAdminsCanSend) "admins" else "all"};edit=${if (onlyAdminsCanEditInfo) "admins" else "all"}")
-        db.conversationDao().upsert(c.copy(onlyAdminsCanSend = onlyAdminsCanSend, onlyAdminsCanEditInfo = onlyAdminsCanEditInfo))
+        val effectiveMentionAll = onlyAdminsCanMentionAll ?: c.onlyAdminsCanMentionAll
+        groupOp(
+            cid,
+            { r, uid -> GroupPolicy.canChangeSettings(r, uid) },
+            mapOf(
+                "onlyAdminsCanSend" to onlyAdminsCanSend,
+                "onlyAdminsCanEditInfo" to onlyAdminsCanEditInfo,
+                "onlyAdminsCanMentionAll" to effectiveMentionAll,
+            ),
+            "settings",
+            value = "send=${if (onlyAdminsCanSend) "admins" else "all"};edit=${if (onlyAdminsCanEditInfo) "admins" else "all"};mentionAll=${if (effectiveMentionAll) "admins" else "all"}",
+        )
+        db.conversationDao().upsert(
+            c.copy(
+                onlyAdminsCanSend = onlyAdminsCanSend,
+                onlyAdminsCanEditInfo = onlyAdminsCanEditInfo,
+                onlyAdminsCanMentionAll = effectiveMentionAll,
+            )
+        )
     }
 
     suspend fun setDisappearing(cid: String, seconds: Long) {

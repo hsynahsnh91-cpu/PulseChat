@@ -20,6 +20,8 @@ import com.example.data.model.MessageSearchRow
 import com.example.data.model.Receipt
 import com.example.data.model.StarredRow
 import com.example.data.model.StatusItem
+import com.example.data.model.StatusLike
+import com.example.data.model.StatusLikeRow
 import com.example.data.model.StatusView
 import com.example.data.model.StatusViewRow
 import com.example.data.model.StorageRow
@@ -68,6 +70,12 @@ interface UserDao {
 
     @Query("DELETE FROM users WHERE userId = :id")
     suspend fun delete(id: String)
+
+    @Query("SELECT * FROM users")
+    suspend fun getAll(): List<User>
+
+    @Query("DELETE FROM users")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -162,6 +170,21 @@ interface ConversationDao {
 
     @Query("DELETE FROM conversations WHERE conversationId = :id")
     suspend fun delete(id: String)
+
+    @Query("UPDATE conversations SET onlyAdminsCanMentionAll = :onlyAdmins WHERE conversationId = :id")
+    suspend fun setOnlyAdminsCanMentionAll(id: String, onlyAdmins: Boolean)
+
+    @Query("UPDATE conversations SET lastMentionAllAt = MAX(lastMentionAllAt, :timestamp) WHERE conversationId = :id")
+    suspend fun updateLastMentionAllAt(id: String, timestamp: Long)
+
+    @Query("SELECT * FROM conversations")
+    suspend fun getAll(): List<Conversation>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(conversations: List<Conversation>)
+
+    @Query("DELETE FROM conversations")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -346,6 +369,12 @@ interface MessageDao {
 
     @Query("UPDATE messages SET localMediaPath = NULL, transferState = 'NONE', transferProgress = 0 WHERE conversationId = :conversationId AND localMediaPath IS NOT NULL AND mediaUrl IS NOT NULL")
     suspend fun forgetLocalMedia(conversationId: String)
+
+    @Query("SELECT * FROM messages")
+    suspend fun getAll(): List<Message>
+
+    @Query("DELETE FROM messages")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -406,6 +435,24 @@ interface ContactDao {
 
     @Query("DELETE FROM contacts WHERE ownerUserId = :owner")
     suspend fun clearContacts(owner: String)
+
+    @Query("SELECT * FROM contacts")
+    suspend fun getAllContacts(): List<Contact>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAllContacts(contacts: List<Contact>)
+
+    @Query("SELECT * FROM blocked_users")
+    suspend fun getAllBlocked(): List<BlockedUser>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAllBlocked(blocked: List<BlockedUser>)
+
+    @Query("DELETE FROM contacts")
+    suspend fun clearAllContacts()
+
+    @Query("DELETE FROM blocked_users")
+    suspend fun clearAllBlocked()
 }
 
 @Dao
@@ -413,11 +460,20 @@ interface ReceiptDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(receipt: Receipt)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(receipts: List<Receipt>)
+
     @Query("SELECT * FROM receipts WHERE conversationId = :conversationId")
     suspend fun forConversation(conversationId: String): List<Receipt>
 
     @Query("SELECT * FROM receipts WHERE conversationId = :conversationId")
     fun observeForConversation(conversationId: String): Flow<List<Receipt>>
+
+    @Query("SELECT * FROM receipts")
+    suspend fun getAll(): List<Receipt>
+
+    @Query("DELETE FROM receipts")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -431,11 +487,20 @@ interface CallDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(record: CallRecord)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(records: List<CallRecord>)
+
     @Query("DELETE FROM calls WHERE callId = :callId")
     suspend fun delete(callId: String)
 
     @Query("DELETE FROM calls WHERE callerId = :userId OR receiverId = :userId")
     suspend fun clearFor(userId: String)
+
+    @Query("SELECT * FROM calls")
+    suspend fun getAll(): List<CallRecord>
+
+    @Query("DELETE FROM calls")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -449,14 +514,23 @@ interface StatusDao {
     @Query("SELECT * FROM statuses WHERE statusId = :id")
     suspend fun get(id: String): StatusItem?
 
+    @Query("SELECT * FROM statuses WHERE statusId = :id")
+    fun observeById(id: String): Flow<StatusItem?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(status: StatusItem)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAllStatuses(statuses: List<StatusItem>)
 
     @Query("UPDATE statuses SET isViewed = 1 WHERE statusId = :id")
     suspend fun markViewed(id: String)
 
     @Query("UPDATE statuses SET uploadState = :state, uploadProgress = :progress WHERE statusId = :id")
     suspend fun setUpload(id: String, state: String, progress: Int)
+
+    @Query("UPDATE statuses SET isLikedByMe = :liked, likeCount = MAX(0, :count) WHERE statusId = :id")
+    suspend fun setLikedState(id: String, liked: Boolean, count: Int)
 
     @Query("DELETE FROM statuses WHERE statusId = :id")
     suspend fun delete(id: String)
@@ -473,12 +547,61 @@ interface StatusDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertView(view: StatusView)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAllViews(views: List<StatusView>)
+
+    @Query("DELETE FROM status_views WHERE statusId = :statusId")
+    suspend fun deleteViewsForStatus(statusId: String)
+
+    @Query("DELETE FROM status_views")
+    suspend fun clearAllViews()
+
     @Query(
         "SELECT v.viewerId AS viewerId, v.viewedAt AS viewedAt, u.displayName AS displayName, u.avatarUrl AS avatarUrl, " +
             "u.avatarColorHex AS avatarColorHex FROM status_views v LEFT JOIN users u ON u.userId = v.viewerId " +
             "WHERE v.statusId = :statusId ORDER BY v.viewedAt DESC"
     )
     fun observeViews(statusId: String): Flow<List<StatusViewRow>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertLike(like: StatusLike)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAllLikes(likes: List<StatusLike>)
+
+    @Query("DELETE FROM status_likes WHERE statusId = :statusId AND userId = :userId")
+    suspend fun deleteLike(statusId: String, userId: String)
+
+    @Query("DELETE FROM status_likes WHERE statusId = :statusId")
+    suspend fun deleteLikesForStatus(statusId: String)
+
+    @Query("DELETE FROM status_likes")
+    suspend fun clearAllLikes()
+
+    @Query(
+        "SELECT l.userId AS userId, l.likedAt AS likedAt, u.displayName AS displayName, u.avatarUrl AS avatarUrl, " +
+            "u.avatarColorHex AS avatarColorHex FROM status_likes l LEFT JOIN users u ON u.userId = l.userId " +
+            "WHERE l.statusId = :statusId ORDER BY l.likedAt DESC"
+    )
+    fun observeLikes(statusId: String): Flow<List<StatusLikeRow>>
+
+    @Query("SELECT COUNT(*) FROM status_likes WHERE statusId = :statusId")
+    suspend fun countLikes(statusId: String): Int
+
+    @Query("SELECT EXISTS(SELECT 1 FROM status_likes WHERE statusId = :statusId AND userId = :userId)")
+    suspend fun isLikedBy(statusId: String, userId: String): Boolean
+
+    @Query("SELECT resharedFromStatusId FROM statuses WHERE userId = :userId AND resharedFromStatusId IS NOT NULL AND expiresAt > :now")
+    suspend fun resharedStatusIdsByUser(userId: String, now: Long): List<String>
+
+    @Query("SELECT * FROM statuses")
+    suspend fun getAllStatuses(): List<StatusItem>
+
+    @Query("SELECT * FROM status_views")
+    suspend fun getAllViews(): List<StatusView>
+
+    @Query("SELECT * FROM status_likes")
+    suspend fun getAllLikes(): List<StatusLike>
 
     /** Keeps the author name and photo of status updates in step with the author's profile. */
     @Query("UPDATE statuses SET authorName = :name, authorPhotoUrl = :photo WHERE userId = :userId")
@@ -550,4 +673,22 @@ interface ChatSettingsDao {
 
     @Query("DELETE FROM locked_chats WHERE ownerId = :ownerId AND conversationId = :conversationId")
     suspend fun unlock(ownerId: String, conversationId: String)
+
+    @Query("SELECT * FROM chat_notification_settings")
+    suspend fun getAllNotificationSettings(): List<ChatNotificationSettings>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAllNotificationSettings(settings: List<ChatNotificationSettings>)
+
+    @Query("SELECT * FROM locked_chats")
+    suspend fun getAllLockedChats(): List<LockedChat>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAllLockedChats(locked: List<LockedChat>)
+
+    @Query("DELETE FROM chat_notification_settings")
+    suspend fun clearAllNotificationSettings()
+
+    @Query("DELETE FROM locked_chats")
+    suspend fun clearAllLockedChats()
 }

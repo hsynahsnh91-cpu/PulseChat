@@ -72,6 +72,8 @@ object RemoteMappers {
             createdBy = doc.getString("createdBy"),
             onlyAdminsCanSend = doc.getBoolean("onlyAdminsCanSend") ?: false,
             onlyAdminsCanEditInfo = doc.getBoolean("onlyAdminsCanEditInfo") ?: true,
+            onlyAdminsCanMentionAll = doc.getBoolean("onlyAdminsCanMentionAll") ?: true,
+            lastMentionAllAt = doc.millis("lastMentionAllAt"),
             disappearingSeconds = doc.getLong("disappearingSeconds") ?: 0L,
             peerId = peer ?: base.peerId,
             lastMessageText = if (remoteNewer && last.isNotEmpty()) last["preview"] as? String else base.lastMessageText,
@@ -189,6 +191,10 @@ object RemoteMappers {
             liveUntil = if (deleted) 0L else location.millisOf("liveUntil"),
             mediaThumb = if (deleted || type != MessageType.VIDEO) null else thumbOf(media["thumb"]) ?: existing?.mediaThumb,
             mediaCoverMs = if (deleted) 0L else (media["coverMs"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: 0L,
+            pollAnonymous = poll["anonymous"] as? Boolean ?: false,
+            pollExpiresAt = poll.millisOf("expiresAt"),
+            mediaQuality = (media["quality"] as? String)?.takeIf { it.isNotBlank() } ?: existing?.mediaQuality ?: "STANDARD",
+            originalSizeBytes = (media["originalSize"] as? Number)?.toLong() ?: existing?.originalSizeBytes ?: 0L,
         )
     }
 
@@ -247,7 +253,7 @@ object RemoteMappers {
             )
         }
         if (m.type.isMedia && m.mediaUrl != null) {
-            map["media"] = mapOf(
+            val mediaMap = mutableMapOf<String, Any?>(
                 "url" to m.mediaUrl,
                 "path" to m.storagePath,
                 "mime" to m.mediaMimeType,
@@ -257,7 +263,11 @@ object RemoteMappers {
                 "width" to m.mediaWidth,
                 "height" to m.mediaHeight,
                 "waveform" to m.waveform,
-            ) + videoCoverFields(m)
+                "quality" to m.mediaQuality.ifBlank { "STANDARD" },
+            )
+            if (m.originalSizeBytes > 0L) mediaMap["originalSize"] = m.originalSizeBytes
+            mediaMap.putAll(videoCoverFields(m))
+            map["media"] = mediaMap
         }
         if (m.type == MessageType.CONTACT) map["contact"] = mapOf("name" to m.contactName, "phone" to m.contactPhone)
         if (m.type == MessageType.LOCATION && m.locationLat != null && m.locationLng != null) {
@@ -266,7 +276,14 @@ object RemoteMappers {
                 else mapOf("lat" to m.locationLat, "lng" to m.locationLng, "liveId" to m.liveId, "liveUntil" to m.liveUntil)
         }
         if (m.type == MessageType.POLL) {
-            map["poll"] = mapOf("question" to m.pollQuestion, "options" to m.pollOptionList(), "votes" to emptyMap<String, Int>())
+            val pollMap = mutableMapOf<String, Any?>(
+                "question" to m.pollQuestion,
+                "options" to m.pollOptionList(),
+                "votes" to emptyMap<String, Int>(),
+                "anonymous" to m.pollAnonymous,
+            )
+            if (m.pollExpiresAt > 0L) pollMap["expiresAt"] = m.pollExpiresAt.toTimestamp()
+            map["poll"] = pollMap
         }
         if (expiresAtMillis > 0) map["expiresAt"] = expiresAtMillis.toTimestamp()
         return map
@@ -274,6 +291,8 @@ object RemoteMappers {
 
     fun status(doc: DocumentSnapshot, existing: StatusItem?, authorName: String, authorPhoto: String?): StatusItem {
         val media = doc.map("media")
+        val music = doc.map("music")
+        val reshare = doc.map("resharedFrom")
         return StatusItem(
             statusId = doc.id,
             userId = doc.getString("ownerId").orEmpty(),
@@ -292,6 +311,19 @@ object RemoteMappers {
             uploadProgress = 100,
             audience = doc.stringList("audience").joinToString(","),
             storagePath = media["path"] as? String,
+            musicTrackId = music["trackId"] as? String ?: existing?.musicTrackId,
+            musicTitle = music["title"] as? String ?: existing?.musicTitle,
+            musicArtist = music["artist"] as? String ?: existing?.musicArtist,
+            musicUrl = music["url"] as? String ?: existing?.musicUrl,
+            musicStartMs = (music["startMs"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: existing?.musicStartMs ?: 0L,
+            musicDurationMs = (music["durationMs"] as? Number)?.toLong()?.coerceAtLeast(0L) ?: existing?.musicDurationMs ?: 0L,
+            mentions = doc.stringList("mentions").joinToString(","),
+            allowReshare = doc.getBoolean("allowReshare") ?: true,
+            resharedFromStatusId = reshare["statusId"] as? String ?: existing?.resharedFromStatusId,
+            resharedFromUserId = reshare["userId"] as? String ?: existing?.resharedFromUserId,
+            resharedFromAuthorName = reshare["authorName"] as? String ?: existing?.resharedFromAuthorName,
+            likeCount = existing?.likeCount ?: 0,
+            isLikedByMe = existing?.isLikedByMe ?: false,
         )
     }
 

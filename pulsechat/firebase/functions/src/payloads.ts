@@ -49,17 +49,32 @@ export function messageRecipients(participants: string[], senderId: string): str
   return [...new Set(participants)].filter((uid) => uid !== senderId);
 }
 
-/** Muted chats stay silent unless the recipient is @mentioned; blocked senders never notify. */
+/** Muted chats stay silent unless the recipient is @mentioned (directly or via @all); blocked senders never notify. */
 export function shouldNotify(msg: MessageDoc, recipient: RecipientState, now: number): boolean {
   if (msg.type === "SYSTEM") return false;
   if (recipient.blockedSender) return false;
   if (recipient.tokens.length === 0) return false;
-  const mentioned = (msg.mentions ?? []).includes(recipient.uid);
+  const mentions = msg.mentions ?? [];
+  const mentioned = mentions.includes(recipient.uid) || mentions.includes("all");
   return recipient.mutedUntil <= now || mentioned;
 }
 
-export function messagePayload(conversationId: string, messageId: string): Record<string, string> {
-  return { type: "message", conversationId, messageId };
+export function messagePayload(
+  conversationId: string,
+  messageId: string,
+  accountUid?: string,
+): Record<string, string> {
+  const base: Record<string, string> = { type: "message", conversationId, messageId };
+  if (accountUid) base.accountUid = accountUid;
+  return base;
+}
+
+export function statusMentionPayload(
+  statusId: string,
+  ownerId: string,
+  accountUid: string,
+): Record<string, string> {
+  return { type: "status_mention", statusId, ownerId, accountUid };
 }
 
 export function callPayload(callId: string): Record<string, string> {

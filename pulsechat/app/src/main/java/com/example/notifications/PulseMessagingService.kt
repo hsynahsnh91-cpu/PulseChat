@@ -20,11 +20,28 @@ class PulseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
+        val activeUid = container.authRepository.currentUid
+        val targetAccountUid = data["accountUid"]
+        // Never fetch or write push data into the wrong active account's database.
+        if (!targetAccountUid.isNullOrBlank() && activeUid != null && targetAccountUid != activeUid) {
+            return
+        }
         when (data["type"]) {
             "message" -> {
                 val cid = data["conversationId"] ?: return
                 val mid = data["messageId"] ?: return
                 runBlocking { withTimeoutOrNull(9_000) { container.chatRepository.fetchFromPush(cid, mid) } }
+            }
+            "status_mention" -> {
+                val sid = data["statusId"] ?: return
+                val me = activeUid ?: return
+                if (!container.prefs.markStatusMentionNotified(me, sid)) return
+                runBlocking {
+                    withTimeoutOrNull(9_000) {
+                        val s = container.db.statusDao().get(sid)
+                        if (s != null) container.notifications.showStatusMention(s, me)
+                    }
+                }
             }
             "call" -> {
                 val callId = data["callId"] ?: return

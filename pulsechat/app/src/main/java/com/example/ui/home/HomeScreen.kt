@@ -81,9 +81,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.GridView
 import com.example.data.repository.SyncState
 import com.example.domain.NetworkKind
 import com.example.ui.calls.rememberCallStarter
+import com.example.ui.chat.ImageEditorDialog
 import com.example.ui.common.Banner
 import com.example.ui.common.ChoiceDialog
 import com.example.ui.common.ConfirmDialog
@@ -92,6 +94,7 @@ import com.example.ui.common.chatErrorText
 import com.example.ui.common.containerFactory
 import com.example.ui.components.UserAvatar
 import com.example.ui.status.MediaCaptionDialog
+import com.example.ui.status.StatusCollageEditorDialog
 import com.example.ui.status.StatusTextComposer
 import kotlinx.coroutines.launch
 import androidx.compose.material3.HorizontalDivider
@@ -138,6 +141,8 @@ fun HomeScreen(nav: HomeNav) {
     var muteDialog by remember { mutableStateOf(false) }
     var textStatus by remember { mutableStateOf(false) }
     var pendingMedia by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
+    var editingStatusImage by remember { mutableStateOf<Uri?>(null) }
+    var collageUris by remember { mutableStateOf<List<Uri>?>(null) }
     var clearCalls by remember { mutableStateOf(false) }
     var assignFolders by remember { mutableStateOf(false) }
 
@@ -149,6 +154,7 @@ fun HomeScreen(nav: HomeNav) {
     val updates by vm.updates.collectAsState()
     val groups by vm.groups.collectAsState()
     val calls by vm.calls.collectAsState()
+    val contacts by vm.contacts.collectAsState()
     val myStatusViews by vm.myStatusViews.collectAsState()
     val unread by vm.unreadChats.collectAsState()
     val sync by vm.sync.collectAsState()
@@ -164,6 +170,9 @@ fun HomeScreen(nav: HomeNav) {
 
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) pendingMedia = uri to (context.contentResolver.getType(uri)?.startsWith("video/") == true)
+    }
+    val collagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) collageUris = uris
     }
 
     BackHandler(enabled = selection.isNotEmpty() || searching || tab != TAB_CHATS) {
@@ -317,6 +326,13 @@ fun HomeScreen(nav: HomeNav) {
                         Icon(painterResource(R.drawable.ic_new_chat), stringResource(R.string.action_new_chat))
                     }
                     TAB_UPDATES -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SmallFloatingActionButton(
+                            onClick = { collagePicker.launch("image/*") },
+                            elevation = fabElevation(),
+                            modifier = Modifier.testTag("fab_status_collage"),
+                        ) {
+                            Icon(Icons.Rounded.GridView, stringResource(R.string.status_collage_create))
+                        }
                         SmallFloatingActionButton(onClick = { textStatus = true }, elevation = fabElevation()) { Icon(Icons.Rounded.Edit, stringResource(R.string.status_new_text)) }
                         FloatingActionButton(onClick = { mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }, elevation = fabElevation()) {
                             Icon(Icons.Rounded.PhotoCamera, stringResource(R.string.status_new_media))
@@ -383,12 +399,58 @@ fun HomeScreen(nav: HomeNav) {
             destructive = true, onConfirm = { clearCalls = false; vm.clearCalls() }, onDismiss = { clearCalls = false })
     }
     if (textStatus) {
-        StatusTextComposer(onDismiss = { textStatus = false }, onPost = { text, bg, font -> textStatus = false; vm.postTextStatus(text, bg, font) })
+        StatusTextComposer(
+            onDismiss = { textStatus = false },
+            contacts = contacts,
+            onPostWithExtras = { text, bg, font, extras ->
+                textStatus = false
+                vm.postTextStatus(text, bg, font, extras)
+            },
+            onPost = { text, bg, font ->
+                textStatus = false
+                vm.postTextStatus(text, bg, font)
+            },
+        )
+    }
+    collageUris?.let { uris ->
+        StatusCollageEditorDialog(
+            initialUris = uris,
+            onDone = { renderedUri ->
+                collageUris = null
+                pendingMedia = renderedUri to false
+            },
+            onDismiss = { collageUris = null },
+        )
+    }
+    editingStatusImage?.let { imgUri ->
+        ImageEditorDialog(
+            source = imgUri,
+            onDone = { editedUri ->
+                editingStatusImage = null
+                pendingMedia = editedUri to false
+            },
+            onDismiss = { editingStatusImage = null },
+        )
     }
     pendingMedia?.let { (uri, video) ->
-        MediaCaptionDialog(uri, video, stringResource(R.string.status_new_media), onDismiss = { pendingMedia = null }) { caption ->
-            pendingMedia = null
-            vm.postMediaStatus(uri, video, caption)
+        if (editingStatusImage == null) {
+            MediaCaptionDialog(
+                uri = uri,
+                isVideo = video,
+                title = stringResource(R.string.status_new_media),
+                onDismiss = { pendingMedia = null },
+                onEdit = if (!video) ({ editingStatusImage = uri }) else null,
+                isStatusComposer = true,
+                contacts = contacts,
+                onSendWithStatusExtras = { caption, extras ->
+                    pendingMedia = null
+                    vm.postMediaStatus(uri, video, caption, extras)
+                },
+                onSend = { caption ->
+                    pendingMedia = null
+                    vm.postMediaStatus(uri, video, caption)
+                },
+            )
         }
     }
 }

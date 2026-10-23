@@ -30,7 +30,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.AppContainer
+import com.example.data.repository.AccountRepository
 import com.example.domain.CallDirection
+import com.example.domain.MultiAccountPolicy
 import com.example.domain.model.CallState
 import com.example.notifications.NotificationHelper
 import com.example.ui.calls.CallScreen
@@ -126,7 +128,31 @@ fun PulseNavHost(container: AppContainer, pendingIntent: StateFlow<Intent?>, con
     // Notification taps / call actions.
     LaunchedEffect(intent) {
         val i = intent ?: return@LaunchedEffect
+        val targetAccountUid = i.getStringExtra(NotificationHelper.EXTRA_ACCOUNT_UID)
+        val route = MultiAccountPolicy.routeNotification(
+            activeUid = container.authRepository.currentUid,
+            notificationAccountUid = targetAccountUid,
+            storedAccounts = container.accountRepository.savedAccounts.value,
+        )
+        when (route) {
+            MultiAccountPolicy.NotificationRoute.Ignore -> {
+                consumeIntent()
+                return@LaunchedEffect
+            }
+            is MultiAccountPolicy.NotificationRoute.SwitchThenOpen -> {
+                val res = container.accountRepository.switchToAccount(
+                    targetUid = route.targetAccountUid,
+                    isCallActive = container.callManager.ui.value.isLive,
+                )
+                if (res !is AccountRepository.SwitchOutcome.Switched) {
+                    consumeIntent()
+                    return@LaunchedEffect
+                }
+            }
+            MultiAccountPolicy.NotificationRoute.OpenDirectly -> Unit
+        }
         i.getStringExtra(NotificationHelper.EXTRA_CONVERSATION)?.let { openChatAt(it, i.getStringExtra(NotificationHelper.EXTRA_MESSAGE)) }
+        i.getStringExtra(NotificationHelper.EXTRA_STATUS_OWNER)?.let { nav.go(Routes.status(it)) }
         if (i.getBooleanExtra(NotificationHelper.EXTRA_OPEN_REMINDERS, false)) nav.go("reminders")
         if (i.getStringExtra(NotificationHelper.EXTRA_OPEN_LINKED_DEVICES) != null) nav.go("settings/linked-devices")
         i.getStringExtra(NotificationHelper.EXTRA_CALL_ID)?.let { callId ->

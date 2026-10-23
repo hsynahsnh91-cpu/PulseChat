@@ -1100,4 +1100,121 @@
     <string name="device_link_err_not_found">Pairing session not found or already expired.</string>
     <string name="device_link_err_invalid_state">This pairing request is no longer active.</string>
     <string name="device_link_err_crypto">Could not verify the secure pairing envelope. Please try again.</string>
+
+    <!-- Feature 1: Advanced Status Editor (music, collage, photo stickers, preview) -->
+    <string name="status_add_music">Add music</string>
+    <string name="status_music_picker_title">Status music</string>
+    <string name="status_music_search_hint">Search tracks or artists…</string>
+    <string name="status_music_local_audio">Choose audio file from device</string>
+    <string name="status_music_remove">Remove music</string>
+    <string name="status_music_segment_label">Segment start: %1$s (%2$d s clip)</string>
+    <string name="status_music_preview_play">Preview track</string>
+    <string name="status_music_preview_stop">Stop preview</string>
+    <string name="status_music_unavailable">Audio unavailable on this device</string>
+    <string name="status_collage_create">Create photo collage</string>
+    <string name="status_collage_title">Photo collage</string>
+    <string name="status_collage_select_photos">Select 2 to 6 photos</string>
+    <string name="status_collage_add_photo">Add photo</string>
+    <string name="status_collage_replace_photo">Replace</string>
+    <string name="status_collage_move_earlier">Move earlier</string>
+    <string name="status_collage_move_later">Move later</string>
+    <string name="status_collage_remove_photo">Remove photo</string>
+    <string name="status_collage_layout_split_v">2-Split</string>
+    <string name="status_collage_layout_split_h">2-Stack</string>
+    <string name="status_collage_layout_three">3-Feature</string>
+    <string name="status_collage_layout_grid_4">4-Grid</string>
+    <string name="status_collage_layout_flex">Multi-grid</string>
+    <string name="status_collage_zoom">Zoom</string>
+    <string name="status_photo_sticker_add">Add photo sticker</string>
+    <string name="status_photo_sticker_duplicate">Duplicate sticker</string>
+    <string name="status_photo_sticker_remove">Remove sticker</string>
+    <string name="status_photo_sticker_scale">Sticker size</string>
+    <string name="status_photo_sticker_rotate">Sticker rotation</string>
+    <string name="status_editor_preview">Preview</string>
+    <string name="status_editor_edit">Back to edit</string>
+    <string name="status_editor_publishing">Publishing status…</string>
+    <string name="status_editor_publish_failed">Could not publish status. Tap to retry.</string>
+
+    <!-- Feature 2: Advanced Status Interactions (likes, mentions, resharing) -->
+    <string name="status_like_action">Like status</string>
+    <string name="status_unlike_action">Unlike status</string>
+    <string name="status_likes_title">Liked by (%1$d)</string>
+    <string name="status_no_likes_yet">No likes yet.</string>
+    <string name="status_mention_people">Mention people</string>
+    <string name="status_mentions_selected">Mentioned (%1$d)</string>
+    <string name="status_mentions_privacy_note">Only people included in this status\'s audience will be notified.</string>
+    <string name="status_mentioned_you_title">%1$s mentioned you in a status</string>
+    <string name="status_mentioned_you_body">Tap to view their status update</string>
+    <string name="status_allow_reshare">Allow contacts to reshare</string>
+    <string name="status_allow_reshare_sub">People who can view this status can reshare it to their own status</string>
+    <string name="status_reshare_action">Reshare to my status</string>
+    <string name="status_reshared_from">Reshared from %1$s</string>
+    <string name="status_reshare_done">Status reshared to your updates.</string>
+    <string name="status_reshare_disabled">The author disabled resharing for this status.</string>
+    <string name="status_reshare_expired">This status has expired and can no longer be reshared.</string>
+    <string name="status_reshare_already">You have already reshared this status.</string>
+    <string name="status_reshare_not_allowed">This status cannot be reshared due to privacy settings.</string>
+
+    <!-- Feature 3: Advanced Group Management (@all, advanced polls, create group from members) -->
+    <string name="mention_all_label">All members</string>
+    <string name="mention_all_subtitle">Notify everyone in this group</string>
+    <string name="group_only_admins_mention_all">Only admins can use @all</string>
+    <string name="group_only_admins_mention_all_sub">Restricts @all group-wide mention notifications to group admins</string>
+    <string name="group_mention_all_admin_only_error">Only group admins can use @all in this group.</string>
+    <string name="group_mention_all_cooldown_error">@all was used recently. Please wait a few minutes before using it again.</string>
+    <string name="poll_anonymous_voting">Anonymous voting</string>
+    <string name="poll_anonymous_voting_sub">Hides voter identities from chat participants and the poll creator. One vote per account is still enforced by the server.</string>
+    <string name="poll_anonymous_badge">Anonymous poll · voter names are hidden from participants</string>
+    <string name="poll_expiration_label">Poll duration</string>
+    <string name="poll_duration_none">No expiration</string>
+    <string name="poll_duration_15m">15 minutes</string>
+    <string name="poll_duration_1h">1 hour</string>
+    <string name="poll_duration_24h">24 hours</string>
+    <string name="poll_duration_7d">7 days</string>
+    <string name="poll_closed_badge">Poll closed</string>
+    <string name="poll_closes_at">Closes %1$s</string>
+    <string name="poll_edit_action">Edit poll</string>
+    <string name="poll_edit_title">Edit poll</string>
+    <string name="poll_edit_locked_has_votes">Polls cannot be edited after votes have been cast.</string>
+    <string name="group_create_from_members">New group with members</string>
+    <string name="group_create_from_members_sub">Start a separate group with selected members from this chat</string>
+    <string name="group_create_from_members_title">Create group from members</string>
+    <string name="group_create_confirm_Admin">Creator &amp; admin: %1$s</string>
+    <string name="group_create_confirm_members">Selected members (%1$d)</string>
+    <string name="group_create_independent_note">Creates a brand-new group with no message history or admin roles copied from the previous group.</string>
+
+    <!-- Feature 4: Multiple Independent Accounts -->
+    <string name="settings_accounts_title">Accounts</string>
+    <string name="settings_accounts_subtitle">Switch accounts or add another PulseChat account on this device</string>
+    <string name="account_active_badge">Active</string>
+    <string name="account_reauth_needed">Sign-in required</string>
+    <string name="account_add_action">Add account</string>
+    <string name="account_switch_action">Switch</string>
+    <string name="account_switch_sheet_title">Switch account</string>
+    <string name="account_switching_progress">Switching account…</string>
+    <string name="account_remove_device_action">Remove from this device</string>
+    <string name="account_remove_device_title">Remove %1$s from this device?</string>
+    <string name="account_remove_device_body">This removes local messages, drafts, and saved sign-in for %1$s on this phone only. The cloud account and its data are not deleted.</string>
+    <string name="account_add_dialog_title">Add PulseChat account</string>
+    <string name="account_add_dialog_subtitle">Sign in to another existing account or create a new one on this device.</string>
+    <string name="account_max_reached">You can keep up to %1$d accounts on one device.</string>
+    <string name="account_reauth_prompt_title">Sign in to %1$s</string>
+    <string name="account_reauth_prompt_body">Your session for @%1$s expired. Enter the password to switch to this account.</string>
+    <string name="notif_for_account">For @%1$s</string>
+
+    <!-- Feature 5: HD and Original-Quality Media Sharing -->
+    <string name="media_quality_label">Media quality</string>
+    <string name="media_quality_standard">Standard</string>
+    <string name="media_quality_hd">HD</string>
+    <string name="media_quality_original">Original</string>
+    <string name="media_quality_standard_desc">Faster upload, smaller storage (%1$s est.)</string>
+    <string name="media_quality_hd_desc">Higher resolution %1$dx%2$d (%3$s est.)</string>
+    <string name="media_quality_original_desc">Exact original file, no recompression (%1$s)</string>
+    <string name="media_quality_source_size">Original: %1$s (%2$dx%3$d)</string>
+    <string name="media_quality_source_size_no_dim">Original: %1$s</string>
+    <string name="media_quality_hd_low_res_note">Source resolution is already within Standard limits; HD will not upscale it.</string>
+    <string name="media_quality_exceeds_limit">Exceeds the %1$s upload limit for this quality mode.</string>
+    <string name="media_quality_badge_hd">HD</string>
+    <string name="media_quality_badge_original">ORIG</string>
+    <string name="media_upload_cancel">Cancel upload</string>
 </resources>

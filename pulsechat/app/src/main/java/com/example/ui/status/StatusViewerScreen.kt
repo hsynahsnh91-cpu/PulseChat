@@ -44,7 +44,10 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -118,9 +121,11 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import com.example.R
 import com.example.data.model.StatusItem
+import com.example.data.model.StatusLikeRow
 import com.example.data.model.StatusViewRow
 import com.example.data.repository.ChatException
 import com.example.domain.StatusPolicy
+import com.example.media.StatusMusicPlayer
 import com.example.ui.common.ConfirmDialog
 import com.example.ui.common.Formatters
 import com.example.ui.common.LightSystemBarIcons
@@ -203,16 +208,20 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
     var imeWasVisible by remember { mutableStateOf(false) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
+    val musicPlayer = remember { StatusMusicPlayer(context) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> backgrounded = true
+                Lifecycle.Event.ON_PAUSE -> { backgrounded = true; musicPlayer.pause() }
                 Lifecycle.Event.ON_RESUME -> backgrounded = false
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            musicPlayer.stop()
+        }
     }
 
     fun goToOwner(next: String?, fromEnd: Boolean) {
@@ -257,6 +266,23 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
                 val timed = current.mediaType != TYPE_VIDEO || failed
 
                 LaunchedEffect(current.statusId) { container.statusRepository.markViewed(current) }
+                LaunchedEffect(current.statusId, current.musicTrackId, current.musicUrl, current.musicStartMs, current.musicDurationMs) {
+                    if (current.hasMusic) {
+                        musicPlayer.play(
+                            trackId = current.musicTrackId,
+                            audioUrlOrUri = current.musicUrl,
+                            startMs = current.musicStartMs,
+                            durationMs = current.musicDurationMs.takeIf { it > 0L } ?: 15_000L,
+                        )
+                    } else {
+                        musicPlayer.stop()
+                    }
+                }
+                LaunchedEffect(paused) {
+                    if (current.hasMusic) {
+                        if (paused) musicPlayer.pause() else musicPlayer.resume()
+                    }
+                }
                 LaunchedEffect(current.statusId) {
                     // Fetch the next photo while this one is shown, so it appears without a wait.
                     val upcoming = items.getOrNull(items.indexOf(current) + 1)
@@ -398,15 +424,62 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
                                     color = Color.White, style = MaterialTheme.typography.titleSmall.copy(shadow = TextShadow), fontWeight = FontWeight.SemiBold,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 )
+                                val subtitle = buildString {
+                                    append(Formatters.statusTime(context, current.createdAt))
+                                    if (current.isReshared && !current.resharedFromAuthorName.isNullOrBlank()) {
+                                        append(" · ")
+                                        append(context.getString(R.string.status_reshared_from, current.resharedFromAuthorName))
+                                    }
+                                }
                                 Text(
-                                    Formatters.statusTime(context, current.createdAt), color = Color.White.copy(alpha = 0.8f),
-                                    style = MaterialTheme.typography.labelMedium.copy(shadow = TextShadow), maxLines = 1,
+                                    subtitle, color = Color.White.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.labelMedium.copy(shadow = TextShadow), maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
-                        if (isMine) IconButton(onClick = { confirmDelete = true }) {
-                            Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.action_delete), tint = Color.White)
+                        if (isMine) {
+                            IconButton(onClick = { confirmDelete = true }) {
+                                Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.action_delete), tint = Color.White)
+                            }
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    if (!current.allowReshare) {
+                                        Toast.makeText(context, context.getString(R.string.status_reshare_disabled), Toast.LENGTH_SHORT).show()
+                                        return@IconButton
+                                    }
+                                    scope.launch {
+                                        container.statusRepository.reshareStatus(current.statusId)
+                                            .onSuccess {
+                                                Toast.makeText(context, context.getString(R.string.status_reshare_done), Toast.LENGTH_SHORT).show()
+                                            }
+                                            .onFailure { err ->
+                                                val msg = when {
+                                                    err.message?.contains("DISABLED_BY_AUTHOR") == true -> context.getString(R.string.status_reshare_disabled)
+                                                    err.message?.contains("EXPIRED") == true -> context.getString(R.string.status_reshare_expired)
+                                                    err.message?.contains("ALREADY_RESHARED") == true -> context.getString(R.string.status_reshare_already)
+                                                    else -> context.getString(R.string.status_reshare_not_allowed)
+                                                }
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            }
+                                    }
+                                },
+                                modifier = Modifier.testTag("status_reshare_button"),
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Repeat,
+                                    contentDescription = stringResource(R.string.status_reshare_action),
+                                    tint = if (current.allowReshare) Color.White else Color.White.copy(alpha = 0.45f),
+                                )
+                            }
                         }
+                    }
+                    if (current.hasMusic) {
+                        StatusMusicAttributionPill(
+                            title = current.musicTitle.orEmpty(),
+                            artist = current.musicArtist.orEmpty(),
+                            modifier = Modifier.padding(start = 56.dp, top = 4.dp),
+                        )
                     }
                 }
 
@@ -428,11 +501,18 @@ fun StatusViewerScreen(ownerId: String, onClose: () -> Unit, openReply: (String)
                     if (sentNotice > 0) SentNotice(sentNotice) { sentNotice = 0 }
                     if (isMine) {
                         val viewers by remember(current.statusId) { container.statusRepository.observeViewers(current.statusId) }.collectAsState(initial = emptyList())
-                        ViewsChip(viewers.size) { viewersOpen = true }
-                        if (viewersOpen) ViewersSheet(viewers) { viewersOpen = false }
+                        val likers by remember(current.statusId) { container.statusRepository.observeLikes(current.statusId) }.collectAsState(initial = emptyList())
+                        ViewsChip(viewers.size, likers.size) { viewersOpen = true }
+                        if (viewersOpen) ViewersSheet(viewers, likers) { viewersOpen = false }
                     } else {
                         ReplyBar(
                             text = replyText, onText = { replyText = it.take(1000) }, focusRequester = replyFocus, showReactions = replyActive, sending = sending,
+                            isLiked = current.isLikedByMe,
+                            onToggleLike = {
+                                scope.launch {
+                                    container.statusRepository.toggleLike(current.statusId)
+                                }
+                            },
                             onFocus = { replyFocused = it },
                             onSend = { text ->
                                 val status = current
@@ -582,9 +662,9 @@ private fun StatusVideo(uri: String, paused: Boolean, progress: MutableFloatStat
     }
 }
 
-/** Number of people who saw my update; opens the list of viewers. */
+/** Number of people who saw or liked my update; opens the list of viewers and likers. */
 @Composable
-private fun ViewsChip(count: Int, onClick: () -> Unit) {
+private fun ViewsChip(count: Int, likeCount: Int = 0, onClick: () -> Unit) {
     val label = pluralStringResource(R.plurals.status_views, count, count)
     val open = stringResource(R.string.status_viewed_by)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -598,30 +678,47 @@ private fun ViewsChip(count: Int, onClick: () -> Unit) {
             Icon(Icons.Rounded.Visibility, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(Spacing.sm))
             Text(count.toString(), color = Color.White, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            if (likeCount > 0) {
+                Spacer(Modifier.width(Spacing.md))
+                Icon(Icons.Rounded.Favorite, contentDescription = null, tint = Color(0xFFF43F5E), modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(Spacing.xs))
+                Text(likeCount.toString(), color = Color.White, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }
 
-/** Who viewed my update, newest first, with the day and time of viewing. */
+/** Who viewed and who liked my update, newest first, with the day and time. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ViewersSheet(viewers: List<StatusViewRow>, onDismiss: () -> Unit) {
+private fun ViewersSheet(
+    viewers: List<StatusViewRow>,
+    likers: List<StatusLikeRow> = emptyList(),
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
+    val likerIds = remember(likers) { likers.map { it.userId }.toSet() }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().testTag("status_viewers_sheet")) {
             Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xxl, vertical = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Visibility, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(Spacing.md))
                 Text(stringResource(R.string.status_viewed_by_count, viewers.size), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                if (likers.isNotEmpty()) {
+                    Spacer(Modifier.width(Spacing.lg))
+                    Icon(Icons.Rounded.Favorite, contentDescription = null, tint = Color(0xFFF43F5E), modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(Spacing.xs))
+                    Text(stringResource(R.string.status_likes_title, likers.size), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
             }
-            if (viewers.isEmpty()) {
+            if (viewers.isEmpty() && likers.isEmpty()) {
                 Text(
                     stringResource(R.string.status_no_views), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.xxl, vertical = Spacing.xxxl),
                 )
             } else {
                 LazyColumn(contentPadding = PaddingValues(bottom = Spacing.xxl)) {
-                    items(viewers, key = { it.viewerId }) { v ->
+                    items(viewers, key = { "v_" + it.viewerId }) { v ->
                         Row(
                             Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = Spacing.xxl, vertical = Spacing.sm),
                             verticalAlignment = Alignment.CenterVertically,
@@ -634,6 +731,26 @@ private fun ViewersSheet(viewers: List<StatusViewRow>, onDismiss: () -> Unit) {
                                 Text(Formatters.dayAndTime(context, v.viewedAt), style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                            if (v.viewerId in likerIds) {
+                                Icon(Icons.Rounded.Favorite, contentDescription = stringResource(R.string.status_like_action), tint = Color(0xFFF43F5E), modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                    val extraLikers = likers.filter { l -> viewers.none { it.viewerId == l.userId } }
+                    items(extraLikers, key = { "l_" + it.userId }) { l ->
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = Spacing.xxl, vertical = Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            UserAvatar(l.displayName ?: "", avatarUrl = l.avatarUrl, size = 44.dp, colorHex = l.avatarColorHex)
+                            Spacer(Modifier.width(Spacing.md))
+                            Column(Modifier.weight(1f)) {
+                                Text(l.displayName?.ifBlank { null } ?: stringResource(R.string.unknown_user), style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(Formatters.dayAndTime(context, l.likedAt), style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.Rounded.Favorite, contentDescription = stringResource(R.string.status_like_action), tint = Color(0xFFF43F5E), modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -642,11 +759,18 @@ private fun ViewersSheet(viewers: List<StatusViewRow>, onDismiss: () -> Unit) {
     }
 }
 
-/** Private reply to someone's update, with quick reactions while typing. */
+/** Private reply to someone's update, with quick reactions while typing and a dedicated Like button beside the reply composer. */
 @Composable
 private fun ReplyBar(
-    text: String, onText: (String) -> Unit, focusRequester: FocusRequester, showReactions: Boolean, sending: Boolean,
-    onFocus: (Boolean) -> Unit, onSend: (String) -> Unit,
+    text: String,
+    onText: (String) -> Unit,
+    focusRequester: FocusRequester,
+    showReactions: Boolean,
+    sending: Boolean,
+    isLiked: Boolean = false,
+    onToggleLike: () -> Unit = {},
+    onFocus: (Boolean) -> Unit,
+    onSend: (String) -> Unit,
 ) {
     Column(Modifier.widthIn(max = Spacing.contentMaxWidth).fillMaxWidth()) {
         if (showReactions) {
@@ -672,6 +796,22 @@ private fun ReplyBar(
                     cursorBrush = SolidColor(Color.White),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onFocusChanged { onFocus(it.isFocused) }.testTag("status_reply_field"),
+                )
+            }
+            Spacer(Modifier.width(Spacing.sm))
+            IconButton(
+                onClick = onToggleLike,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.14f))
+                    .border(1.dp, Color.White.copy(alpha = 0.3f), CircleShape)
+                    .testTag("status_like_button"),
+            ) {
+                Icon(
+                    imageVector = if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    contentDescription = stringResource(if (isLiked) R.string.status_unlike_action else R.string.status_like_action),
+                    tint = if (isLiked) Color(0xFFF43F5E) else Color.White,
                 )
             }
             if (text.isNotBlank()) {

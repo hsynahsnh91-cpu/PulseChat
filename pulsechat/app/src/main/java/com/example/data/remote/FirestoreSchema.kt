@@ -55,6 +55,7 @@ object Fs {
     const val LIVE = "live"
     const val STATUSES = "statuses"
     const val VIEWS = "views"
+    const val LIKES = "likes"
     const val CALLS = "calls"
     const val CANDIDATES = "candidates"
     const val REPORTS = "reports"

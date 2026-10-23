@@ -7,6 +7,7 @@ import com.example.AppContainer
 import com.example.R
 import com.example.data.model.ChatNotificationSettings
 import com.example.data.model.Contact
+import com.example.data.model.ContactRow
 import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.User
@@ -49,6 +50,7 @@ class InfoViewModel(private val c: AppContainer, val conversationId: String) : V
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PresenceDisplay.Hidden)
     val media: StateFlow<List<Message>> = c.chatRepository.observeMedia(conversationId).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val blocked: StateFlow<List<String>> = c.userRepository.observeBlockedIds().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val contacts: StateFlow<List<ContactRow>> = c.userRepository.observeContacts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         viewModelScope.launch {
@@ -95,6 +97,31 @@ class InfoViewModel(private val c: AppContainer, val conversationId: String) : V
     fun removeMember(uid: String) = act { c.chatRepository.removeMember(conversationId, uid) }
     fun setAdmin(uid: String, admin: Boolean) = act { c.chatRepository.setAdmin(conversationId, uid, admin) }
     fun updateGroup(name: String, description: String, photo: Uri?) = act { c.chatRepository.updateGroupInfo(conversationId, name, description, photo) }
-    fun setPermissions(onlyAdminsSend: Boolean, onlyAdminsEdit: Boolean) = act { c.chatRepository.setGroupPermissions(conversationId, onlyAdminsSend, onlyAdminsEdit) }
+    fun setPermissions(
+        onlyAdminsSend: Boolean,
+        onlyAdminsEdit: Boolean,
+        onlyAdminsMentionAll: Boolean? = null,
+    ) = act {
+        c.chatRepository.setGroupPermissions(conversationId, onlyAdminsSend, onlyAdminsEdit, onlyAdminsMentionAll)
+    }
+
+    fun createGroupFromMembers(
+        name: String,
+        description: String,
+        photo: Uri?,
+        selectedMemberIds: List<String>,
+        requestGroupId: String,
+        onCreated: (String) -> Unit,
+    ) = act(R.string.group_created_from_members_toast) {
+        val cid = c.chatRepository.createGroupFromExistingMembers(
+            name = name,
+            description = description,
+            photo = photo,
+            selectedMemberIds = selectedMemberIds,
+            requestGroupId = requestGroupId,
+        )
+        onCreated(cid)
+    }
+
     suspend fun openDirect(uid: String): String = c.chatRepository.openDirectChat(uid)
 }

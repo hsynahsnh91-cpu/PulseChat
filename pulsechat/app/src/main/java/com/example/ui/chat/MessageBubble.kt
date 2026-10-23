@@ -97,7 +97,9 @@ import com.example.R
 import com.example.data.model.Message
 import com.example.domain.DurationFormat
 import com.example.domain.MediaLimits
+import com.example.domain.MediaQuality
 import com.example.domain.Mentions
+import com.example.domain.PollPolicy
 import com.example.domain.TextTools
 import com.example.domain.model.MessageStatus
 import com.example.domain.model.MessageType
@@ -156,6 +158,8 @@ class BubbleCallbacks(
     val onMessageContact: (Message) -> Unit = {},
     /** Opens the earlier versions of an edited message. */
     val onShowEdits: (Message) -> Unit = {},
+    /** Opens the poll editor for an unvoted poll created by the current user. */
+    val onEditPoll: (Message) -> Unit = {},
     /** Live-location sessions (map, last update, stop); without it the starting point is shown. */
     val live: LiveLocationSupport? = null,
 )
@@ -547,6 +551,21 @@ private fun VisualMedia(m: Message, mine: Boolean, callbacks: BubbleCallbacks) {
                     modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape).padding(horizontal = 6.dp))
             }
         }
+        val quality = MediaQuality.fromWire(m.mediaQuality)
+        if (quality == MediaQuality.HD || quality == MediaQuality.ORIGINAL) {
+            Text(
+                text = stringResource(if (quality == MediaQuality.ORIGINAL) R.string.media_quality_badge_original else R.string.media_quality_badge_hd),
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .testTag("media_quality_badge"),
+            )
+        }
         if (m.type == MessageType.IMAGE || local == null) TransferOverlay(m, mine, callbacks)
     }
 }
@@ -678,24 +697,70 @@ private fun ContactContent(m: Message, callbacks: BubbleCallbacks) {
 
 @Composable
 private fun PollContent(m: Message, me: String, callbacks: BubbleCallbacks) {
+    val context = LocalContext.current
     val bubbleMeta = bubbleMeta()
     val options = m.pollOptionList()
     val counts = m.pollCounts()
     val total = counts.sum()
-    val myVote = m.pollVoteMap()[me]
-    val canVote = !(m.senderId == me && (m.status == MessageStatus.PENDING || m.status == MessageStatus.SENDING || m.status == MessageStatus.FAILED))
+    val votes = m.pollVoteMap()
+    val myVote = PollPolicy.myVote(m.messageId, me, m.pollAnonymous, votes)
+    val now = System.currentTimeMillis()
+    val isExpired = PollPolicy.isExpired(m.pollExpiresAt, now)
+    val awaitingServer = m.senderId == me && (m.status == MessageStatus.PENDING || m.status == MessageStatus.SENDING || m.status == MessageStatus.FAILED)
+    val canVote = !awaitingServer && !isExpired
+    val canEdit = PollPolicy.canEditPoll(
+        isMine = m.senderId == me,
+        status = m.status,
+        createdAtMs = m.createdAt,
+        pollExpiresAtMs = m.pollExpiresAt,
+        totalVotes = total,
+        deletedForEveryone = m.deletedForEveryone,
+        nowMs = now,
+    )
     Column(Modifier.widthIn(min = 230.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.Poll, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
-            Text(m.pollQuestion ?: m.content, fontWeight = FontWeight.SemiBold)
+            Text(m.pollQuestion ?: m.content, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (canEdit) {
+                TextButton(
+                    onClick = { callbacks.onEditPoll(m) },
+                    modifier = Modifier.testTag("poll_edit_button"),
+                ) {
+                    Text(stringResource(R.string.poll_edit_action), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        if (m.pollAnonymous || m.pollExpiresAt > 0L) {
+            val sep = stringResource(R.string.list_separator)
+            val metaParts = buildList {
+                if (m.pollAnonymous) add(stringResource(R.string.poll_anonymous_badge))
+                if (m.pollExpiresAt > 0L) {
+                    if (isExpired) {
+                        add(stringResource(R.string.poll_closed_badge))
+                    } else {
+                        add(stringResource(R.string.poll_closes_at, Formatters.dateTime(context, m.pollExpiresAt)))
+                    }
+                }
+            }
+            Text(
+                metaParts.joinToString(sep),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isExpired) MaterialTheme.colorScheme.error else bubbleMeta,
+                modifier = Modifier.padding(top = 2.dp).testTag("poll_meta_badge"),
+            )
         }
         Spacer(Modifier.height(6.dp))
         options.forEachIndexed { i, option ->
             val count = counts.getOrElse(i) { 0 }
             val fraction = if (total > 0) count.toFloat() / total else 0f
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.sm)).clickable(enabled = canVote) { callbacks.onVote(m, i) }.padding(vertical = 6.dp, horizontal = 4.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(Radii.sm))
+                    .clickable(enabled = canVote) { callbacks.onVote(m, i) }
+                    .padding(vertical = 6.dp, horizontal = 4.dp)
+                    .testTag("poll_option_$i"),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(

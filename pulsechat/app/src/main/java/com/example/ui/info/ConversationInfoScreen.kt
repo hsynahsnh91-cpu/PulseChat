@@ -31,10 +31,12 @@ import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Notifications
@@ -43,11 +45,13 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PersonRemove
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Report
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -57,12 +61,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -81,10 +87,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.data.model.ChatNotificationSettings
+import com.example.data.model.ContactRow
 import com.example.R
 import com.example.data.model.User
 import com.example.domain.DisappearingPolicy
 import com.example.domain.GroupPolicy
+import com.example.domain.Ids
 import com.example.domain.model.MessageType
 import com.example.ui.calls.rememberCallStarter
 import com.example.ui.common.BackTopBar
@@ -130,6 +138,7 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
     val presence by vm.presence.collectAsState()
     val media by vm.media.collectAsState()
     val blocked by vm.blocked.collectAsState()
+    val contacts by vm.contacts.collectAsState()
     val notifSettings by vm.notificationSettings.collectAsState()
     val appPreviews by vm.appPreviews.collectAsState()
     val startCall = rememberCallStarter(onStarted = nav.openCall)
@@ -248,6 +257,14 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                 if (c.isGroup && isAdmin && !c.isLeft) {
                     SettingsItem(Icons.Rounded.Settings, stringResource(R.string.group_settings), subtitle = stringResource(R.string.group_settings_subtitle)) { dialog = "permissions" }
                 }
+                if (c.isGroup && !c.isLeft && !c.isLocalOnly) {
+                    SettingsItem(
+                        Icons.Rounded.GroupAdd,
+                        stringResource(R.string.group_create_from_members),
+                        subtitle = stringResource(R.string.group_create_from_members_sub),
+                        modifier = Modifier.testTag("info_create_group_from_members"),
+                    ) { dialog = "createGroupFromMembers" }
+                }
                 if (!c.isGroup && c.peerId != null && !c.isLocalOnly) {
                     if (contact == null) SettingsItem(Icons.Rounded.PersonAdd, stringResource(R.string.contact_save)) { nicknameDraft = peer?.displayName.orEmpty(); dialog = "nickname" }
                     else {
@@ -335,6 +352,7 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
         "permissions" -> {
             var onlyAdminsSend by remember { mutableStateOf(c.onlyAdminsCanSend) }
             var onlyAdminsEdit by remember { mutableStateOf(c.onlyAdminsCanEditInfo) }
+            var onlyAdminsMentionAll by remember { mutableStateOf(c.onlyAdminsCanMentionAll) }
             AlertDialog(
                 onDismissRequest = { dialog = null },
                 title = { Text(stringResource(R.string.group_settings)) },
@@ -342,10 +360,39 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                     Column {
                         SwitchItem(null, stringResource(R.string.group_only_admins_send), checked = onlyAdminsSend, onChange = { onlyAdminsSend = it })
                         SwitchItem(null, stringResource(R.string.group_only_admins_edit), checked = onlyAdminsEdit, onChange = { onlyAdminsEdit = it })
+                        SwitchItem(
+                            null,
+                            stringResource(R.string.group_only_admins_mention_all),
+                            subtitle = stringResource(R.string.group_only_admins_mention_all_sub),
+                            checked = onlyAdminsMentionAll,
+                            onChange = { onlyAdminsMentionAll = it },
+                        )
                     }
                 },
-                confirmButton = { TextButton(onClick = { dialog = null; vm.setPermissions(onlyAdminsSend, onlyAdminsEdit) }) { Text(stringResource(R.string.action_save)) } },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            dialog = null
+                            vm.setPermissions(onlyAdminsSend, onlyAdminsEdit, onlyAdminsMentionAll)
+                        }
+                    ) { Text(stringResource(R.string.action_save)) }
+                },
                 dismissButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.action_cancel)) } },
+            )
+        }
+        "createGroupFromMembers" -> {
+            CreateGroupFromMembersSheet(
+                me = me,
+                groupMembers = members,
+                contacts = contacts,
+                blockedIds = blocked.toSet(),
+                onDismiss = { dialog = null },
+                onCreate = { name, desc, photo, selectedIds, requestGroupId ->
+                    vm.createGroupFromMembers(name, desc, photo, selectedIds, requestGroupId) { newCid ->
+                        dialog = null
+                        nav.openChat(newCid)
+                    }
+                },
             )
         }
         "editGroup" -> AlertDialog(
@@ -380,6 +427,156 @@ fun ConversationInfoScreen(conversationId: String, nav: InfoNav) {
                 if (GroupPolicy.canRemove(roster, me, u.userId)) SettingsItem(Icons.Rounded.PersonRemove, stringResource(R.string.member_remove, u.displayName), titleColor = MaterialTheme.colorScheme.error) {
                     memberSheet = null; vm.removeMember(u.userId)
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreateGroupFromMembersSheet(
+    me: String,
+    groupMembers: List<User>,
+    contacts: List<ContactRow>,
+    blockedIds: Set<String>,
+    onDismiss: () -> Unit,
+    onCreate: (name: String, description: String, photo: Uri?, selectedIds: List<String>, requestGroupId: String) -> Unit,
+) {
+    val initialSelected = remember(groupMembers, me, blockedIds) {
+        GroupPolicy.eligibleMembersFromGroup(groupMembers.map { it.userId }, me, blockedIds)
+    }
+    val selectedIds = remember { mutableStateListOf<String>().apply { addAll(initialSelected) } }
+    var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var photo by remember { mutableStateOf<Uri?>(null) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    val requestGroupId = remember { Ids.newId("grp") }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) photo = uri
+    }
+
+    // Merge group members and non-blocked contacts so the user can include/exclude existing members or add contacts
+    val allCandidates = remember(groupMembers, contacts, me, blockedIds) {
+        val byId = LinkedHashMap<String, Pair<String, String?>>()
+        groupMembers.forEach { u ->
+            if (u.userId != me && u.userId != Ids.AI_ASSISTANT_ID && u.userId !in blockedIds) {
+                byId[u.userId] = u.displayName.ifBlank { u.username } to u.avatarUrl
+            }
+        }
+        contacts.forEach { c ->
+            if (!c.isBlocked && c.contactUserId != me && c.contactUserId != Ids.AI_ASSISTANT_ID && c.contactUserId !in blockedIds && c.contactUserId !in byId) {
+                byId[c.contactUserId] = c.shownName to c.avatarUrl
+            }
+        }
+        byId.entries.map { Triple(it.key, it.value.first, it.value.second) }
+    }
+
+    ModalBottomSheet(onDismissRequest = { if (!isSubmitting) onDismiss() }) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                stringResource(R.string.group_create_from_members),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                stringResource(R.string.group_create_from_members_sub),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                    Icon(Icons.Rounded.CameraAlt, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(if (photo == null) R.string.group_change_photo else R.string.group_photo_selected))
+                }
+            }
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it.take(GroupPolicy.MAX_NAME) },
+                singleLine = true,
+                label = { Text(stringResource(R.string.group_name)) },
+                modifier = Modifier.fillMaxWidth().testTag("new_group_from_members_name"),
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it.take(GroupPolicy.MAX_DESCRIPTION) },
+                singleLine = true,
+                label = { Text(stringResource(R.string.group_description)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
+            LazyColumn(modifier = Modifier.heightIn(max = 220.dp)) {
+                items(allCandidates, key = { it.first }) { (uid, displayName, avatarUrl) ->
+                    val checked = uid in selectedIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (checked) selectedIds.remove(uid) else selectedIds.add(uid)
+                            }
+                            .heightIn(min = 48.dp)
+                            .padding(vertical = 4.dp)
+                            .testTag("member_candidate_$uid"),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        UserAvatar(displayName, avatarUrl = avatarUrl, size = 36.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(displayName, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                        Icon(
+                            if (checked) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                            contentDescription = null,
+                            tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                shape = RoundedCornerShape(Radii.md),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        stringResource(R.string.group_create_confirm_title),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        stringResource(R.string.group_create_confirm_admin, stringResource(R.string.you)),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        stringResource(R.string.group_create_confirm_members, selectedIds.size + 1),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        stringResource(R.string.group_create_independent_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            val canSubmit = !isSubmitting && name.trim().isNotBlank() && selectedIds.isNotEmpty()
+            Button(
+                onClick = {
+                    if (canSubmit) {
+                        isSubmitting = true
+                        onCreate(name.trim(), description.trim(), photo, selectedIds.toList(), requestGroupId)
+                    }
+                },
+                enabled = canSubmit,
+                modifier = Modifier.fillMaxWidth().testTag("create_group_from_members_submit"),
+            ) {
+                Text(stringResource(R.string.group_create_from_members))
             }
         }
     }

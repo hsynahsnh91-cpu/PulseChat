@@ -105,7 +105,7 @@ service firebase.storage {
       allow create: if isUser(userId)
         && request.resource.size > 0
         && request.resource.size < 64 * 1024 * 1024
-        && request.resource.contentType.matches('(image|video)/.*');
+        && request.resource.contentType.matches('(image|video|audio)/.*');
       allow update: if false;
       allow delete: if isUser(userId);
     }

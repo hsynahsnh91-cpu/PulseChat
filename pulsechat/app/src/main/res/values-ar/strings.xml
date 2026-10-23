@@ -1154,4 +1154,121 @@
     <string name="device_link_err_not_found">جلسة الربط غير موجودة أو انتهت صلاحيتها.</string>
     <string name="device_link_err_invalid_state">طلب الربط هذا لم يعد نشطاً.</string>
     <string name="device_link_err_crypto">تعذّر التحقق من مظروف الربط الآمن. يرجى المحاولة مرة أخرى.</string>
+
+    <!-- Feature 1: Advanced Status Editor (music, collage, photo stickers, preview) -->
+    <string name="status_add_music">إضافة موسيقى</string>
+    <string name="status_music_picker_title">موسيقى الحالة</string>
+    <string name="status_music_search_hint">ابحث عن مقاطع أو فنانين…</string>
+    <string name="status_music_local_audio">اختيار ملف صوتي من الجهاز</string>
+    <string name="status_music_remove">إزالة الموسيقى</string>
+    <string name="status_music_segment_label">بداية المقطع: %1$s (مدة %2$d ث)</string>
+    <string name="status_music_preview_play">معاينة المقطع</string>
+    <string name="status_music_preview_stop">إيقاف المعاينة</string>
+    <string name="status_music_unavailable">الصوت غير متاح على هذا الجهاز</string>
+    <string name="status_collage_create">إنشاء مجمّع صور</string>
+    <string name="status_collage_title">مجمّع الصور</string>
+    <string name="status_collage_select_photos">اختر من ٢ إلى ٦ صور</string>
+    <string name="status_collage_add_photo">إضافة صورة</string>
+    <string name="status_collage_replace_photo">استبدال</string>
+    <string name="status_collage_move_earlier">تحريك للأمام</string>
+    <string name="status_collage_move_later">تحريك للخلف</string>
+    <string name="status_collage_remove_photo">إزالة الصورة</string>
+    <string name="status_collage_layout_split_v">تقسيم رأسي</string>
+    <string name="status_collage_layout_split_h">تقسيم أفقي</string>
+    <string name="status_collage_layout_three">٣ صور مميزة</string>
+    <string name="status_collage_layout_grid_4">شبكة رباعية</string>
+    <string name="status_collage_layout_flex">شبكة متعددة</string>
+    <string name="status_collage_zoom">تكبير</string>
+    <string name="status_photo_sticker_add">إضافة ملصق صورة</string>
+    <string name="status_photo_sticker_duplicate">تكرار الملصق</string>
+    <string name="status_photo_sticker_remove">إزالة الملصق</string>
+    <string name="status_photo_sticker_scale">حجم الملصق</string>
+    <string name="status_photo_sticker_rotate">تدوير الملصق</string>
+    <string name="status_editor_preview">معاينة</string>
+    <string name="status_editor_edit">العودة للتعديل</string>
+    <string name="status_editor_publishing">جارٍ نشر الحالة…</string>
+    <string name="status_editor_publish_failed">تعذّر نشر الحالة. اضغط لإعادة المحاولة.</string>
+
+    <!-- Feature 2: Advanced Status Interactions (likes, mentions, resharing) -->
+    <string name="status_like_action">إعجاب بالحالة</string>
+    <string name="status_unlike_action">إلغاء الإعجاب بالحالة</string>
+    <string name="status_likes_title">المعجبون (%1$d)</string>
+    <string name="status_no_likes_yet">لا توجد إعجابات بعد.</string>
+    <string name="status_mention_people">الإشارة إلى أشخاص</string>
+    <string name="status_mentions_selected">المشار إليهم (%1$d)</string>
+    <string name="status_mentions_privacy_note">سيتم إشعار الأشخاص المشمولين في جمهور هذه الحالة فقط.</string>
+    <string name="status_mentioned_you_title">أشار إليك %1$s في حالة</string>
+    <string name="status_mentioned_you_body">اضغط لعرض تحديث الحالة</string>
+    <string name="status_allow_reshare">السماح لجهات الاتصال بإعادة النشر</string>
+    <string name="status_allow_reshare_sub">يمكن للأشخاص المسموح لهم برؤية هذه الحالة إعادة نشرها في حالتهم</string>
+    <string name="status_reshare_action">إعادة النشر في حالتي</string>
+    <string name="status_reshared_from">معاد نشره من %1$s</string>
+    <string name="status_reshare_done">تمت إعادة نشر الحالة في تحديثاتك.</string>
+    <string name="status_reshare_disabled">أوقف الكاتب إعادة النشر لهذه الحالة.</string>
+    <string name="status_reshare_expired">انتهت صلاحية هذه الحالة ولا يمكن إعادة نشرها.</string>
+    <string name="status_reshare_already">لقد أعدت نشر هذه الحالة بالفعل.</string>
+    <string name="status_reshare_not_allowed">لا يمكن إعادة نشر هذه الحالة بسبب إعدادات الخصوصية.</string>
+
+    <!-- Feature 3: Advanced Group Management (@all, advanced polls, create group from members) -->
+    <string name="mention_all_label">جميع الأعضاء</string>
+    <string name="mention_all_subtitle">إشعار جميع أعضاء هذه المجموعة</string>
+    <string name="group_only_admins_mention_all">المشرفون فقط يمكنهم استخدام @all</string>
+    <string name="group_only_admins_mention_all_sub">يقصر إشعارات الإشارة الجماعية @all على مشرفي المجموعة</string>
+    <string name="group_mention_all_admin_only_error">يمكن لمشرفي المجموعة فقط استخدام @all في هذه المجموعة.</string>
+    <string name="group_mention_all_cooldown_error">تم استخدام @all مؤخراً. يرجى الانتظار بضع دقائق قبل استخدامها مرة أخرى.</string>
+    <string name="poll_anonymous_voting">تصويت مجهول الهوية</string>
+    <string name="poll_anonymous_voting_sub">يخفي هوية المصوّتين عن المشاركين ومنشئ الاستطلاع، مع استمرار الخادم في منع التصويت المكرر.</string>
+    <string name="poll_anonymous_badge">استطلاع مجهول الهوية، أسماء المصوّتين مخفية عن المشاركين</string>
+    <string name="poll_expiration_label">مدة الاستطلاع</string>
+    <string name="poll_duration_none">بدون انتهاء</string>
+    <string name="poll_duration_15m">١٥ دقيقة</string>
+    <string name="poll_duration_1h">ساعة واحدة</string>
+    <string name="poll_duration_24h">٢٤ ساعة</string>
+    <string name="poll_duration_7d">٧ أيام</string>
+    <string name="poll_closed_badge">انتهى الاستطلاع</string>
+    <string name="poll_closes_at">ينتهي %1$s</string>
+    <string name="poll_edit_action">تعديل الاستطلاع</string>
+    <string name="poll_edit_title">تعديل الاستطلاع</string>
+    <string name="poll_edit_locked_has_votes">لا يمكن تعديل الاستطلاع بعد بدء التصويت.</string>
+    <string name="group_create_from_members">مجموعة جديدة من الأعضاء</string>
+    <string name="group_create_from_members_sub">بدء مجموعة مستقلة جديدة مع أعضاء مختارين من هذه المحادثة</string>
+    <string name="group_create_from_members_title">إنشاء مجموعة من الأعضاء</string>
+    <string name="group_create_confirm_Admin">المنشئ والمشرف: %1$s</string>
+    <string name="group_create_confirm_members">الأعضاء المختارون (%1$d)</string>
+    <string name="group_create_independent_note">ينشئ مجموعة مستقلة جديدة دون نسخ سجل الرسائل أو صلاحيات المشرفين من المجموعة السابقة.</string>
+
+    <!-- Feature 4: Multiple Independent Accounts -->
+    <string name="settings_accounts_title">الحسابات</string>
+    <string name="settings_accounts_subtitle">التبديل بين الحسابات أو إضافة حساب PulseChat آخر على هذا الجهاز</string>
+    <string name="account_active_badge">نشط</string>
+    <string name="account_reauth_needed">يتطلب تسجيل الدخول</string>
+    <string name="account_add_action">إضافة حساب</string>
+    <string name="account_switch_action">تبديل</string>
+    <string name="account_switch_sheet_title">تبديل الحساب</string>
+    <string name="account_switching_progress">جارٍ تبديل الحساب…</string>
+    <string name="account_remove_device_action">إزالة من هذا الجهاز</string>
+    <string name="account_remove_device_title">إزالة %1$s من هذا الجهاز؟</string>
+    <string name="account_remove_device_body">سيؤدي هذا إلى إزالة الرسائل المحلية والمسودات وبيانات الجلسة المحفوظة للحساب %1$s من هذا الهاتف فقط، دون حذف الحساب السحابي أو بياناته.</string>
+    <string name="account_add_dialog_title">إضافة حساب PulseChat</string>
+    <string name="account_add_dialog_subtitle">سجّل الدخول إلى حساب آخر موجود أو أنشئ حساباً جديداً على هذا الجهاز.</string>
+    <string name="account_max_reached">يمكنك الاحتفاظ بما يصل إلى %1$d حسابات على جهاز واحد.</string>
+    <string name="account_reauth_prompt_title">تسجيل الدخول إلى %1$s</string>
+    <string name="account_reauth_prompt_body">انتهت جلسة الحساب @%1$s. أدخل كلمة المرور للتبديل إلى هذا الحساب.</string>
+    <string name="notif_for_account">للحساب @%1$s</string>
+
+    <!-- Feature 5: HD and Original-Quality Media Sharing -->
+    <string name="media_quality_label">جودة الوسائط</string>
+    <string name="media_quality_standard">قياسية</string>
+    <string name="media_quality_hd">عالية الدقة HD</string>
+    <string name="media_quality_original">الأصلية</string>
+    <string name="media_quality_standard_desc">رفع أسرع وحجم أصغر (حوالي %1$s)</string>
+    <string name="media_quality_hd_desc">دقة أعلى %1$dx%2$d (حوالي %3$s)</string>
+    <string name="media_quality_original_desc">الملف الأصلي تماماً بدون إعادة ضغط (%1$s)</string>
+    <string name="media_quality_source_size">الأصلي: %1$s (%2$dx%3$d)</string>
+    <string name="media_quality_source_size_no_dim">الأصلي: %1$s</string>
+    <string name="media_quality_hd_low_res_note">دقة الملف الأصلي ضمن حدود الجودة القياسية بالفعل؛ لن يقوم وضع HD بتكبيرها اصطناعياً.</string>
+    <string name="media_quality_exceeds_limit">يتجاوز الحد الأقصى للرفع (%1$s) لوضع الجودة هذا.</string>
+    <string name="media_quality_badge_hd">HD</string>
+    <string name="media_quality_badge_original">أصلي</string>
+    <string name="media_upload_cancel">إلغاء الرفع</string>
 </resources>

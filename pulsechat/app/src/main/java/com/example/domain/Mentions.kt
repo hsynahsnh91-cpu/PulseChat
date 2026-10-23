@@ -5,7 +5,11 @@ package com.example.domain
  * chosen member; messages carry the list of mentioned IDs (never names), so renames don't break them.
  */
 object Mentions {
-    data class Candidate(val userId: String, val displayName: String)
+    const val ALL_ID = "all"
+    const val ALL_DISPLAY = "all"
+    const val ALL_DISPLAY_AR = "الكل"
+
+    data class Candidate(val userId: String, val displayName: String, val isAll: Boolean = userId == ALL_ID)
     data class Insertion(val text: String, val cursor: Int)
 
     /** The partial name typed after '@' at the cursor, or null when the cursor is not in a mention. */
@@ -21,10 +25,23 @@ object Mentions {
         return query
     }
 
-    fun suggestions(query: String, candidates: List<Candidate>, exclude: String?): List<Candidate> =
-        candidates.filter { it.userId != exclude && TextTools.matches(query, it.displayName) }
+    fun suggestions(
+        query: String,
+        candidates: List<Candidate>,
+        exclude: String?,
+        allowAll: Boolean = false,
+    ): List<Candidate> {
+        val allOption = if (allowAll && (query.isBlank() || TextTools.matches(query, ALL_DISPLAY, ALL_DISPLAY_AR, "everyone"))) {
+            listOf(Candidate(ALL_ID, ALL_DISPLAY, isAll = true))
+        } else {
+            emptyList()
+        }
+        val memberMatches = candidates
+            .filter { it.userId != exclude && it.userId != ALL_ID && TextTools.matches(query, it.displayName) }
             .sortedBy { it.displayName.lowercase() }
             .take(8)
+        return allOption + memberMatches
+    }
 
     /** Replaces the "@partial" before the cursor with "@Display Name ". */
     fun insert(text: String, cursor: Int, displayName: String): Insertion {
@@ -36,13 +53,38 @@ object Mentions {
         return Insertion(newText, at + token.length)
     }
 
-    /** Keeps only selected IDs whose "@Name" token is still present in the final text. */
-    fun resolve(text: String, selected: Collection<Candidate>): List<String> =
-        selected.filter { text.contains("@" + it.displayName) }.map { it.userId }.distinct()
+    /** True if [text] contains a standalone `@all` or `@الكل` token. */
+    fun containsAllToken(text: String): Boolean {
+        val regex = Regex("(?<=^|\\s)@(all|الكل)(?=\\s|$|[.,!?;:])", RegexOption.IGNORE_CASE)
+        return regex.containsMatchIn(text)
+    }
 
-    /** Character ranges to highlight for the given mentioned members. */
-    fun highlightRanges(text: String, mentioned: Collection<Candidate>): List<IntRange> =
-        mentioned.flatMap { c -> TextTools.occurrences(text, "@" + c.displayName) }.sortedBy { it.first }
+    /** Keeps only selected IDs whose "@Name" token is still present in the final text, plus `@all` if allowed. */
+    fun resolve(text: String, selected: Collection<Candidate>, allowAll: Boolean = true): List<String> {
+        val out = selected
+            .filter { c ->
+                if (c.userId == ALL_ID) allowAll && containsAllToken(text)
+                else text.contains("@" + c.displayName)
+            }
+            .map { it.userId }
+            .toMutableList()
+        if (allowAll && containsAllToken(text) && ALL_ID !in out) {
+            out.add(0, ALL_ID)
+        }
+        return out.distinct()
+    }
 
-    fun mentionsUser(mentionedIds: Collection<String>, userId: String) = userId in mentionedIds
+    /** Character ranges to highlight for the given mentioned members (and `@all` when present). */
+    fun highlightRanges(text: String, mentioned: Collection<Candidate>, includeAll: Boolean = mentioned.any { it.userId == ALL_ID }): List<IntRange> {
+        val memberRanges = mentioned.filter { it.userId != ALL_ID }.flatMap { c -> TextTools.occurrences(text, "@" + c.displayName) }
+        val allRanges = if (!includeAll) emptyList() else {
+            TextTools.occurrences(text, "@all") + TextTools.occurrences(text, "@الكل")
+        }
+        return (memberRanges + allRanges).sortedBy { it.first }
+    }
+
+    fun mentionsUser(mentionedIds: Collection<String>, userId: String) =
+        userId in mentionedIds || ALL_ID in mentionedIds
+
+    fun mentionsAll(mentionedIds: Collection<String>) = ALL_ID in mentionedIds
 }

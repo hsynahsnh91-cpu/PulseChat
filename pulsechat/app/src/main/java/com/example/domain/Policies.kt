@@ -12,10 +12,11 @@ object DisappearingPolicy {
     fun isValidOption(seconds: Long): Boolean = seconds in OPTIONS
 }
 
-/** Status/"Updates" visibility and ordering. */
+/** Status/"Updates" visibility, interactions (likes, mentions, resharing) and ordering. */
 object StatusPolicy {
     const val LIFETIME_MS = 24 * 60 * 60 * 1000L
     const val MAX_TEXT = 700
+    const val MAX_MENTIONS = 20
 
     enum class AudienceMode { MY_CONTACTS, CONTACTS_EXCEPT, ONLY_SHARE_WITH }
 
@@ -26,6 +27,100 @@ object StatusPolicy {
     }
 
     fun isActive(expiresAt: Long, now: Long): Boolean = expiresAt > now
+
+    /**
+     * Filters structured status mentions so:
+     * - the author cannot mention themselves or blocked users,
+     * - at most [MAX_MENTIONS] unique user IDs are kept,
+     * - only users included in [allowedAudience] may be notified/stored on the status (never widening
+     *   a restricted status's audience).
+     */
+    data class MentionValidation(
+        val allowedMentionIds: List<String>,
+        val excludedByPrivacyIds: List<String>,
+    )
+
+    fun validateMentions(
+        requestedIds: Collection<String>,
+        authorId: String,
+        blockedIds: Set<String>,
+        allowedAudience: Set<String>,
+    ): MentionValidation {
+        val eligible = requestedIds
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != authorId && it !in blockedIds }
+            .distinct()
+            .take(MAX_MENTIONS)
+        val allowed = eligible.filter { it in allowedAudience }
+        val excluded = eligible.filter { it !in allowedAudience }
+        return MentionValidation(allowed, excluded)
+    }
+
+    /** Whether [viewerId] can like or unlike a status update. */
+    fun canLike(
+        ownerId: String,
+        audience: Set<String>,
+        blockedByOwner: Set<String>,
+        expiresAt: Long,
+        viewerId: String,
+        now: Long,
+    ): Boolean {
+        if (viewerId.isBlank() || !isActive(expiresAt, now)) return false
+        if (viewerId == ownerId) return true
+        return viewerId in audience && viewerId !in blockedByOwner
+    }
+
+    enum class ReshareDenial {
+        DISABLED_BY_AUTHOR,
+        EXPIRED,
+        NOT_IN_AUDIENCE,
+        BLOCKED,
+        OWN_STATUS,
+        ALREADY_RESHARED_BY_USER,
+    }
+
+    /**
+     * Checks whether [viewerId] is permitted to reshare a status update, enforcing the original
+     * author's `allowReshare` setting, expiration, audience membership, and block list.
+     */
+    fun checkReshareEligibility(
+        ownerId: String,
+        allowReshare: Boolean,
+        audience: Set<String>,
+        blockedByOwner: Set<String>,
+        expiresAt: Long,
+        viewerId: String,
+        now: Long,
+        alreadyResharedIdsByViewer: Set<String> = emptySet(),
+        statusId: String = "",
+    ): ReshareDenial? = when {
+        viewerId == ownerId -> ReshareDenial.OWN_STATUS
+        !isActive(expiresAt, now) -> ReshareDenial.EXPIRED
+        viewerId in blockedByOwner -> ReshareDenial.BLOCKED
+        viewerId !in audience -> ReshareDenial.NOT_IN_AUDIENCE
+        !allowReshare -> ReshareDenial.DISABLED_BY_AUTHOR
+        statusId.isNotEmpty() && statusId in alreadyResharedIdsByViewer -> ReshareDenial.ALREADY_RESHARED_BY_USER
+        else -> null
+    }
+
+    /**
+     * Computes the effective audience and expiration time for a reshared status so a reshare NEVER
+     * exposes the status to anyone outside the original status's permitted audience and NEVER
+     * outlives the original status's expiration timestamp.
+     */
+    fun computeReshareScope(
+        resharerAudience: Set<String>,
+        originalAudience: Set<String>,
+        originalOwnerId: String,
+        originalExpiresAt: Long,
+        resharerBlockedIds: Set<String>,
+        now: Long,
+    ): Pair<Set<String>, Long> {
+        val allowedFromOriginal = originalAudience + originalOwnerId
+        val effectiveAudience = (resharerAudience intersect allowedFromOriginal) - resharerBlockedIds
+        val effectiveExpiresAt = minOf(originalExpiresAt, now + LIFETIME_MS).coerceAtLeast(now + 1_000L)
+        return effectiveAudience to effectiveExpiresAt
+    }
 
     data class Item(val statusId: String, val ownerId: String, val createdAt: Long, val expiresAt: Long, val viewed: Boolean)
     data class OwnerGroup(val ownerId: String, val items: List<Item>, val hasUnviewed: Boolean, val latest: Long)

@@ -20,8 +20,11 @@ import com.example.data.model.Conversation
 import com.example.data.model.Message
 import com.example.data.model.Receipt
 import com.example.data.model.StatusItem
+import com.example.data.model.StatusLike
 import com.example.data.model.StatusView
 import com.example.data.model.User
+import com.example.domain.MultiAccountPolicy
+import java.util.concurrent.ConcurrentHashMap
 
 @Database(
     entities = [
@@ -45,8 +48,10 @@ import com.example.data.model.User
         // v5
         ChatNotificationSettings::class,
         LockedChat::class,
+        // v7
+        StatusLike::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -71,15 +76,33 @@ abstract class AppDatabase : RoomDatabase() {
 
         @Volatile
         private var INSTANCE: AppDatabase? = null
+        private val ACCOUNT_DBS = ConcurrentHashMap<String, AppDatabase>()
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: build(context).also { INSTANCE = it }
+                INSTANCE ?: build(context, NAME).also { INSTANCE = it }
             }
         }
 
-        private fun build(context: Context): AppDatabase =
-            Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, NAME)
+        /** Dedicated per-account Room SQLite database for strict multi-account local storage isolation. */
+        fun getDatabaseForAccount(context: Context, uid: String): AppDatabase {
+            val dbName = MultiAccountPolicy.databaseNameForAccount(uid)
+            return ACCOUNT_DBS[dbName] ?: synchronized(ACCOUNT_DBS) {
+                ACCOUNT_DBS[dbName] ?: build(context, dbName).also { ACCOUNT_DBS[dbName] = it }
+            }
+        }
+
+        /** Closes and deletes the isolated local Room database file for [uid] when removed from device. */
+        fun deleteDatabaseForAccount(context: Context, uid: String): Boolean {
+            val dbName = MultiAccountPolicy.databaseNameForAccount(uid)
+            synchronized(ACCOUNT_DBS) {
+                ACCOUNT_DBS.remove(dbName)?.close()
+            }
+            return context.applicationContext.deleteDatabase(dbName)
+        }
+
+        private fun build(context: Context, dbName: String): AppDatabase =
+            Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, dbName)
                 .addMigrations(*Migrations.ALL)
                 // Version 1 pre-dates any released schema and has no recoverable layout. Every
                 // later version must ship a real Migration: never add a blanket destructive fallback.

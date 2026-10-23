@@ -4,12 +4,15 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.example.calls.EchoCancellerMode
 import com.example.domain.AutoDownloadSettings
+import com.example.domain.MultiAccountPolicy
 import com.example.domain.StatusPolicy
 import com.example.domain.model.MessageType
 import com.example.domain.model.Visibility
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 enum class AppLanguage(val tag: String?) { SYSTEM(null), ENGLISH("en"), ARABIC("ar") }
@@ -52,12 +55,16 @@ data class AppSettings(
  * security settings live in `pulse_security`, which backup rules exclude.
  */
 class AppPreferences(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("pulse_prefs", Context.MODE_PRIVATE)
-    private val secure: SharedPreferences = context.getSharedPreferences("pulse_security", Context.MODE_PRIVATE)
+    private val appContext: Context = context.applicationContext
+    private val prefs: SharedPreferences = appContext.getSharedPreferences("pulse_prefs", Context.MODE_PRIVATE)
+    private val secure: SharedPreferences = appContext.getSharedPreferences("pulse_security", Context.MODE_PRIVATE)
 
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
     val current: AppSettings get() = _settings.value
+
+    private val _savedAccounts = MutableStateFlow(loadSavedAccounts())
+    val savedAccounts: StateFlow<List<MultiAccountPolicy.StoredAccount>> = _savedAccounts.asStateFlow()
 
     private fun types(key: String, default: Set<MessageType>): Set<MessageType> {
         val raw = prefs.getStringSet(key, null) ?: return default
@@ -230,5 +237,158 @@ class AppPreferences(context: Context) {
             .remove("app_lock_failures").remove("app_lock_lockout_until")
             .apply()
         _settings.value = load()
+    }
+
+    /**
+     * Marks a status mention notification as delivered for `(accountUid, statusId)` so real-time
+     * listener reconnects or account switches never show duplicate mention notifications.
+     * Returns `true` only the first time for a given `(accountUid, statusId)`.
+     */
+    fun markStatusMentionNotified(accountUid: String, statusId: String): Boolean {
+        if (accountUid.isBlank() || statusId.isBlank()) return false
+        val key = "status_mention_notified_$accountUid"
+        val currentSet = prefs.getStringSet(key, emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (!currentSet.add(statusId)) return false
+        val trimmed = if (currentSet.size > 200) currentSet.toList().takeLast(200).toSet() else currentSet
+        prefs.edit().putStringSet(key, trimmed).apply()
+        return true
+    }
+
+    // ---- Feature 4: Multi-Account metadata & per-account isolated preferences ----
+
+    private fun loadSavedAccounts(): List<MultiAccountPolicy.StoredAccount> {
+        val raw = secure.getString("saved_accounts_json", null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val uid = o.optString("uid")
+                    val username = o.optString("username")
+                    if (uid.isBlank() || username.isBlank()) continue
+                    add(
+                        MultiAccountPolicy.StoredAccount(
+                            uid = uid,
+                            username = username,
+                            displayName = o.optString("displayName", username),
+                            uniqueId10 = o.optString("uniqueId10", ""),
+                            avatarUrl = o.optString("avatarUrl", "").takeIf { it.isNotBlank() },
+                            avatarColorHex = o.optString("avatarColorHex", "#4F46E5"),
+                            authMethod = o.optString("authMethod", "primary_login"),
+                            addedAt = o.optLong("addedAt", 0L),
+                            lastActiveAt = o.optLong("lastActiveAt", 0L),
+                            needsReauth = o.optBoolean("needsReauth", false),
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistSavedAccounts(list: List<MultiAccountPolicy.StoredAccount>) {
+        val arr = JSONArray()
+        for (a in list) {
+            arr.put(
+                JSONObject()
+                    .put("uid", a.uid)
+                    .put("username", a.username)
+                    .put("displayName", a.displayName)
+                    .put("uniqueId10", a.uniqueId10)
+                    .put("avatarUrl", a.avatarUrl ?: "")
+                    .put("avatarColorHex", a.avatarColorHex)
+                    .put("authMethod", a.authMethod)
+                    .put("addedAt", a.addedAt)
+                    .put("lastActiveAt", a.lastActiveAt)
+                    .put("needsReauth", a.needsReauth)
+            )
+        }
+        secure.edit().putString("saved_accounts_json", arr.toString()).apply()
+        _savedAccounts.value = list
+    }
+
+    fun upsertSavedAccount(account: MultiAccountPolicy.StoredAccount, activeUid: String? = account.uid) {
+        val updated = MultiAccountPolicy.upsertAccount(_savedAccounts.value, account, activeUid)
+        persistSavedAccounts(updated)
+        rememberAccount(account.username)
+    }
+
+    fun removeSavedAccount(uid: String) {
+        val target = _savedAccounts.value.firstOrNull { it.uid == uid }
+        val updated = MultiAccountPolicy.removeAccount(_savedAccounts.value, uid)
+        persistSavedAccounts(updated)
+        target?.let { forgetAccount(it.username) }
+        deleteAccountPreferencesSnapshot(uid)
+    }
+
+    fun setAccountNeedsReauth(uid: String, needsReauth: Boolean) {
+        val updated = _savedAccounts.value.map {
+            if (it.uid == uid) it.copy(needsReauth = needsReauth) else it
+        }
+        persistSavedAccounts(updated)
+    }
+
+    /** Saves the current account-scoped settings into a dedicated per-account preferences file. */
+    fun saveAccountPreferencesSnapshot(uid: String) {
+        if (uid.isBlank()) return
+        val acctPrefs = appContext.getSharedPreferences(MultiAccountPolicy.prefsNameForAccount(uid), Context.MODE_PRIVATE)
+        val c = current
+        acctPrefs.edit()
+            .putBoolean("initialized", true)
+            .putBoolean("enter_to_send", c.enterToSend)
+            .putBoolean("notif_messages", c.messageNotifications)
+            .putBoolean("notif_groups", c.groupNotifications)
+            .putBoolean("notif_calls", c.callNotifications)
+            .putBoolean("notif_previews", c.notificationPreviews)
+            .putBoolean("read_receipts", c.readReceipts)
+            .putString("vis_last_seen", c.lastSeenVisibility.name)
+            .putString("vis_photo", c.photoVisibility.name)
+            .putString("vis_about", c.aboutVisibility.name)
+            .putString("status_mode", c.statusAudienceMode.name)
+            .putStringSet("status_list", c.statusAudienceList)
+            .putLong("default_disappearing", c.defaultDisappearingSeconds)
+            .putBoolean("ai_consent", c.aiConsent)
+            .putBoolean("ai_smart_replies", c.aiSmartReplies)
+            .putString("translation_target", c.translationTarget)
+            .putString("auth_method", currentAuthMethod)
+            .putString("pairing_session_id", currentPairingSessionId)
+            .apply()
+    }
+
+    /** Restores per-account settings from [uid]'s isolated preferences file (or defaults if brand new). */
+    fun restoreAccountPreferencesSnapshot(uid: String) {
+        if (uid.isBlank()) return
+        val acctPrefs = appContext.getSharedPreferences(MultiAccountPolicy.prefsNameForAccount(uid), Context.MODE_PRIVATE)
+        val d = AppSettings()
+        if (!acctPrefs.getBoolean("initialized", false)) {
+            clearAccountScoped()
+            return
+        }
+        prefs.edit()
+            .putBoolean("enter_to_send", acctPrefs.getBoolean("enter_to_send", d.enterToSend))
+            .putBoolean("notif_messages", acctPrefs.getBoolean("notif_messages", d.messageNotifications))
+            .putBoolean("notif_groups", acctPrefs.getBoolean("notif_groups", d.groupNotifications))
+            .putBoolean("notif_calls", acctPrefs.getBoolean("notif_calls", d.callNotifications))
+            .putBoolean("notif_previews", acctPrefs.getBoolean("notif_previews", d.notificationPreviews))
+            .putBoolean("read_receipts", acctPrefs.getBoolean("read_receipts", d.readReceipts))
+            .putString("vis_last_seen", acctPrefs.getString("vis_last_seen", d.lastSeenVisibility.name))
+            .putString("vis_photo", acctPrefs.getString("vis_photo", d.photoVisibility.name))
+            .putString("vis_about", acctPrefs.getString("vis_about", d.aboutVisibility.name))
+            .putString("status_mode", acctPrefs.getString("status_mode", d.statusAudienceMode.name))
+            .putStringSet("status_list", acctPrefs.getStringSet("status_list", emptySet()) ?: emptySet())
+            .putLong("default_disappearing", acctPrefs.getLong("default_disappearing", 0L))
+            .putBoolean("ai_consent", acctPrefs.getBoolean("ai_consent", false))
+            .putBoolean("ai_smart_replies", acctPrefs.getBoolean("ai_smart_replies", false))
+            .putString("translation_target", acctPrefs.getString("translation_target", "") ?: "")
+            .apply()
+        currentAuthMethod = acctPrefs.getString("auth_method", "primary_login")
+        currentPairingSessionId = acctPrefs.getString("pairing_session_id", null)
+        _settings.value = load()
+    }
+
+    fun deleteAccountPreferencesSnapshot(uid: String) {
+        if (uid.isBlank()) return
+        val name = MultiAccountPolicy.prefsNameForAccount(uid)
+        appContext.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit()
+        prefs.edit().remove("status_mention_notified_$uid").apply()
     }
 }
