@@ -54,8 +54,10 @@ class DevicePairingPolicyTest {
         // Valid transitions before expiry
         assertTrue(DevicePairingPolicy.canTransition(PairingStatus.PENDING, PairingStatus.APPROVED, now, exp, consumed = false))
         assertTrue(DevicePairingPolicy.canTransition(PairingStatus.PENDING, PairingStatus.REJECTED, now, exp, consumed = false))
+        assertTrue(DevicePairingPolicy.canTransition(PairingStatus.PENDING, PairingStatus.CANCELLED, now, exp, consumed = false))
         assertTrue(DevicePairingPolicy.canTransition(PairingStatus.APPROVED, PairingStatus.COMPLETED, now, exp, consumed = false))
         assertTrue(DevicePairingPolicy.canTransition(PairingStatus.APPROVED, PairingStatus.REVOKED, now, exp, consumed = false))
+        assertTrue(DevicePairingPolicy.canTransition(PairingStatus.APPROVED, PairingStatus.CANCELLED, now, exp, consumed = false))
 
         // Expired sessions cannot be approved or completed
         assertFalse(DevicePairingPolicy.canTransition(PairingStatus.PENDING, PairingStatus.APPROVED, exp + 1, exp, consumed = false))
@@ -65,6 +67,7 @@ class DevicePairingPolicyTest {
         assertFalse(DevicePairingPolicy.canTransition(PairingStatus.APPROVED, PairingStatus.COMPLETED, now, exp, consumed = true))
         assertFalse(DevicePairingPolicy.canTransition(PairingStatus.COMPLETED, PairingStatus.APPROVED, now, exp, consumed = false))
         assertFalse(DevicePairingPolicy.canTransition(PairingStatus.REJECTED, PairingStatus.APPROVED, now, exp, consumed = false))
+        assertFalse(DevicePairingPolicy.canTransition(PairingStatus.CANCELLED, PairingStatus.APPROVED, now, exp, consumed = false))
         assertFalse(DevicePairingPolicy.canTransition(PairingStatus.EXPIRED, PairingStatus.APPROVED, now, exp, consumed = false))
         assertFalse(DevicePairingPolicy.canTransition(PairingStatus.REVOKED, PairingStatus.COMPLETED, now, exp, consumed = false))
     }

@@ -23,6 +23,7 @@ import com.example.data.db.AppDatabase
 import com.example.data.model.ChatNotificationSettings
 import com.example.data.model.Conversation
 import com.example.data.model.Message
+import com.example.data.model.StatusItem
 import com.example.data.prefs.AppPreferences
 import com.example.domain.DurationFormat
 import com.example.domain.Mentions
@@ -67,18 +68,20 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         nm.areNotificationsEnabled() && (Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
-    private fun openIntent(extraKey: String, value: String, requestCode: Int): PendingIntent {
+    private fun openIntent(extraKey: String, value: String, requestCode: Int, accountUid: String? = null): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(extraKey, value)
+            if (!accountUid.isNullOrBlank()) putExtra(EXTRA_ACCOUNT_UID, accountUid)
         }
         return PendingIntent.getActivity(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun broadcast(action: String, cid: String, requestCode: Int, mutable: Boolean): PendingIntent {
+    private fun broadcast(action: String, cid: String, requestCode: Int, mutable: Boolean, accountUid: String? = null): PendingIntent {
         val intent = Intent(context, NotificationActionReceiver::class.java).apply {
             this.action = action
             putExtra(EXTRA_CONVERSATION, cid)
+            if (!accountUid.isNullOrBlank()) putExtra(EXTRA_ACCOUNT_UID, accountUid)
         }
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (mutable) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE)
         return PendingIntent.getBroadcast(context, requestCode, intent, flags)
@@ -111,17 +114,20 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         if (!canPost()) return
         if (conv.isGroup && !settings.groupNotifications) return
         if (!conv.isGroup && !settings.messageNotifications) return
+        val blockedIds = runCatching { db.contactDao().blockedIds(me).toSet() }.getOrDefault(emptySet())
+        val unblockedMessages = messages.filter { it.senderId !in blockedIds }
+        if (unblockedMessages.isEmpty()) return
         val cid = conv.conversationId
         val chatSettings = db.chatSettingsDao().notificationSettings(me, cid)
         val locked = db.chatSettingsDao().isLocked(me, cid)
-        val mentioned = messages.any { it.senderId != me && Mentions.mentionsUser(it.mentionList(), me) }
+        val mentioned = unblockedMessages.any { it.senderId != me && Mentions.mentionsUser(it.mentionList(), me) }
         if (!NotificationPolicy.shouldNotify(chatSettings?.mutedUntil ?: 0L, System.currentTimeMillis(), conv.isGroup, mentioned)) return
         val content = NotificationPolicy.content(settings.notificationPreviews, chatSettings?.preview ?: ChatNotificationSettings.PREVIEW_DEFAULT, locked)
         val showText = content == NotificationPolicy.Content.FULL
         val showNames = content != NotificationPolicy.Content.HIDDEN
         val hiddenText = context.getString(R.string.notification_new_message)
         val lines = active.getOrPut(cid) { LinkedHashMap() }
-        for (m in messages) {
+        for (m in unblockedMessages) {
             if (m.senderId == me || lines.containsKey(m.messageId)) continue
             val sender = db.contactDao().get(me, m.senderId)?.customNickname ?: db.userDao().get(m.senderId)?.displayName
                 ?: context.getString(R.string.unknown_user)
@@ -146,10 +152,10 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         val requestBase = conv.conversationId.hashCode()
         val replyInput = RemoteInput.Builder(KEY_REPLY).setLabel(context.getString(R.string.notification_reply_hint)).build()
         val reply = NotificationCompat.Action.Builder(R.drawable.ic_notification, context.getString(R.string.notification_reply),
-            broadcast(ACTION_REPLY, conv.conversationId, requestBase + 1, mutable = true))
+            broadcast(ACTION_REPLY, conv.conversationId, requestBase + 1, mutable = true, accountUid = me))
             .addRemoteInput(replyInput).setAllowGeneratedReplies(false).build()
         val markRead = NotificationCompat.Action.Builder(R.drawable.ic_notification, context.getString(R.string.notification_mark_read),
-            broadcast(ACTION_MARK_READ, conv.conversationId, requestBase + 2, mutable = false)).build()
+            broadcast(ACTION_MARK_READ, conv.conversationId, requestBase + 2, mutable = false, accountUid = me)).build()
         val builder = NotificationCompat.Builder(context, if (conv.isGroup) CH_GROUPS else CH_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ContextCompat.getColor(context, R.color.pulse_accent))
@@ -163,7 +169,7 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
             .setGroup(GROUP_KEY)
             .setWhen(lines.values.last().time)
             .setVisibility(if (showNames) NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_SECRET)
-            .setContentIntent(openIntent(EXTRA_CONVERSATION, conv.conversationId, requestBase))
+            .setContentIntent(openIntent(EXTRA_CONVERSATION, conv.conversationId, requestBase, accountUid = me))
         // A locked chat opens only after the screen-lock check, so it offers no reply from the notification.
         if (!locked) builder.addAction(reply).addAction(markRead)
         try {
@@ -359,11 +365,43 @@ class NotificationHelper(private val context: Context, private val prefs: AppPre
         nm.notify(DEVICE_SECURITY_NOTIFICATION_ID + 1, notification)
     }
 
+    /** Notification shown when another user mentions [me] in an accessible status update. */
+    @SuppressLint("MissingPermission")
+    suspend fun showStatusMention(status: StatusItem, me: String) {
+        if (!canPost() || !prefs.current.messageNotifications) return
+        val blockedIds = runCatching { db.contactDao().blockedIds(me).toSet() }.getOrDefault(emptySet())
+        if (status.userId in blockedIds) return
+        val authorName = db.contactDao().get(me, status.userId)?.customNickname
+            ?: db.userDao().get(status.userId)?.displayName
+            ?: status.authorName.ifBlank { context.getString(R.string.unknown_user) }
+        val showPreviews = prefs.current.notificationPreviews
+        val title = context.getString(R.string.status_mention_notification_title)
+        val body = if (showPreviews) {
+            context.getString(R.string.status_mention_notification_body, authorName)
+        } else {
+            context.getString(R.string.notification_new_message)
+        }
+        val notification = NotificationCompat.Builder(context, CH_MESSAGES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.pulse_accent))
+            .setContentTitle(title)
+            .setContentText(body)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(openIntent(EXTRA_STATUS_OWNER, status.userId, status.statusId.hashCode(), accountUid = me))
+            .build()
+        runCatching { nm.notify("status_mention_${status.statusId}", STATUS_MENTION_NOTIFICATION_ID, notification) }
+    }
+
     companion object {
         const val CH_LIVE_LOCATION = "live_location"
         const val LIVE_LOCATION_NOTIFICATION_ID = 6
         const val DEVICE_SECURITY_NOTIFICATION_ID = 7
+        const val STATUS_MENTION_NOTIFICATION_ID = 8
         const val EXTRA_OPEN_LINKED_DEVICES = "open_linked_devices"
+        const val EXTRA_ACCOUNT_UID = "account_uid"
+        const val EXTRA_STATUS_OWNER = "open_status_owner"
         const val ACTION_STOP_LIVE_LOCATION = "com.example.pulsechat.STOP_LIVE_LOCATION"
         const val CH_MESSAGES = "messages"
         const val CH_GROUPS = "groups"

@@ -23,6 +23,7 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
@@ -271,6 +272,29 @@ class AuthRepository(
         }
     }
 
+    /**
+     * Verifies [password] against the currently signed-in account [uid] before sealing it into a
+     * pairing delegation envelope, preventing invalid or cross-account credentials from being stored.
+     */
+    suspend fun verifyCurrentUserPassword(uid: String, password: String): Pair<String, String>? {
+        val current = auth.currentUser ?: return null
+        if (current.uid != uid || password.isBlank()) return null
+        val username = db.userDao().get(uid)?.username?.takeIf { it.isNotBlank() }
+            ?: runCatching {
+                firestore.collection(Fs.USERS).document(uid).get().await().getString("username").orEmpty()
+            }.getOrDefault("")
+            .ifBlank { prefs.recentAccounts().firstOrNull().orEmpty() }
+        if (username.isBlank()) return null
+        val email = Ids.authEmailForUsername(username, projectId)
+        val ok = runCatching {
+            current.reauthenticate(EmailAuthProvider.getCredential(email, password)).await()
+            true
+        }.getOrDefault(false)
+        if (!ok) return null
+        keyManager?.storeAccountDelegation(uid, email, password)
+        return email to password
+    }
+
     /** Second step for new Google users: choose a unique username and display name. */
     suspend fun completeProfile(username: String, displayName: String) {
         val user = auth.currentUser ?: throw AuthException(AuthError.INVALID_CREDENTIALS)
@@ -362,7 +386,60 @@ class AuthRepository(
     /** Legacy accounts that still exist only on this device (shown as a hint on the sign-in screen). */
     suspend fun legacyAccountUsernames(): List<String> = db.userDao().legacyAccounts().map { it.username }.filter { it.isNotBlank() }
 
-    // ---------------------------------------------------------------- sign out
+    // ---------------------------------------------------------------- sign out & multi-account
+
+    /**
+     * Signs out the active Firebase Auth user for an account switch or "Add account" flow while
+     * preserving the outgoing account's Keystore-sealed session delegation so the user can switch
+     * back to it later without re-entering credentials.
+     */
+    suspend fun signOutForAccountSwitch() {
+        val uid = auth.currentUser?.uid ?: (session.value as? SessionState.SignedIn)?.uid
+        suppressEvaluation = true
+        try {
+            if (uid != null) {
+                signOutHooks.forEach { hook -> runCatching { hook(uid) }.onFailure { Log.w(TAG, "sign-out hook failed", it) } }
+            }
+            auth.signOut()
+            prefs.clearAccountScoped()
+            _session.value = SessionState.SignedOut
+        } finally {
+            suppressEvaluation = false
+        }
+    }
+
+    /**
+     * Restores a previously stored account [targetUid] on this device using its Keystore-protected
+     * delegation material. Returns `true` if the session was restored, or `false` if re-authentication
+     * is required.
+     */
+    suspend fun restoreAccountSession(targetUid: String): Boolean {
+        if (targetUid.isBlank()) return false
+        if (auth.currentUser?.uid == targetUid) {
+            evaluate(auth.currentUser)
+            return _session.value is SessionState.SignedIn
+        }
+        val delegated = keyManager?.readAccountDelegation(targetUid) ?: return false
+        suppressEvaluation = true
+        return try {
+            val result = auth.signInWithEmailAndPassword(delegated.first, delegated.second).await()
+            val signedInUid = result.user?.uid
+            if (signedInUid != targetUid) {
+                auth.signOut()
+                false
+            } else {
+                prefs.currentAuthMethod = "primary_login"
+                prefs.currentPairingSessionId = null
+                evaluate(result.user)
+                _session.value is SessionState.SignedIn
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "restoreAccountSession failed for $targetUid: ${e.message}")
+            false
+        } finally {
+            suppressEvaluation = false
+        }
+    }
 
     suspend fun signOut() {
         val uid = auth.currentUser?.uid

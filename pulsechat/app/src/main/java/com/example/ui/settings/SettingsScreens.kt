@@ -6,8 +6,10 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,11 +17,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
@@ -28,6 +32,7 @@ import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
@@ -44,6 +49,8 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.PersonRemove
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Storage
@@ -52,15 +59,19 @@ import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -94,6 +105,7 @@ import com.example.data.prefs.ThemeMode
 import com.example.domain.AutoDownloadSettings
 import com.example.domain.DisappearingPolicy
 import com.example.domain.MediaLimits
+import com.example.domain.MultiAccountPolicy
 import com.example.domain.StatusPolicy
 import com.example.domain.model.MessageType
 import com.example.domain.model.Visibility
@@ -160,22 +172,99 @@ data class SettingsNav(
     val open: (String) -> Unit,
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsHomeScreen(nav: SettingsNav) {
     val vm = settingsVm()
     val user by vm.user.collectAsState()
+    val savedAccounts by vm.savedAccounts.collectAsState()
+    val switchingAccount by vm.switchingAccount.collectAsState()
     var logout by remember { mutableStateOf(false) }
+    var switcherOpen by remember { mutableStateOf(false) }
+    var removeAccountTarget by remember { mutableStateOf<MultiAccountPolicy.StoredAccount?>(null) }
+
     SettingsScaffold(stringResource(R.string.settings_title), nav.back, vm) {
+        if (switchingAccount) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = Spacing.xxxl).clip(CircleShape))
+        }
         SettingsGroup {
             Row(Modifier.fillMaxWidth().clickable { nav.open("settings/profile") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 UserAvatar(user?.displayName ?: "", avatarUrl = user?.avatarUrl, size = 64.dp, colorHex = user?.avatarColorHex)
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(user?.displayName ?: "", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(user?.displayName ?: "", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                        ) {
+                            Text(
+                                stringResource(R.string.accounts_active_badge),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
                     Text(user?.statusMessage?.ifBlank { null } ?: stringResource(R.string.profile_about_empty), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     Text("@${user?.username.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
+        }
+        // Accounts section: active account, stored accounts on this device, Add Account, Switch Account, Remove from Device
+        SettingsGroup(stringResource(R.string.accounts_section_title)) {
+            val otherAccounts = savedAccounts.filter { it.uid != vm.me }
+            otherAccounts.forEach { acct ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !switchingAccount) { vm.switchAccount(acct.uid) }
+                        .heightIn(min = 60.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("stored_account_row_${acct.uid}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UserAvatar(acct.displayName, avatarUrl = acct.avatarUrl, size = 40.dp, colorHex = acct.avatarColorHex)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(acct.displayName, fontWeight = FontWeight.Medium, maxLines = 1)
+                        if (acct.username.isNotBlank()) {
+                            Text("@${acct.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    TextButton(
+                        onClick = { vm.switchAccount(acct.uid) },
+                        enabled = !switchingAccount,
+                        modifier = Modifier.testTag("account_switch_${acct.uid}"),
+                    ) {
+                        Text(stringResource(R.string.accounts_switch))
+                    }
+                    IconButton(
+                        onClick = { removeAccountTarget = acct },
+                        enabled = !switchingAccount,
+                        modifier = Modifier.testTag("account_remove_${acct.uid}"),
+                    ) {
+                        Icon(
+                            Icons.Rounded.PersonRemove,
+                            contentDescription = stringResource(R.string.accounts_remove_from_device),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+            SettingsItem(
+                Icons.Rounded.PersonAdd,
+                stringResource(R.string.accounts_add),
+                stringResource(R.string.accounts_add_sub),
+                modifier = Modifier.testTag("settings_add_account"),
+            ) { vm.addAccount() }
+            SettingsItem(
+                Icons.Rounded.SwapHoriz,
+                stringResource(R.string.accounts_switch),
+                stringResource(R.string.settings_switch_account_sub),
+                modifier = Modifier.testTag("settings_switch_account"),
+            ) { switcherOpen = true }
         }
         SettingsGroup {
             SettingsItem(
@@ -192,12 +281,127 @@ fun SettingsHomeScreen(nav: SettingsNav) {
             SettingsItem(Icons.Rounded.Info, stringResource(R.string.settings_about), modifier = Modifier.testTag("settings_about")) { nav.open("settings/about") }
         }
         SettingsGroup {
-            SettingsItem(Icons.Rounded.SwapHoriz, stringResource(R.string.settings_switch_account), stringResource(R.string.settings_switch_account_sub)) { logout = true }
             SettingsItem(Icons.AutoMirrored.Rounded.Logout, stringResource(R.string.settings_logout), titleColor = MaterialTheme.colorScheme.error) { logout = true }
         }
     }
+    if (switcherOpen) {
+        AccountSwitcherSheet(
+            activeUid = vm.me,
+            accounts = savedAccounts,
+            switching = switchingAccount,
+            onSwitch = { uid ->
+                switcherOpen = false
+                vm.switchAccount(uid)
+            },
+            onAddAccount = {
+                switcherOpen = false
+                vm.addAccount()
+            },
+            onRemoveAccount = { acct ->
+                switcherOpen = false
+                removeAccountTarget = acct
+            },
+            onDismiss = { switcherOpen = false },
+        )
+    }
+    removeAccountTarget?.let { acct ->
+        ConfirmDialog(
+            title = stringResource(R.string.accounts_remove_confirm_title, acct.displayName),
+            text = stringResource(R.string.accounts_remove_confirm_body),
+            confirmLabel = stringResource(R.string.accounts_remove_from_device),
+            onConfirm = {
+                val uid = acct.uid
+                removeAccountTarget = null
+                vm.removeAccountFromDevice(uid)
+            },
+            onDismiss = { removeAccountTarget = null },
+            destructive = true,
+        )
+    }
     if (logout) ConfirmDialog(stringResource(R.string.settings_logout_title), stringResource(R.string.settings_logout_body), stringResource(R.string.settings_logout),
         onConfirm = { logout = false; vm.signOut() }, onDismiss = { logout = false }, destructive = true)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AccountSwitcherSheet(
+    activeUid: String,
+    accounts: List<MultiAccountPolicy.StoredAccount>,
+    switching: Boolean,
+    onSwitch: (String) -> Unit,
+    onAddAccount: () -> Unit,
+    onRemoveAccount: (MultiAccountPolicy.StoredAccount) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                stringResource(R.string.accounts_switcher_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            accounts.forEach { acct ->
+                val isCurrent = acct.uid == activeUid
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isCurrent) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface)
+                        .clickable(enabled = !isCurrent && !switching) { onSwitch(acct.uid) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .testTag("switcher_account_${acct.uid}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UserAvatar(acct.displayName, avatarUrl = acct.avatarUrl, size = 44.dp, colorHex = acct.avatarColorHex)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(acct.displayName, fontWeight = FontWeight.SemiBold)
+                            if (isCurrent) {
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    stringResource(R.string.accounts_active_badge),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        if (acct.username.isNotBlank()) {
+                            Text("@${acct.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (isCurrent) {
+                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    } else {
+                        IconButton(onClick = { onRemoveAccount(acct) }) {
+                            Icon(
+                                Icons.Rounded.PersonRemove,
+                                contentDescription = stringResource(R.string.accounts_remove_from_device),
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            FilledTonalButton(
+                onClick = onAddAccount,
+                enabled = !switching,
+                modifier = Modifier.fillMaxWidth().testTag("switcher_add_account"),
+            ) {
+                Icon(Icons.Rounded.PersonAdd, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.accounts_add))
+            }
+        }
+    }
 }
 
 @Composable

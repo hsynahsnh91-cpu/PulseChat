@@ -193,5 +193,48 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+    /**
+     * v6 -> v7:
+     * - Feature 1 & 2 (`statuses` + `status_likes`): status music track/segment metadata,
+     *   structured status mentions, resharing permission & attribution, and status likes.
+     * - Feature 3 (`conversations` + `messages`): group `@all` permission & cooldown watermark,
+     *   anonymous polls, and poll expiration timestamp.
+     * - Feature 5 (`messages`): media quality mode (`STANDARD`, `HD`, `ORIGINAL`) and original byte size.
+     */
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // conversations: group @all permission and cooldown watermark
+            db.execSQL("ALTER TABLE `conversations` ADD COLUMN `onlyAdminsCanMentionAll` INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE `conversations` ADD COLUMN `lastMentionAllAt` INTEGER NOT NULL DEFAULT 0")
+
+            // messages: advanced polls + media quality metadata
+            db.execSQL("ALTER TABLE `messages` ADD COLUMN `pollAnonymous` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `messages` ADD COLUMN `pollExpiresAt` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `messages` ADD COLUMN `mediaQuality` TEXT NOT NULL DEFAULT 'STANDARD'")
+            db.execSQL("ALTER TABLE `messages` ADD COLUMN `originalSizeBytes` INTEGER NOT NULL DEFAULT 0")
+
+            // statuses: music metadata, mentions, resharing, likes summary
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `musicTrackId` TEXT")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `musicTitle` TEXT")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `musicArtist` TEXT")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `musicUrl` TEXT")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `musicStartMs` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `musicDurationMs` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `mentions` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `allowReshare` INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `resharedFromStatusId` TEXT")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `resharedFromUserId` TEXT")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `resharedFromAuthorName` TEXT")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `likeCount` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `statuses` ADD COLUMN `isLikedByMe` INTEGER NOT NULL DEFAULT 0")
+
+            // status_likes table
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `status_likes` (`statusId` TEXT NOT NULL, `userId` TEXT NOT NULL, " +
+                    "`likedAt` INTEGER NOT NULL, PRIMARY KEY(`statusId`, `userId`))"
+            )
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }

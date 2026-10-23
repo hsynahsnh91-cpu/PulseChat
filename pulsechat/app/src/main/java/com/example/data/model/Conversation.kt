@@ -53,6 +53,9 @@ data class Conversation(
     val remoteUpdatedAt: Long = 0L,
     val isLeft: Boolean = false,
     val isLocalOnly: Boolean = false,
+    // v7 — Feature 3: Group @all permission & cooldown watermark
+    val onlyAdminsCanMentionAll: Boolean = true,
+    val lastMentionAllAt: Long = 0L,
 ) {
     fun getParticipantsList(): List<String> = participantIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
     fun getAdminList(): List<String> = adminIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -66,6 +69,8 @@ data class Conversation(
         createdBy = createdBy,
         onlyAdminsCanSend = onlyAdminsCanSend,
         onlyAdminsCanEditInfo = onlyAdminsCanEditInfo,
+        onlyAdminsCanMentionAll = onlyAdminsCanMentionAll,
+        lastMentionAllAt = lastMentionAllAt,
     )
 
     companion object {

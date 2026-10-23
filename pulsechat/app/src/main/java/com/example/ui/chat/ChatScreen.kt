@@ -128,6 +128,8 @@ import com.example.domain.DurationFormat
 import com.example.domain.GroupPolicy
 import com.example.domain.Ids
 import com.example.domain.MediaLimits
+import com.example.domain.MediaQuality
+import com.example.domain.MediaQualityPolicy
 import com.example.domain.MessagePolicy
 import com.example.domain.NetworkKind
 import com.example.domain.TextTools
@@ -268,6 +270,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     var contactSheet by remember { mutableStateOf(false) }
     var pendingLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var pollOpen by remember { mutableStateOf(false) }
+    var editPollFor by remember { mutableStateOf<Message?>(null) }
     var aiToolsOpen by remember { mutableStateOf(false) }
     var consentAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var muteOpen by remember { mutableStateOf(false) }
@@ -580,6 +583,7 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
                         onReactions = { m -> reactionsDetailFor = m },
                         onMessageContact = { m -> vm.messageContact(m) },
                         onShowEdits = { m -> editHistoryFor = m },
+                        onEditPoll = { m -> editPollFor = m },
                         live = LiveLocationSupport(
                             observe = vm::observeLive, now = vm::serverNow,
                             onOpen = { m -> m.liveId?.let { nav.openLiveLocation(m.conversationId, it) } },
@@ -778,29 +782,47 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
         }
     }
     pendingMedia?.let { (uri, video) ->
+        val mediaType = if (video) MessageType.VIDEO else MessageType.IMAGE
+        val maxBytes = remember(mediaType) { container.media.effectiveMaxBytes(mediaType) }
         val maxVideoBytes = remember { container.media.effectiveMaxBytes(MessageType.VIDEO) }
+        val probe by produceState<MediaQualityPolicy.MediaProbe?>(null, uri, video) {
+            value = runCatching { vm.probeMedia(uri, mediaType) }.getOrNull()
+        }
+        var selectedQuality by remember(uri) { mutableStateOf(MediaQuality.STANDARD) }
+        val qualityOptions = remember(probe, maxBytes) {
+            probe?.let { p -> MediaQuality.entries.map { q -> MediaQualityPolicy.describeOption(q, p, maxBytes) } }.orEmpty()
+        }
+        val selectedInfo = qualityOptions.firstOrNull { it.quality == selectedQuality }
         // A video that is too large to send as it is can be shortened in the editor first.
         val originalBytes by produceState(0L, uri, video) {
             value = if (!video) 0L else withContext(Dispatchers.IO) { container.videoTrimmer.probe(uri).sizeBytes }
         }
         val edited = editedVideo?.takeIf { it.uri == uri }
-        val tooLarge = video && edited == null && originalBytes > maxVideoBytes
+        val tooLarge = (video && edited == null && originalBytes > maxVideoBytes) || (selectedInfo?.exceedsLimit == true)
         val note = when {
             edited != null -> stringResource(if (edited.trimmed) R.string.video_edited_trimmed else R.string.video_edited_cover, DurationFormat.clock(edited.durationMs))
-            tooLarge -> stringResource(R.string.video_too_large_hint, MediaLimits.humanSize(maxVideoBytes))
+            tooLarge -> stringResource(R.string.video_too_large_hint, MediaLimits.humanSize(maxBytes))
             else -> null
         }
         MediaCaptionDialog(
-            uri, video, title,
+            uri = uri,
+            isVideo = video,
+            title = title,
             onDismiss = { pendingMedia = null; editedVideo = null; videoSource = null },
             onEdit = if (!video) ({ editImage = uri }) else ({ editVideo = videoSource ?: uri }),
-            note = note, noteIsWarning = tooLarge, sendEnabled = !tooLarge,
+            note = note,
+            noteIsWarning = tooLarge,
+            sendEnabled = !tooLarge,
+            qualityOptions = qualityOptions,
+            selectedQuality = selectedQuality,
+            onQualityChange = { selectedQuality = it },
+            sourceProbe = probe,
         ) { caption ->
             pendingMedia = null
             val cover = edited?.let { e -> VideoCover(e.coverMs, e.cover?.let { b -> android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP) }) }
             editedVideo = null
             videoSource = null
-            vm.sendMedia(uri, if (video) MessageType.VIDEO else MessageType.IMAGE, caption, cover)
+            vm.sendMedia(uri, mediaType, caption, cover, selectedQuality)
         }
     }
     editVideo?.let { src ->
@@ -889,7 +911,26 @@ fun ChatScreen(conversationId: String, jumpTo: String?, nav: ChatNav) {
     suggestions?.let { list ->
         ActionSuggestionsSheet(list, onJump = { id -> vm.dismissSuggestions(); vm.jumpTo(id) }, onCreate = vm::createRemindersFrom, onDismiss = vm::dismissSuggestions)
     }
-    if (pollOpen) PollDialog(onCreate = { q, o -> vm.sendPoll(q, o); pollOpen = false }, onDismiss = { pollOpen = false })
+    if (pollOpen) {
+        PollDialog(
+            onCreateWithOptions = { q, o, anon, dur ->
+                vm.sendPoll(q, o, anon, dur)
+                pollOpen = false
+            },
+            onDismiss = { pollOpen = false },
+        )
+    }
+    editPollFor?.let { m ->
+        EditPollDialog(
+            initialQuestion = m.pollQuestion ?: m.content,
+            initialOptions = m.pollOptionList(),
+            onSave = { q, o ->
+                vm.editPoll(m.messageId, q, o)
+                editPollFor = null
+            },
+            onDismiss = { editPollFor = null },
+        )
+    }
     if (aiToolsOpen) {
         ModalBottomSheet(onDismissRequest = { aiToolsOpen = false }) {
             Column(Modifier.padding(bottom = 24.dp)) {

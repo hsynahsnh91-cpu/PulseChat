@@ -24,7 +24,34 @@ data class StatusItem(
     val uploadProgress: Int = 0,
     val audience: String = "", // Comma-separated viewer IDs (own statuses only)
     val storagePath: String? = null,
+    // v7 — Feature 1: Status music metadata & segment
+    val musicTrackId: String? = null,
+    val musicTitle: String? = null,
+    val musicArtist: String? = null,
+    val musicUrl: String? = null,
+    val musicStartMs: Long = 0L,
+    val musicDurationMs: Long = 0L,
+    // v7 — Feature 2: Structured mentions, resharing & likes
+    val mentions: String = "", // Comma-separated mentioned user IDs
+    val allowReshare: Boolean = true,
+    val resharedFromStatusId: String? = null,
+    val resharedFromUserId: String? = null,
+    val resharedFromAuthorName: String? = null,
+    val likeCount: Int = 0,
+    val isLikedByMe: Boolean = false,
 ) {
+    val mentionedUserIds: List<String>
+        get() = mentions.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+    val audienceUserIds: List<String>
+        get() = audience.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+    val hasMusic: Boolean
+        get() = !musicTrackId.isNullOrBlank() || !musicUrl.isNullOrBlank()
+
+    val isReshared: Boolean
+        get() = !resharedFromStatusId.isNullOrBlank()
+
     companion object {
         const val UPLOAD_PENDING = "PENDING"
         const val UPLOAD_UPLOADING = "UPLOADING"

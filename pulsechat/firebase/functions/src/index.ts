@@ -15,7 +15,7 @@
  * Requires the Blaze plan. The Firestore database ID must match the app's named database.
  */
 import { setGlobalOptions, logger } from "firebase-functions/v2";
-import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { initializeApp } from "firebase-admin/app";
@@ -34,6 +34,7 @@ import {
   PairingSessionDoc,
   sealCustomTokenEnvelope,
   shouldNotify,
+  statusMentionPayload,
   validatePairingExchange,
 } from "./payloads";
 
@@ -106,10 +107,34 @@ export const onMessageCreated = onDocumentCreated(
           tokens: devices.map((d) => d.token),
         };
         if (!shouldNotify(msg, state, now)) return;
-        await push(uid, messagePayload(cid, mid), 24 * 3600);
+        await push(uid, messagePayload(cid, mid, uid), 24 * 3600);
       }),
     );
     logger.debug("message fan-out done", { cid, mid });
+  },
+);
+
+export const onStatusCreated = onDocumentCreated(
+  { document: "statuses/{sid}", database: DATABASE },
+  async (event) => {
+    const status = event.data?.data();
+    if (!status) return;
+    const sid = event.params.sid;
+    const ownerId = String(status.ownerId ?? "");
+    const audience = new Set<string>(Array.isArray(status.audience) ? status.audience : []);
+    const mentions: string[] = Array.isArray(status.mentions) ? status.mentions : [];
+    const eligible = [...new Set(mentions)].filter((uid) => uid && uid !== ownerId && audience.has(uid));
+    if (eligible.length === 0) return;
+    await Promise.all(
+      eligible.map(async (uid) => {
+        const [blockedByRecipient, blockedByOwner] = await Promise.all([
+          db.doc(`users/${uid}/blocked/${ownerId}`).get(),
+          db.doc(`users/${ownerId}/blocked/${uid}`).get(),
+        ]);
+        if (blockedByRecipient.exists || blockedByOwner.exists) return;
+        await push(uid, statusMentionPayload(sid, ownerId, uid), 24 * 3600);
+      }),
+    );
   },
 );
 
@@ -281,12 +306,6 @@ export const exchangeDevicePairing = onRequest({ cors: true }, async (req, res) 
     const customToken = await getAuth().createCustomToken(outcome.ownerUid, {
       linkedDeviceId: outcome.deviceId,
     });
-    await push(
-      outcome.ownerUid,
-      deviceLinkedPayload(outcome.deviceId, outcome.deviceName),
-      24 * 3600,
-      outcome.deviceId,
-    ).catch(() => undefined);
 
     res.status(200).json({
       uid: outcome.ownerUid,
@@ -301,9 +320,10 @@ export const exchangeDevicePairing = onRequest({ cors: true }, async (req, res) 
 
 /**
  * When a linked device is revoked, delete its FCM token immediately so it receives no further
- * notifications; when a new QR-linked device becomes active, notify the account's other devices.
+ * notifications; when a new QR-linked device becomes active (created or re-linked), notify the
+ * account's other active devices once.
  */
-export const onLinkedDeviceUpdated = onDocumentUpdated(
+export const onLinkedDeviceUpdated = onDocumentWritten(
   { document: "users/{uid}/linkedDevices/{deviceId}", database: DATABASE },
   async (event) => {
     const before = event.data?.before.data();
@@ -324,13 +344,31 @@ export const purgeExpired = onSchedule("every 60 minutes", async () => {
   for (const query of [
     db.collectionGroup("messages").where("expiresAt", "<", now).limit(400),
     db.collection("statuses").where("expiresAt", "<", now).limit(400),
-    db.collection("devicePairings").where("expiresAt", "<", now).limit(400),
+    db.collection("devicePairings").where("expiresAt", "<", now).limit(200),
     db.collection("devicePairingCodes").where("expiresAt", "<", now).limit(400),
   ]) {
     const snap = await query.get();
     const batch = db.batch();
-    snap.docs.forEach((d) => batch.delete(d.ref));
+    snap.docs.forEach((d) => {
+      if (d.ref.parent.id === "devicePairings") {
+        batch.delete(d.ref.collection("exchange").doc("envelope"));
+      }
+      batch.delete(d.ref);
+    });
     if (!snap.empty) await batch.commit();
+    // Clean up likes/views subcollections for expired statuses.
+    if (snap.docs.length > 0 && snap.docs[0].ref.parent.id === "statuses") {
+      for (const statusDoc of snap.docs) {
+        for (const sub of ["likes", "views"]) {
+          const subSnap = await statusDoc.ref.collection(sub).limit(400).get();
+          if (!subSnap.empty) {
+            const subBatch = db.batch();
+            subSnap.docs.forEach((s) => subBatch.delete(s.ref));
+            await subBatch.commit();
+          }
+        }
+      }
+    }
     deleted += snap.size;
   }
   logger.info("purged expired documents", { deleted });

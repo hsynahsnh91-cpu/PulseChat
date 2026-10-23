@@ -318,16 +318,64 @@ fun MentionSuggestions(candidates: State<List<Mentions.Candidate>>, participants
     val list = candidates.value
     if (list.isEmpty()) return
     val avatars = remember(participants) { participants.associate { it.userId to it.avatarUrl } }
+    val allLabel = stringResource(R.string.mention_all_label)
+    val allSub = stringResource(R.string.mention_all_subtitle)
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(Radii.lg), shadowElevation = 2.dp,
         modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.xs).heightIn(max = 220.dp),
     ) {
         LazyColumn {
             items(list, key = { it.userId }) { c ->
-                Row(Modifier.fillMaxWidth().clickable { onPick(c) }.heightIn(min = 48.dp).padding(horizontal = Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
-                    UserAvatar(c.displayName, avatarUrl = avatars[c.userId], size = 32.dp)
+                val isAll = c.userId == Mentions.ALL_ID
+                val displayLabel = if (isAll) "@${Mentions.ALL_ID} · $allLabel" else c.displayName
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onPick(if (isAll) Mentions.Candidate(Mentions.ALL_ID, Mentions.ALL_ID) else c)
+                        }
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = Spacing.lg, vertical = 6.dp)
+                        .testTag("mention_suggestion_${c.userId}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isAll) {
+                        Box(
+                            Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Rounded.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        UserAvatar(c.displayName, avatarUrl = avatars[c.userId], size = 32.dp)
+                    }
                     Spacer(Modifier.width(Spacing.md))
-                    Text(c.displayName, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            displayLabel,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isAll) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (isAll) {
+                            Text(
+                                allSub,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
             }
         }

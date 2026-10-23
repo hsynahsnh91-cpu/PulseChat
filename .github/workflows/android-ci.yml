@@ -349,13 +349,13 @@ jobs:
           mkdir -p "$LOG_DIR"
           { npm ci --no-audit --no-fund && npm run build && npm test; } 2>&1 | tee "$LOG_DIR/functions.log"
 
-      - name: Firestore rules tests (emulator)
+      - name: Firestore and Storage rules tests (emulator)
         working-directory: pulsechat
         run: |
           set -o pipefail
           npm install -g firebase-tools@14 --no-audit --no-fund
           npm --prefix firebase/rules-tests ci --no-audit --no-fund
-          firebase emulators:exec --only firestore --project demo-pulsechat "npm --prefix firebase/rules-tests test" 2>&1 | tee "$LOG_DIR/rules.log"
+          firebase emulators:exec --only firestore,storage --project demo-pulsechat "npm --prefix firebase/rules-tests test" 2>&1 | tee "$LOG_DIR/rules.log"
 
       - name: Publish backend digest
         if: always()

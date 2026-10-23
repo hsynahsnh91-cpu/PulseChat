@@ -7,9 +7,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Download
@@ -39,11 +44,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.domain.MediaLimits
+import com.example.domain.MediaQuality
 import com.example.domain.MediaRefs
 import com.example.domain.model.MessageType
 import com.example.domain.model.TransferState
@@ -106,8 +114,32 @@ fun MediaViewerScreen(messageId: String, onBack: () -> Unit) {
                 navigationIconContentColor = Color.White, actionIconContentColor = Color.White),
             title = {
                 Column {
-                    Text(if (m?.senderId == container.authRepository.currentUid) stringResource(R.string.you) else sender?.displayName ?: "")
-                    if (m != null) Text(Formatters.dateTime(context, m.createdAt), style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (m?.senderId == container.authRepository.currentUid) stringResource(R.string.you) else sender?.displayName ?: "")
+                        val quality = MediaQuality.fromWire(m?.mediaQuality)
+                        if (quality == MediaQuality.HD || quality == MediaQuality.ORIGINAL) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(if (quality == MediaQuality.ORIGINAL) R.string.media_quality_badge_original else R.string.media_quality_badge_hd),
+                                color = Color.White,
+                                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .testTag("viewer_quality_badge"),
+                            )
+                        }
+                    }
+                    if (m != null) {
+                        val sep = stringResource(R.string.list_separator)
+                        val details = buildList {
+                            add(Formatters.dateTime(context, m.createdAt))
+                            if (m.mediaWidth > 0 && m.mediaHeight > 0) add("${m.mediaWidth}×${m.mediaHeight}")
+                            if (m.mediaSizeBytes > 0L) add(MediaLimits.humanSize(m.mediaSizeBytes))
+                        }.joinToString(sep)
+                        Text(details, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                    }
                 }
             },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back)) } },

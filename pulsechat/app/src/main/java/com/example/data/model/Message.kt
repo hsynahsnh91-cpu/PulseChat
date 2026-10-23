@@ -80,6 +80,12 @@ data class Message(
     val mediaThumb: String? = null,
     /** Where the cover frame is in the video (ms), so the downloaded video shows the same frame. */
     val mediaCoverMs: Long = 0L,
+    // v7 — Feature 3: Advanced polls (anonymous voting & expiration)
+    val pollAnonymous: Boolean = false,
+    val pollExpiresAt: Long = 0L,
+    // v7 — Feature 5: Media quality mode (STANDARD, HD, ORIGINAL) & original source size
+    val mediaQuality: String = "STANDARD",
+    val originalSizeBytes: Long = 0L,
 ) {
     fun reactionMap(): Map<String, String> = parseStringMap(reactions)
     fun mentionList(): List<String> = mentions.split(",").map { it.trim() }.filter { it.isNotEmpty() }

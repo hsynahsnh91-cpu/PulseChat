@@ -9,8 +9,8 @@ import { describe, test } from "node:test";
 import {
   ANDROID_FIREBASE_PROJECT, ANDROID_FIRESTORE_DATABASE_ID, avatarColorFor, authEmailForUsername, chunkCount, configFromEnv, deliveryStatus,
   directConversationId, extensionFor, Fs, generate10DigitId, isStorageUnavailable, isStoreRef, javaHashCode, lastMessageData, MEDIA_CHUNK_BYTES,
-  MEDIA_MAX_BYTES, MEDIA_MAX_CHUNKS, MEDIA_SCHEME, mediaIdFor, messageCreateData, newMediaId, passwordError, preview, storeIdOf, storeRef,
-  typeForMime, userProfileData, usernameError, type ChatMessage, type Conversation,
+  MEDIA_MAX_BYTES, MEDIA_MAX_CHUNKS, MEDIA_SCHEME, mediaIdFor, messageCreateData, newMediaId, passwordError, preview, scopeFieldsForStoragePath,
+  storeIdOf, storeRef, typeForMime, userProfileData, usernameError, type ChatMessage, type Conversation,
 } from "../src/pulsechat";
 
 const repo = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
@@ -177,11 +177,13 @@ describe("built-in media store (MediaRefs.kt and the media rules)", () => {
     assert.ok(media.includes(`request.resource.data['size'] <= ${MEDIA_MAX_BYTES}`), "rules size limit");
     assert.ok(media.includes(`request.resource.data.chunks <= ${MEDIA_MAX_CHUNKS}`), "rules chunk limit");
     assert.ok(media.includes(`request.resource.data.data.size() <= ${MEDIA_CHUNK_BYTES}`), "rules chunk size");
-    assert.deepEqual(rulesKeys("match /media/{mediaId}"), ["owner", "mime", "size", "chunks", "createdAt"]);
+    assert.deepEqual(rulesKeys("match /media/{mediaId}"), ["owner", "mime", "size", "chunks", "createdAt", "scope", "conversationId", "statusId"]);
     assert.deepEqual(rulesKeys("match /chunks/{index}"), ["owner", "data"]);
+    const storageRules = repo("pulsechat/storage.rules");
+    assert.ok(!storageRules.includes("allow read: if signedIn();"), "storage.rules must not allow unrestricted signed-in reads");
   });
 
-  test("references and chunking", () => {
+  test("references, scope derivation and chunking", () => {
     const id = newMediaId();
     assert.equal(storeIdOf(storeRef(id)), id);
     assert.ok(isStoreRef(`pulsemedia://${id}`));
@@ -193,6 +195,11 @@ describe("built-in media store (MediaRefs.kt and the media rules)", () => {
     assert.equal(chunkCount(MEDIA_MAX_BYTES), MEDIA_MAX_CHUNKS);
     const key = "123e4567-e89b-12d3-a456-426614174000";
     assert.equal(mediaIdFor(key), `md${key.replace(/-/g, "")}`, "same derivation as MediaRefs.mediaIdFor");
+    assert.deepEqual(scopeFieldsForStoragePath("chat-media/dm_a_b/a/m1.png"), { scope: "chat", conversationId: "dm_a_b" });
+    assert.deepEqual(scopeFieldsForStoragePath("group-photos/grp_123/avatar.jpg"), { scope: "group", conversationId: "grp_123" });
+    assert.deepEqual(scopeFieldsForStoragePath("status-media/u1/st_1.jpg"), { scope: "status", statusId: "st_1" });
+    assert.deepEqual(scopeFieldsForStoragePath("profile-photos/u1/avatar.jpg"), { scope: "profile" });
+    assert.deepEqual(scopeFieldsForStoragePath(undefined), {});
   });
 
   test("only 'no usable bucket' errors switch to the built-in store", () => {

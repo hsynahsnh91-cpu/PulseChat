@@ -33,7 +33,10 @@ import com.example.domain.TextTools
 import com.example.data.model.ContactRow
 import com.example.data.repository.ChatException
 import com.example.data.repository.GroupValidationException
+import com.example.domain.GroupPolicy
 import com.example.domain.Ids
+import com.example.domain.MediaQuality
+import com.example.domain.MediaQualityPolicy
 import com.example.domain.MediaRefs
 import com.example.domain.Mentions
 import com.example.domain.MessagePolicy
@@ -154,7 +157,13 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
     val mentionSuggestions: StateFlow<List<Mentions.Candidate>> = combine(draft, participants, conversation) { value, users, conv ->
         if (conv?.isGroup != true) return@combine emptyList()
         val q = Mentions.activeQuery(value.text, value.selection.end) ?: return@combine emptyList()
-        Mentions.suggestions(q, users.map { Mentions.Candidate(it.userId, it.displayName) }, exclude = me)
+        val allowAll = GroupPolicy.canMentionAll(conv.roster(), me)
+        Mentions.suggestions(
+            query = q,
+            candidates = users.map { Mentions.Candidate(it.userId, it.displayName) },
+            exclude = me,
+            allowAll = allowAll,
+        )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // ---- selection, search, jumps
@@ -316,8 +325,21 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
             return
         }
         if (conv.isAiConversation) { askAssistant(text); return }
+        val allowAll = conv.isGroup && GroupPolicy.canMentionAll(conv.roster(), me)
+        if (conv.isGroup && Mentions.containsAllToken(text)) {
+            if (!allowAll) {
+                toast(R.string.mention_all_admin_only)
+                return
+            }
+            val now = serverNow()
+            if (!GroupPolicy.canMentionAllNow(conv.roster(), me, now)) {
+                val mins = ((GroupPolicy.mentionAllCooldownRemainingMs(conv.roster(), now) + 59_999L) / 60_000L).toInt().coerceAtLeast(1)
+                _events.tryEmit(ChatEvent.Toast(c.app.getString(R.string.mention_all_cooldown, mins)))
+                return
+            }
+        }
         val reply = replyTo.value
-        val mentions = Mentions.resolve(text, chosenMentions)
+        val mentions = Mentions.resolve(text, chosenMentions, allowAll = allowAll)
         draft.value = TextFieldValue("")
         replyTo.value = null
         chosenMentions.clear()
@@ -325,11 +347,23 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
         launchSafely { repo.sendText(conversationId, text, reply, mentions) }
     }
 
-    fun sendMedia(uri: Uri, type: MessageType, caption: String, cover: VideoCover? = null) {
+    fun sendMedia(
+        uri: Uri,
+        type: MessageType,
+        caption: String,
+        cover: VideoCover? = null,
+        quality: MediaQuality = MediaQuality.STANDARD,
+    ) {
         val reply = replyTo.value
         replyTo.value = null
-        launchSafely { repo.sendMediaUri(conversationId, uri, type, caption, reply, cover) }
+        launchSafely { repo.sendMediaUri(conversationId, uri, type, caption, reply, cover, quality) }
     }
+
+    suspend fun probeMedia(uri: Uri, type: MessageType): MediaQualityPolicy.MediaProbe =
+        c.media.probeUri(uri, type)
+
+    fun maxMediaBytes(type: MessageType): Long =
+        c.media.effectiveMaxBytes(type)
 
     fun sendContact(name: String, phone: String) = launchSafely { repo.sendContact(conversationId, name, phone) }
 
@@ -358,7 +392,17 @@ class ChatViewModel(private val c: AppContainer, val conversationId: String, ini
         }
     }
     fun sendLocation(lat: Double, lng: Double) = launchSafely { repo.sendLocation(conversationId, lat, lng) }
-    fun sendPoll(question: String, options: List<String>) = launchSafely { repo.sendPoll(conversationId, question, options) }
+    fun sendPoll(
+        question: String,
+        options: List<String>,
+        anonymous: Boolean = false,
+        durationSeconds: Long = 0L,
+    ) = launchSafely { repo.sendPoll(conversationId, question, options, anonymous, durationSeconds) }
+
+    fun editPoll(messageId: String, question: String, options: List<String>) = launchSafely {
+        repo.editPoll(messageId, question, options)
+        toast(R.string.poll_edited_toast)
+    }
 
     fun startRecording(): Boolean {
         c.voicePlayer.stop()

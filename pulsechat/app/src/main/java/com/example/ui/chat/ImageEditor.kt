@@ -8,6 +8,8 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,12 +33,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.Redo
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Crop
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -83,10 +89,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.R
 import com.example.domain.ImageEditMath
+import com.example.domain.PhotoStickerMath
 import com.example.ui.common.appContainer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
@@ -94,7 +102,7 @@ import kotlin.math.min
 import kotlin.math.sin
 import com.example.ui.common.LightSystemBarIcons
 
-private enum class EditTool { CROP, DRAW, TEXT, ARROW, BLUR }
+private enum class EditTool { CROP, DRAW, TEXT, ARROW, BLUR, STICKER }
 
 /** Edit operations in normalized image coordinates (0..1), so preview and export match exactly. */
 private sealed class EditOp {
@@ -103,14 +111,15 @@ private sealed class EditOp {
     data class Label(val text: String, val at: Offset, val color: Color, val size: Float) : EditOp()
     data class Blur(val box: ImageEditMath.Box) : EditOp()
     data class Crop(val before: ImageEditMath.Box) : EditOp() // undo record for crop changes
+    data class StickersChange(val before: List<PhotoStickerMath.Sticker>, val after: List<PhotoStickerMath.Sticker>) : EditOp()
 }
 
 private val PALETTE = com.example.ui.theme.DrawingPalette.Colors
 
 /**
- * Photo editor shown before sending: crop, draw, text, arrows and privacy blur. The blur replaces
- * the pixels of the selected area (it is not an overlay), so it can't be reversed from the sent
- * photo. [onDone] receives a new JPEG (content:// URI) or the original URI if nothing changed.
+ * Photo editor shown before sending or posting a status: crop, draw, text, arrows, privacy blur,
+ * and movable/resizable/rotatable photo stickers with undo/redo.
+ * [onDone] receives a new JPEG (content:// URI) or the original URI if nothing changed.
  */
 @Composable
 fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit) {
@@ -122,12 +131,51 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
     var loadFailed by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     val ops = remember { mutableStateListOf<EditOp>() }
+    val redoOps = remember { mutableStateListOf<EditOp>() }
+    var stickers by remember { mutableStateOf<List<PhotoStickerMath.Sticker>>(emptyList()) }
+    val stickerBitmaps = remember { mutableMapOf<String, Bitmap>() }
+    var selectedStickerId by remember { mutableStateOf<String?>(null) }
     var crop by remember { mutableStateOf(ImageEditMath.FULL) }
     var tool by remember { mutableStateOf(EditTool.DRAW) }
     var color by remember { mutableStateOf(PALETTE[2]) }
     var width by remember { mutableStateOf(0.012f) }
     var drawing by remember { mutableStateOf<EditOp?>(null) }
     var textAt by remember { mutableStateOf<Offset?>(null) }
+
+    fun pushOp(op: EditOp) {
+        ops += op
+        redoOps.clear()
+    }
+
+    fun applyStickersTransform(next: List<PhotoStickerMath.Sticker>, recordUndo: Boolean = true) {
+        if (next == stickers) return
+        if (recordUndo) {
+            pushOp(EditOp.StickersChange(before = stickers, after = next))
+        }
+        stickers = next
+    }
+
+    val pickStickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val bmp = withContext(Dispatchers.IO) { loadForEditing(context, uri, maxDim = 720) }
+                if (bmp != null) {
+                    val uriKey = uri.toString()
+                    stickerBitmaps[uriKey] = bmp
+                    val aspect = bmp.width.toFloat() / bmp.height.toFloat().coerceAtLeast(1f)
+                    val newSticker = PhotoStickerMath.createSticker(
+                        id = UUID.randomUUID().toString(),
+                        uriString = uriKey,
+                        aspectRatio = aspect,
+                        existingCount = stickers.size,
+                    )
+                    applyStickersTransform(stickers + newSticker, recordUndo = true)
+                    selectedStickerId = newSticker.id
+                    tool = EditTool.STICKER
+                }
+            }
+        }
+    }
 
     LaunchedEffect(source) {
         val bmp = withContext(Dispatchers.IO) { loadForEditing(context, source) }
@@ -148,19 +196,38 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
                 IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, stringResource(R.string.action_cancel), tint = Color.White) }
                 Text(stringResource(R.string.editor_title), color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 IconButton(onClick = {
-                    when (val last = ops.removeLastOrNull()) {
+                    val last = ops.removeLastOrNull() ?: return@IconButton
+                    redoOps += last
+                    when (last) {
                         is EditOp.Crop -> crop = last.before
+                        is EditOp.StickersChange -> {
+                            stickers = last.before
+                            if (selectedStickerId != null && stickers.none { it.id == selectedStickerId }) {
+                                selectedStickerId = stickers.lastOrNull()?.id
+                            }
+                        }
                         else -> Unit
                     }
                 }, enabled = ops.isNotEmpty()) { Icon(Icons.AutoMirrored.Rounded.Undo, stringResource(R.string.editor_undo), tint = if (ops.isNotEmpty()) Color.White else Color.Gray) }
                 IconButton(onClick = {
+                    val next = redoOps.removeLastOrNull() ?: return@IconButton
+                    ops += next
+                    when (next) {
+                        is EditOp.StickersChange -> {
+                            stickers = next.after
+                            selectedStickerId = stickers.lastOrNull()?.id
+                        }
+                        else -> Unit
+                    }
+                }, enabled = redoOps.isNotEmpty()) { Icon(Icons.AutoMirrored.Rounded.Redo, stringResource(R.string.action_next), tint = if (redoOps.isNotEmpty()) Color.White else Color.Gray) }
+                IconButton(onClick = {
                     val b = preview ?: return@IconButton
-                    if (ops.isEmpty() && crop == ImageEditMath.FULL) { onDone(source); return@IconButton }
+                    if (ops.isEmpty() && stickers.isEmpty() && crop == ImageEditMath.FULL) { onDone(source); return@IconButton }
                     saving = true
                     scope.launch {
                         val uri = withContext(Dispatchers.Default) {
                             runCatching {
-                                val out = renderFinal(b, ops.toList(), crop)
+                                val out = renderFinal(b, ops.toList(), stickers, stickerBitmaps, crop)
                                 val (file, uri) = container.media.newCaptureFile("jpg")
                                 file.outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 92, it) }
                                 uri
@@ -185,56 +252,95 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
                         val tolerance = with(density) { 28.dp.toPx() } / max(1f, min(shown.width, shown.height))
                         var handle by remember { mutableStateOf(ImageEditMath.Handle.MOVE) }
                         var cropStart by remember { mutableStateOf(crop) }
+                        var stickersBeforeDrag by remember { mutableStateOf(stickers) }
+                        var draggingStickerId by remember { mutableStateOf<String?>(null) }
                         var lastNorm by remember { mutableStateOf(Offset.Zero) }
                         var dragStart by remember { mutableStateOf(Offset.Zero) }
                         Image(img.asImageBitmap(), contentDescription = stringResource(R.string.editor_photo), contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                         Canvas(
                             Modifier.fillMaxSize()
-                                .pointerInput(tool, shown) {
-                                    detectTapGestures { p -> if (tool == EditTool.TEXT) textAt = norm(p) }
+                                .pointerInput(tool, shown, stickers) {
+                                    detectTapGestures { p ->
+                                        val n = norm(p)
+                                        val hitSticker = PhotoStickerMath.hitTestTopmost(stickers, n.x, n.y)
+                                        if (hitSticker != null) {
+                                            selectedStickerId = hitSticker.id
+                                            tool = EditTool.STICKER
+                                        } else if (tool == EditTool.TEXT) {
+                                            textAt = n
+                                        }
+                                    }
                                 }
-                                .pointerInput(tool, shown, color, width) {
+                                .pointerInput(tool, shown, color, width, stickers) {
                                     detectDragGestures(
                                         onDragStart = { p ->
                                             val n = norm(p)
                                             lastNorm = n
                                             dragStart = n
-                                            drawing = when (tool) {
-                                                EditTool.DRAW -> EditOp.Stroke(listOf(n), color, width)
-                                                EditTool.ARROW -> EditOp.Arrow(n, n, color, width)
-                                                EditTool.BLUR -> EditOp.Blur(ImageEditMath.boxOf(n.x, n.y, n.x, n.y))
-                                                EditTool.CROP -> { handle = ImageEditMath.handleAt(n.x, n.y, crop, tolerance); cropStart = crop; null }
-                                                EditTool.TEXT -> {
-                                                    // Drag an existing label to move it.
-                                                    val hit = ops.indexOfLast { it is EditOp.Label && labelHit(it, n) }
-                                                    if (hit >= 0) ops.removeAt(hit) as EditOp.Label else null
+                                            val hitSticker = if (tool == EditTool.STICKER) {
+                                                PhotoStickerMath.hitTestTopmost(stickers, n.x, n.y)
+                                            } else null
+                                            if (hitSticker != null) {
+                                                selectedStickerId = hitSticker.id
+                                                draggingStickerId = hitSticker.id
+                                                stickersBeforeDrag = stickers
+                                                drawing = null
+                                            } else {
+                                                draggingStickerId = null
+                                                drawing = when (tool) {
+                                                    EditTool.DRAW -> EditOp.Stroke(listOf(n), color, width)
+                                                    EditTool.ARROW -> EditOp.Arrow(n, n, color, width)
+                                                    EditTool.BLUR -> EditOp.Blur(ImageEditMath.boxOf(n.x, n.y, n.x, n.y))
+                                                    EditTool.CROP -> { handle = ImageEditMath.handleAt(n.x, n.y, crop, tolerance); cropStart = crop; null }
+                                                    EditTool.TEXT -> {
+                                                        val hit = ops.indexOfLast { it is EditOp.Label && labelHit(it, n) }
+                                                        if (hit >= 0) ops.removeAt(hit) as EditOp.Label else null
+                                                    }
+                                                    EditTool.STICKER -> null
                                                 }
                                             }
                                         },
                                         onDrag = { change, _ ->
                                             val n = norm(change.position)
-                                            when (val d = drawing) {
-                                                is EditOp.Stroke -> drawing = d.copy(points = d.points + n)
-                                                is EditOp.Arrow -> drawing = d.copy(end = n)
-                                                is EditOp.Blur -> drawing = EditOp.Blur(ImageEditMath.boxOf(dragStart.x, dragStart.y, n.x, n.y))
-                                                is EditOp.Label -> drawing = d.copy(at = Offset(n.x.coerceIn(0f, 0.95f), n.y.coerceIn(0f, 0.95f)))
-                                                else -> if (tool == EditTool.CROP) crop = ImageEditMath.dragCrop(crop, handle, n.x - lastNorm.x, n.y - lastNorm.y)
+                                            val activeStickerId = draggingStickerId
+                                            if (activeStickerId != null) {
+                                                val dx = n.x - lastNorm.x
+                                                val dy = n.y - lastNorm.y
+                                                stickers = stickers.map { s ->
+                                                    if (s.id == activeStickerId) PhotoStickerMath.moveSticker(s, dx, dy) else s
+                                                }
+                                            } else {
+                                                when (val d = drawing) {
+                                                    is EditOp.Stroke -> drawing = d.copy(points = d.points + n)
+                                                    is EditOp.Arrow -> drawing = d.copy(end = n)
+                                                    is EditOp.Blur -> drawing = EditOp.Blur(ImageEditMath.boxOf(dragStart.x, dragStart.y, n.x, n.y))
+                                                    is EditOp.Label -> drawing = d.copy(at = Offset(n.x.coerceIn(0f, 0.95f), n.y.coerceIn(0f, 0.95f)))
+                                                    else -> if (tool == EditTool.CROP) crop = ImageEditMath.dragCrop(crop, handle, n.x - lastNorm.x, n.y - lastNorm.y)
+                                                }
                                             }
                                             lastNorm = n
                                             change.consume()
                                         },
                                         onDragEnd = {
-                                            when (val d = drawing) {
-                                                is EditOp.Stroke -> if (d.points.size > 1) ops += d
-                                                is EditOp.Arrow -> if ((d.end - d.start).getDistance() > 0.02f) ops += d
-                                                is EditOp.Blur -> if (d.box.width > 0.02f && d.box.height > 0.02f) ops += d
-                                                is EditOp.Label -> ops += d
-                                                else -> if (tool == EditTool.CROP && crop != cropStart) ops += EditOp.Crop(cropStart)
+                                            if (draggingStickerId != null) {
+                                                if (stickers != stickersBeforeDrag) {
+                                                    pushOp(EditOp.StickersChange(stickersBeforeDrag, stickers))
+                                                }
+                                                draggingStickerId = null
+                                            } else {
+                                                when (val d = drawing) {
+                                                    is EditOp.Stroke -> if (d.points.size > 1) pushOp(d)
+                                                    is EditOp.Arrow -> if ((d.end - d.start).getDistance() > 0.02f) pushOp(d)
+                                                    is EditOp.Blur -> if (d.box.width > 0.02f && d.box.height > 0.02f) pushOp(d)
+                                                    is EditOp.Label -> pushOp(d)
+                                                    else -> if (tool == EditTool.CROP && crop != cropStart) pushOp(EditOp.Crop(cropStart))
+                                                }
                                             }
                                             drawing = null
                                         },
                                         onDragCancel = {
-                                            (drawing as? EditOp.Label)?.let { ops += it } // a moved label is never lost
+                                            draggingStickerId = null
+                                            (drawing as? EditOp.Label)?.let { pushOp(it) }
                                             drawing = null
                                         },
                                     )
@@ -242,6 +348,12 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
                                 .semantics { contentDescription = context.getString(R.string.editor_canvas) },
                         ) {
                             (ops + listOfNotNull(drawing)).forEach { op -> drawOp(op, shown, preview = true) }
+                            stickers.forEach { st ->
+                                val bmp = stickerBitmaps[st.uriString]
+                                if (bmp != null) {
+                                    drawStickerPreview(st, bmp, shown, selected = st.id == selectedStickerId && tool == EditTool.STICKER)
+                                }
+                            }
                             if (tool == EditTool.CROP || crop != ImageEditMath.FULL) drawCropOverlay(crop, shown, active = tool == EditTool.CROP)
                         }
                     }
@@ -262,6 +374,73 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
                     }
                     if (tool != EditTool.TEXT) Slider(value = width, onValueChange = { width = it }, valueRange = 0.004f..0.04f, modifier = Modifier.padding(horizontal = 16.dp))
                 }
+                if (tool == EditTool.STICKER) {
+                    val activeSticker = stickers.firstOrNull { it.id == selectedStickerId } ?: stickers.lastOrNull()
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { pickStickerLauncher.launch("image/*") }) {
+                            Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, tint = Color.White)
+                            Spacer(Modifier.width(4.dp))
+                            Text(stringResource(R.string.status_photo_sticker_add), color = Color.White)
+                        }
+                        if (activeSticker != null) {
+                            Row {
+                                IconButton(
+                                    onClick = {
+                                        val dup = PhotoStickerMath.duplicateSticker(activeSticker, UUID.randomUUID().toString(), stickers.size)
+                                        if (dup != null) {
+                                            applyStickersTransform(stickers + dup)
+                                            selectedStickerId = dup.id
+                                        }
+                                    },
+                                    enabled = stickers.size < PhotoStickerMath.MAX_STICKERS,
+                                ) {
+                                    Icon(Icons.Rounded.ContentCopy, contentDescription = stringResource(R.string.status_photo_sticker_duplicate), tint = Color.White)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val next = PhotoStickerMath.removeSticker(stickers, activeSticker.id)
+                                        applyStickersTransform(next)
+                                        selectedStickerId = next.lastOrNull()?.id
+                                    },
+                                ) {
+                                    Icon(Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.status_photo_sticker_remove), tint = Color(0xFFFFB4A9))
+                                }
+                            }
+                        }
+                    }
+                    if (activeSticker != null) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.status_photo_sticker_scale), color = Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(76.dp))
+                            Slider(
+                                value = activeSticker.scale,
+                                onValueChange = { s ->
+                                    stickers = stickers.map {
+                                        if (it.id == activeSticker.id) PhotoStickerMath.clampSticker(it.copy(scale = s)) else it
+                                    }
+                                },
+                                valueRange = PhotoStickerMath.MIN_SCALE..PhotoStickerMath.MAX_SCALE,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.status_photo_sticker_rotate), color = Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(76.dp))
+                            Slider(
+                                value = activeSticker.rotationDegrees,
+                                onValueChange = { deg ->
+                                    stickers = stickers.map {
+                                        if (it.id == activeSticker.id) PhotoStickerMath.clampSticker(it.copy(rotationDegrees = deg)) else it
+                                    }
+                                },
+                                valueRange = -180f..180f,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
                 if (tool == EditTool.BLUR) Text(stringResource(R.string.editor_blur_hint), color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
                 if (tool == EditTool.TEXT) Text(stringResource(R.string.editor_text_hint), color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -270,6 +449,10 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
                     ToolButton(Icons.Rounded.TextFields, stringResource(R.string.editor_text), tool == EditTool.TEXT) { tool = EditTool.TEXT }
                     ToolButton(Icons.AutoMirrored.Rounded.ArrowForward, stringResource(R.string.editor_arrow), tool == EditTool.ARROW) { tool = EditTool.ARROW }
                     ToolButton(Icons.Rounded.BlurOn, stringResource(R.string.editor_blur), tool == EditTool.BLUR) { tool = EditTool.BLUR }
+                    ToolButton(Icons.Rounded.AddPhotoAlternate, stringResource(R.string.status_photo_sticker_add), tool == EditTool.STICKER) {
+                        tool = EditTool.STICKER
+                        if (stickers.isEmpty()) pickStickerLauncher.launch("image/*")
+                    }
                 }
             }
         }
@@ -282,7 +465,7 @@ fun ImageEditorDialog(source: Uri, onDone: (Uri) -> Unit, onDismiss: () -> Unit)
             text = { OutlinedTextField(value = value, onValueChange = { value = it.take(120) }, singleLine = false, maxLines = 3) },
             confirmButton = {
                 TextButton(onClick = {
-                    if (value.isNotBlank()) ops += EditOp.Label(value.trim(), Offset(at.x.coerceIn(0f, 0.9f), at.y.coerceIn(0f, 0.95f)), color, 0.06f)
+                    if (value.isNotBlank()) pushOp(EditOp.Label(value.trim(), Offset(at.x.coerceIn(0f, 0.9f), at.y.coerceIn(0f, 0.95f)), color, 0.06f))
                     textAt = null
                 }) { Text(stringResource(R.string.action_add)) }
             },
@@ -337,8 +520,34 @@ private fun DrawScope.drawOp(op: EditOp, shown: ImageEditMath.Box, preview: Bool
             drawRect(Color.White.copy(alpha = 0.6f), topLeft = p(Offset(op.box.left, op.box.top)),
                 size = Size(op.box.width * shown.width, op.box.height * shown.height), style = Stroke(width = 2f))
         }
-        is EditOp.Crop -> Unit
+        is EditOp.Crop, is EditOp.StickersChange -> Unit
     }
+}
+
+private fun DrawScope.drawStickerPreview(
+    sticker: PhotoStickerMath.Sticker,
+    bitmap: Bitmap,
+    shown: ImageEditMath.Box,
+    selected: Boolean,
+) {
+    val cx = shown.left + sticker.centerX * shown.width
+    val cy = shown.top + sticker.centerY * shown.height
+    val w = sticker.halfWidth * 2f * shown.width
+    val h = sticker.halfHeight * 2f * shown.height
+    val nc = drawContext.canvas.nativeCanvas
+    nc.save()
+    nc.translate(cx, cy)
+    nc.rotate(sticker.rotationDegrees)
+    val dst = android.graphics.RectF(-w / 2f, -h / 2f, w / 2f, h / 2f)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    nc.drawBitmap(bitmap, null, dst, paint)
+    val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = if (selected) 5f else 3f
+        color = if (selected) android.graphics.Color.CYAN else android.graphics.Color.WHITE
+    }
+    nc.drawRoundRect(dst, 12f, 12f, borderPaint)
+    nc.restore()
 }
 
 private fun arrowHead(s: Offset, e: Offset, width: Float): List<Offset> {
@@ -407,8 +616,14 @@ private fun applyBlurs(base: Bitmap, boxes: List<ImageEditMath.Box>): Bitmap {
     return out
 }
 
-/** Draws strokes, arrows and text onto the (already blurred) bitmap, then crops. */
-private fun renderFinal(blurred: Bitmap, ops: List<EditOp>, crop: ImageEditMath.Box): Bitmap {
+/** Draws strokes, arrows, text, and photo stickers onto the (already blurred) bitmap, then crops. */
+private fun renderFinal(
+    blurred: Bitmap,
+    ops: List<EditOp>,
+    stickers: List<PhotoStickerMath.Sticker>,
+    stickerBitmaps: Map<String, Bitmap>,
+    crop: ImageEditMath.Box,
+): Bitmap {
     val out = blurred.copy(Bitmap.Config.ARGB_8888, true)
     val canvas = android.graphics.Canvas(out)
     val w = out.width.toFloat(); val h = out.height.toFloat(); val unit = min(w, h)
@@ -440,8 +655,28 @@ private fun renderFinal(blurred: Bitmap, ops: List<EditOp>, crop: ImageEditMath.
                 val at = p(op.at)
                 canvas.drawText(op.text, at.x, at.y + paint.textSize, paint)
             }
-            is EditOp.Blur, is EditOp.Crop -> Unit
+            is EditOp.Blur, is EditOp.Crop, is EditOp.StickersChange -> Unit
         }
+    }
+    stickers.forEach { st ->
+        val bmp = stickerBitmaps[st.uriString] ?: return@forEach
+        val cx = st.centerX * w
+        val cy = st.centerY * h
+        val sw = st.halfWidth * 2f * w
+        val sh = st.halfHeight * 2f * h
+        canvas.save()
+        canvas.translate(cx, cy)
+        canvas.rotate(st.rotationDegrees)
+        val dst = android.graphics.RectF(-sw / 2f, -sh / 2f, sw / 2f, sh / 2f)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(bmp, null, dst, paint)
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = max(2f, unit * 0.004f)
+            color = android.graphics.Color.WHITE
+        }
+        canvas.drawRoundRect(dst, 12f, 12f, borderPaint)
+        canvas.restore()
     }
     if (crop == ImageEditMath.FULL) return out
     val px = ImageEditMath.toPixels(crop, out.width, out.height)

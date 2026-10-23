@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.RemoteInput
 import com.example.PulseChatApplication
+import com.example.data.repository.AccountRepository
 import com.example.data.repository.LiveLocationRepository
+import com.example.domain.MultiAccountPolicy
 import kotlinx.coroutines.launch
 
 /** Handles notification actions: inline reply, mark as read, decline/hang up calls, stop live location. */
@@ -16,12 +18,13 @@ class NotificationActionReceiver : BroadcastReceiver() {
         container.appScope.launch {
             try {
                 val cid = intent.getStringExtra(NotificationHelper.EXTRA_CONVERSATION)
+                val targetAccountUid = intent.getStringExtra(NotificationHelper.EXTRA_ACCOUNT_UID)
                 when (intent.action) {
-                    NotificationHelper.ACTION_MARK_READ -> if (cid != null) {
+                    NotificationHelper.ACTION_MARK_READ -> if (cid != null && ensureAccountForAction(container, targetAccountUid)) {
                         container.chatRepository.markRead(cid)
                         container.notifications.cancelConversation(cid)
                     }
-                    NotificationHelper.ACTION_REPLY -> if (cid != null) {
+                    NotificationHelper.ACTION_REPLY -> if (cid != null && ensureAccountForAction(container, targetAccountUid)) {
                         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(NotificationHelper.KEY_REPLY)?.toString()
                         if (!text.isNullOrBlank()) {
                             runCatching { container.chatRepository.sendText(cid, text, null, emptyList()) }
@@ -36,6 +39,28 @@ class NotificationActionReceiver : BroadcastReceiver() {
             } finally {
                 pending.finish()
             }
+        }
+    }
+
+    private suspend fun ensureAccountForAction(
+        container: com.example.AppContainer,
+        targetAccountUid: String?,
+    ): Boolean {
+        val route = MultiAccountPolicy.routeNotification(
+            activeUid = container.authRepository.currentUid,
+            notificationAccountUid = targetAccountUid,
+            storedAccounts = container.accountRepository.savedAccounts.value,
+        )
+        return when (route) {
+            MultiAccountPolicy.NotificationRoute.OpenDirectly -> true
+            is MultiAccountPolicy.NotificationRoute.SwitchThenOpen -> {
+                val res = container.accountRepository.switchToAccount(
+                    targetUid = route.targetAccountUid,
+                    isCallActive = container.callManager.ui.value.isLive,
+                )
+                res is AccountRepository.SwitchOutcome.Switched
+            }
+            MultiAccountPolicy.NotificationRoute.Ignore -> false
         }
     }
 }

@@ -13,6 +13,8 @@ import androidx.core.content.FileProvider
 import com.example.data.prefs.AppPreferences
 import com.example.data.remote.Fs
 import com.example.domain.MediaLimits
+import com.example.domain.MediaQuality
+import com.example.domain.MediaQualityPolicy
 import com.example.domain.MediaRefs
 import com.example.domain.VideoEditMath
 import com.example.domain.model.MessageType
@@ -55,6 +57,8 @@ data class LocalMedia(
     val width: Int = 0,
     val height: Int = 0,
     val durationMs: Long = 0L,
+    val originalSizeBytes: Long = sizeBytes,
+    val quality: MediaQuality = MediaQuality.STANDARD,
 )
 
 /** Where an uploaded file lives: [url] is what other clients load, [path] is what deletes it. */
@@ -105,7 +109,60 @@ class MediaRepository(
     fun effectiveMaxBytes(type: MessageType): Long =
         if (storageLikelyAvailable()) MediaLimits.maxBytes(type) else minOf(MediaLimits.maxBytes(type), MediaRefs.MAX_BYTES)
 
-    suspend fun importUri(uri: Uri, type: MessageType, maxBytes: Long): LocalMedia = withContext(Dispatchers.IO) {
+    /**
+     * Probes the source [uri] (file size, dimensions, duration, MIME) without copying or
+     * re-encoding so the composer can display Standard / HD / Original size estimates.
+     */
+    suspend fun probeUri(uri: Uri, type: MessageType): MediaQualityPolicy.MediaProbe = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        var name = "file"
+        var size = 0L
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                c.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) ?: name }
+                c.getColumnIndex(OpenableColumns.SIZE).takeIf { it >= 0 }?.let { if (!c.isNull(it)) size = c.getLong(it) }
+            }
+        }
+        if (size <= 0L) {
+            size = runCatching { resolver.openAssetFileDescriptor(uri, "r")?.use { it.length.coerceAtLeast(0L) } ?: 0L }.getOrDefault(0L)
+        }
+        val mime = resolver.getType(uri) ?: guessMime(name)
+        var width = 0
+        var height = 0
+        var duration = 0L
+        if (type == MessageType.IMAGE || mime.startsWith("image/")) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            runCatching { resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } }
+            width = bounds.outWidth.coerceAtLeast(0)
+            height = bounds.outHeight.coerceAtLeast(0)
+        } else if (type == MessageType.VIDEO || mime.startsWith("video/")) {
+            val r = MediaMetadataRetriever()
+            try {
+                r.setDataSource(context, uri)
+                duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                width = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                height = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            } catch (_: Exception) {
+            } finally {
+                runCatching { r.release() }
+            }
+        }
+        MediaQualityPolicy.MediaProbe(
+            type = type,
+            mime = mime,
+            originalSizeBytes = size,
+            width = width,
+            height = height,
+            durationMs = duration,
+        )
+    }
+
+    suspend fun importUri(
+        uri: Uri,
+        type: MessageType,
+        maxBytes: Long,
+        quality: MediaQuality = MediaQuality.STANDARD,
+    ): LocalMedia = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         var name = "file"
         var size = -1L
@@ -116,19 +173,36 @@ class MediaRepository(
             }
         }
         val mime = resolver.getType(uri) ?: guessMime(name)
-        if (size > maxBytes && type != MessageType.IMAGE) throw MediaTooLargeException(maxBytes)
-        val ext = extensionFor(mime, name)
+        val shouldCompressImage = type == MessageType.IMAGE && mime != "image/gif" && quality != MediaQuality.ORIGINAL
+        if (size > maxBytes && !shouldCompressImage) throw MediaTooLargeException(maxBytes)
+        val effectiveMime = if (shouldCompressImage) "image/jpeg" else mime
+        val ext = if (shouldCompressImage) "jpg" else extensionFor(mime, name)
         val target = File(mediaDir, "${UUID.randomUUID()}.$ext")
-        if (type == MessageType.IMAGE && mime != "image/gif") {
-            val bytes = compressImage(uri, 1600, 82) ?: throw IllegalArgumentException("unreadable image")
+        if (shouldCompressImage) {
+            val maxDim = if (quality == MediaQuality.HD) {
+                MediaQualityPolicy.HD_IMAGE_MAX_DIM
+            } else {
+                MediaQualityPolicy.STANDARD_IMAGE_MAX_DIM
+            }
+            val jpegQuality = if (quality == MediaQuality.HD) {
+                MediaQualityPolicy.HD_IMAGE_JPEG_QUALITY
+            } else {
+                MediaQualityPolicy.STANDARD_IMAGE_JPEG_QUALITY
+            }
+            val bytes = compressImage(uri, maxDim, jpegQuality) ?: throw IllegalArgumentException("unreadable image")
             target.writeBytes(bytes)
         } else {
+            // Original mode (or GIF / video / audio / document): copy exact source bytes without recompression
             resolver.openInputStream(uri)?.use { input -> FileOutputStream(target).use { input.copyTo(it) } }
                 ?: throw IllegalArgumentException("unreadable file")
         }
         if (target.length() > maxBytes) { target.delete(); throw MediaTooLargeException(maxBytes) }
         if (target.length() == 0L) { target.delete(); throw IllegalArgumentException("empty file") }
-        describe(target, if (type == MessageType.IMAGE && mime != "image/gif") "image/jpeg" else mime, name)
+        val origBytes = if (size > 0L) size else target.length()
+        describe(target, effectiveMime, name).copy(
+            originalSizeBytes = origBytes,
+            quality = quality,
+        )
     }
 
     /** Moves a finished capture/recording into media storage. */
@@ -189,11 +263,18 @@ class MediaRepository(
      * Uploads [file] for [key] (message/status ID). [storagePath] is the Cloud Storage path the
      * storage rules allow; when Cloud Storage is unavailable the file goes to the built-in store.
      */
-    suspend fun upload(key: String, file: File, storagePath: String, mime: String, onProgress: (Int) -> Unit): UploadResult {
+    suspend fun upload(
+        key: String,
+        file: File,
+        storagePath: String,
+        mime: String,
+        customMetadata: Map<String, String> = emptyMap(),
+        onProgress: (Int) -> Unit,
+    ): UploadResult {
         if (!file.exists() || file.length() == 0L) throw FileNotFoundException("missing media file")
         if (storageLikelyAvailable()) {
             try {
-                return UploadResult(uploadToStorage(key, file, storagePath, mime, onProgress), storagePath)
+                return UploadResult(uploadToStorage(key, file, storagePath, mime, customMetadata, onProgress), storagePath)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -202,16 +283,23 @@ class MediaRepository(
             }
         }
         onProgress(0)
-        return trackStoreJob(key) { uploadToStore(file.length(), { file.inputStream() }, mime, MediaRefs.mediaIdFor(key), onProgress) }
+        return trackStoreJob(key) {
+            uploadToStore(file.length(), { file.inputStream() }, mime, MediaRefs.mediaIdFor(key), storagePath, onProgress)
+        }
     }
 
     /** Uploads a small in-memory file (profile and group photos). */
-    suspend fun uploadBytes(bytes: ByteArray, storagePath: String, mime: String): UploadResult {
+    suspend fun uploadBytes(
+        bytes: ByteArray,
+        storagePath: String,
+        mime: String,
+        customMetadata: Map<String, String> = emptyMap(),
+    ): UploadResult {
         if (bytes.isEmpty()) throw IllegalArgumentException("empty media")
         if (storageLikelyAvailable()) {
             try {
                 val ref = storageProvider().reference.child(storagePath)
-                ref.putBytes(bytes, StorageMetadata.Builder().setContentType(mime).build()).await()
+                ref.putBytes(bytes, buildStorageMetadata(mime, customMetadata)).await()
                 return UploadResult(ref.downloadUrl.await().toString(), storagePath)
             } catch (e: CancellationException) {
                 throw e
@@ -220,12 +308,27 @@ class MediaRepository(
                 markStorageUnavailable(e)
             }
         }
-        return uploadToStore(bytes.size.toLong(), { ByteArrayInputStream(bytes) }, mime, MediaRefs.newMediaId()) { }
+        return uploadToStore(bytes.size.toLong(), { ByteArrayInputStream(bytes) }, mime, MediaRefs.newMediaId(), storagePath) { }
     }
 
-    private suspend fun uploadToStorage(key: String, file: File, storagePath: String, mime: String, onProgress: (Int) -> Unit): String {
+    private fun buildStorageMetadata(mime: String, customMetadata: Map<String, String>): StorageMetadata {
+        val builder = StorageMetadata.Builder().setContentType(mime)
+        for ((k, v) in customMetadata) {
+            if (k.isNotBlank()) builder.setCustomMetadata(k, v)
+        }
+        return builder.build()
+    }
+
+    private suspend fun uploadToStorage(
+        key: String,
+        file: File,
+        storagePath: String,
+        mime: String,
+        customMetadata: Map<String, String>,
+        onProgress: (Int) -> Unit,
+    ): String {
         val ref = storageProvider().reference.child(storagePath)
-        val task = ref.putFile(Uri.fromFile(file), StorageMetadata.Builder().setContentType(mime).build())
+        val task = ref.putFile(Uri.fromFile(file), buildStorageMetadata(mime, customMetadata))
         uploads[key] = task
         task.addOnProgressListener { snap ->
             val total = snap.totalByteCount
@@ -243,14 +346,29 @@ class MediaRepository(
     }
 
     /** Writes the metadata document, then the chunks in order (the reader trusts `chunks`). */
-    private suspend fun uploadToStore(size: Long, open: () -> InputStream, mime: String, mediaId: String, onProgress: (Int) -> Unit): UploadResult =
+    private suspend fun uploadToStore(
+        size: Long,
+        open: () -> InputStream,
+        mime: String,
+        mediaId: String,
+        storagePath: String? = null,
+        onProgress: (Int) -> Unit,
+    ): UploadResult =
         withContext(Dispatchers.IO) {
             val owner = currentUid() ?: throw IllegalStateException("not signed in")
             if (!MediaRefs.fits(size)) throw MediaTooLargeException(MediaRefs.MAX_BYTES)
             val chunks = MediaRefs.chunkCount(size)
             val doc = firestoreProvider().collection(Fs.MEDIA).document(mediaId)
+            val metaFields = mutableMapOf<String, Any>(
+                "owner" to owner,
+                "mime" to mime.take(128),
+                "size" to size,
+                "chunks" to chunks,
+                "createdAt" to FieldValue.serverTimestamp(),
+            )
+            metaFields.putAll(MediaRefs.scopeFieldsForStoragePath(storagePath))
             withTimeoutOrNull(WRITE_TIMEOUT_MS) {
-                doc.set(mapOf("owner" to owner, "mime" to mime.take(128), "size" to size, "chunks" to chunks, "createdAt" to FieldValue.serverTimestamp())).await()
+                doc.set(metaFields).await()
                 true
             } ?: throw IOException("media upload timed out")
             open().use { input ->

@@ -12,6 +12,7 @@ import {
   sealCustomTokenEnvelope,
   sha256Hex,
   shouldNotify,
+  statusMentionPayload,
   validatePairingExchange,
   verifyEcdsaChallenge,
   verifySecretProof,
@@ -29,15 +30,19 @@ test("blocked senders and system messages do not notify", () => {
   assert.equal(shouldNotify({ senderId: "alice", type: "TEXT" }, { ...base, tokens: [] }, 10), false);
 });
 
-test("muted chats notify only on mention", () => {
+test("muted chats notify only on mention (direct or @all)", () => {
   const muted = { ...base, mutedUntil: 1_000 };
   assert.equal(shouldNotify({ senderId: "alice", type: "TEXT" }, muted, 10), false);
   assert.equal(shouldNotify({ senderId: "alice", type: "TEXT", mentions: ["bob"] }, muted, 10), true);
+  assert.equal(shouldNotify({ senderId: "alice", type: "TEXT", mentions: ["all"] }, muted, 10), true);
+  assert.equal(shouldNotify({ senderId: "alice", type: "TEXT", mentions: ["all"] }, { ...muted, blockedSender: true }, 10), false);
   assert.equal(shouldNotify({ senderId: "alice", type: "TEXT" }, muted, 2_000), true);
 });
 
-test("payloads carry IDs only", () => {
+test("payloads carry IDs and optional accountUid", () => {
   assert.deepEqual(messagePayload("c1", "m1"), { type: "message", conversationId: "c1", messageId: "m1" });
+  assert.deepEqual(messagePayload("c1", "m1", "bob"), { type: "message", conversationId: "c1", messageId: "m1", accountUid: "bob" });
+  assert.deepEqual(statusMentionPayload("s1", "alice", "bob"), { type: "status_mention", statusId: "s1", ownerId: "alice", accountUid: "bob" });
   assert.deepEqual(callPayload("k1"), { type: "call", callId: "k1" });
   assert.deepEqual(deviceLinkedPayload("d1", "Pixel 8"), { type: "device_linked", deviceId: "d1", deviceName: "Pixel 8" });
   assert.deepEqual(deviceRevokedPayload("d1"), { type: "device_revoked", deviceId: "d1" });

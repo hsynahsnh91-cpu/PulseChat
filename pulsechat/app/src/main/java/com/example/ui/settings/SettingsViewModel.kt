@@ -12,9 +12,11 @@ import com.example.data.model.User
 import com.example.data.prefs.AppLanguage
 import com.example.data.prefs.AppSettings
 import com.example.data.prefs.ThemeMode
+import com.example.data.repository.AccountRepository
 import com.example.data.repository.ProfileUpdateException
 import com.example.domain.AutoDownloadSettings
 import com.example.domain.MediaLimits
+import com.example.domain.MultiAccountPolicy
 import com.example.domain.StorageReport
 import com.example.domain.StatusPolicy
 import com.example.domain.model.Visibility
@@ -25,12 +27,15 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     val me = c.authRepository.currentUid.orEmpty()
     val user: StateFlow<User?> = c.userRepository.observeUser(me).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val savedAccounts: StateFlow<List<MultiAccountPolicy.StoredAccount>> = c.accountRepository.savedAccounts
+    val switchingAccount: StateFlow<Boolean> = c.accountRepository.switching
     val settings: StateFlow<AppSettings> = c.prefs.settings
     val blockedUsers: StateFlow<List<User>> = c.userRepository.observeBlockedUsers().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val contacts: StateFlow<List<ContactRow>> = c.userRepository.observeContacts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -45,6 +50,14 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     val autoReply = c.autoReply
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
+
+    init {
+        viewModelScope.launch {
+            user.filterNotNull().collect { u ->
+                c.accountRepository.refreshAccountProfile(u)
+            }
+        }
+    }
 
     fun refreshStorage() = viewModelScope.launch {
         totalMediaBytes.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { c.media.totalLocalBytes() }
@@ -120,4 +133,46 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     fun clearMedia(conversationId: String) = act(R.string.toast_media_cleared) { c.chatRepository.clearMediaFor(conversationId); refreshStorage() }
     fun signOut() = act { c.authRepository.signOut() }
     fun setTranslationTarget(tag: String) = c.prefs.setTranslationTarget(tag)
+
+    fun switchAccount(targetUid: String) = viewModelScope.launch {
+        val outcome = c.accountRepository.switchToAccount(
+            targetUid = targetUid,
+            isCallActive = c.callManager.ui.value.isLive,
+        )
+        when (outcome) {
+            is AccountRepository.SwitchOutcome.Switched -> {
+                val name = savedAccounts.value.firstOrNull { it.uid == outcome.uid }?.displayName.orEmpty()
+                _messages.tryEmit(c.app.getString(R.string.accounts_switched_toast, name))
+            }
+            is AccountRepository.SwitchOutcome.NeedsReauth -> {
+                _messages.tryEmit(c.app.getString(R.string.accounts_session_expired))
+            }
+            is AccountRepository.SwitchOutcome.Denied -> {
+                val res = when (outcome.reason) {
+                    MultiAccountPolicy.SwitchDenial.CALL_IN_PROGRESS -> R.string.accounts_switch_call_active
+                    else -> R.string.error_update_failed
+                }
+                _messages.tryEmit(c.app.getString(res))
+            }
+        }
+    }
+
+    fun addAccount() = viewModelScope.launch {
+        if (savedAccounts.value.size >= MultiAccountPolicy.MAX_STORED_ACCOUNTS) {
+            _messages.tryEmit(c.app.getString(R.string.accounts_limit_reached, MultiAccountPolicy.MAX_STORED_ACCOUNTS))
+            return@launch
+        }
+        val started = c.accountRepository.beginAddAccount(isCallActive = c.callManager.ui.value.isLive)
+        if (!started && c.callManager.ui.value.isLive) {
+            _messages.tryEmit(c.app.getString(R.string.accounts_switch_call_active))
+        }
+    }
+
+    fun removeAccountFromDevice(targetUid: String) = viewModelScope.launch {
+        c.accountRepository.removeAccountFromDevice(
+            targetUid = targetUid,
+            isCallActive = c.callManager.ui.value.isLive,
+        )
+        _messages.tryEmit(c.app.getString(R.string.accounts_removed_toast))
+    }
 }

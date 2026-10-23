@@ -5,22 +5,31 @@ import {
   arrayRemove, arrayUnion, Bytes, collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp,
   updateDoc, where, writeBatch,
 } from "firebase/firestore";
+import { deleteObject, getBytes, ref as sRef, uploadBytes } from "firebase/storage";
 
 let env;
 const rules = readFileSync(new URL("../../../firestore.rules", import.meta.url), "utf8");
+const storageRules = readFileSync(new URL("../../../storage.rules", import.meta.url), "utf8");
 
 before(async () => {
   env = await initializeTestEnvironment({
     projectId: "demo-pulsechat",
     firestore: { rules, host: "127.0.0.1", port: 8080 },
+    storage: { rules: storageRules, host: "127.0.0.1", port: 9199 },
   });
 });
 after(async () => { await env?.cleanup(); });
-beforeEach(async () => { await env.clearFirestore(); });
+beforeEach(async () => {
+  await env.clearFirestore();
+  await env.clearStorage();
+});
 
 const db = (uid) => env.authenticatedContext(uid).firestore();
+const st = (uid) => env.authenticatedContext(uid).storage();
 const anon = () => env.unauthenticatedContext().firestore();
+const anonSt = () => env.unauthenticatedContext().storage();
 const seed = (fn) => env.withSecurityRulesDisabled(async (ctx) => fn(ctx.firestore()));
+const seedSt = (fn) => env.withSecurityRulesDisabled(async (ctx) => fn(ctx.storage()));
 
 const ids = { alice: "1000000001", bob: "1000000002", carol: "1000000003", dave: "1000000004" };
 async function seedUser(fs, uid, extra = {}) {
@@ -440,6 +449,66 @@ describe("built-in media store (used when Cloud Storage is unavailable)", () => 
     await assertSucceeds(setDoc(doc(fs, "media/mdChunkLimit00000001/chunks/0"), chunk("alice", 524288)));
     await assertFails(setDoc(doc(fs, "media/mdChunkLimit00000001/chunks/1"), chunk("bob")));
   });
+
+  test("scoped media enforces chat participation, group membership, status audience/expiry, and profile photo visibility/blocking", async () => {
+    await seedPeople({ alice: { photoVisibility: "contacts" } });
+    await seedDm();
+    await seedGroup();
+    await seed(async (fs) => {
+      await setDoc(doc(fs, "users/alice/contacts/bob"), { nickname: null, addedAt: Timestamp.now() });
+      await setDoc(doc(fs, "statuses/st_live"), {
+        ownerId: "alice", type: "IMAGE", text: "hi", audience: ["bob"],
+        createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 3600_000),
+      });
+      await setDoc(doc(fs, "statuses/st_expired"), {
+        ownerId: "alice", type: "IMAGE", text: "old", audience: ["bob"],
+        createdAt: Timestamp.fromMillis(Date.now() - 7200_000), expiresAt: Timestamp.fromMillis(Date.now() - 60_000),
+      });
+    });
+
+    const alice = db("alice");
+    const bob = db("bob");
+    const carol = db("carol");
+    const dave = db("dave");
+
+    // 1. Direct chat media: participant (bob) can read, outsider (carol) cannot; non-participant cannot upload scoped to DM
+    await assertFails(setDoc(doc(carol, "media/mdForeignChat0000001"), meta("carol", { scope: "chat", conversationId: DM })));
+    await assertSucceeds(setDoc(doc(alice, "media/mdChatMedia000000001"), meta("alice", { scope: "chat", conversationId: DM })));
+    await assertSucceeds(setDoc(doc(alice, "media/mdChatMedia000000001/chunks/0"), chunk("alice")));
+    await assertSucceeds(getDoc(doc(bob, "media/mdChatMedia000000001")));
+    await assertSucceeds(getDoc(doc(bob, "media/mdChatMedia000000001/chunks/0")));
+    await assertFails(getDoc(doc(carol, "media/mdChatMedia000000001")));
+    await assertFails(getDoc(doc(carol, "media/mdChatMedia000000001/chunks/0")));
+
+    // 2. Group media: group member (carol) can read, outsider (dave) cannot
+    await assertSucceeds(setDoc(doc(alice, "media/mdGroupMedia00000001"), meta("alice", { scope: "group", conversationId: "g1" })));
+    await assertSucceeds(setDoc(doc(alice, "media/mdGroupMedia00000001/chunks/0"), chunk("alice")));
+    await assertSucceeds(getDoc(doc(carol, "media/mdGroupMedia00000001")));
+    await assertSucceeds(getDoc(doc(carol, "media/mdGroupMedia00000001/chunks/0")));
+    await assertFails(getDoc(doc(dave, "media/mdGroupMedia00000001")));
+    await assertFails(getDoc(doc(dave, "media/mdGroupMedia00000001/chunks/0")));
+
+    // 3. Status media: audience member (bob) before expiry can read; non-audience (carol) or expired status cannot
+    await assertSucceeds(setDoc(doc(alice, "media/mdStatusLive00000001"), meta("alice", { scope: "status", statusId: "st_live" })));
+    await assertSucceeds(setDoc(doc(alice, "media/mdStatusLive00000001/chunks/0"), chunk("alice")));
+    await assertSucceeds(getDoc(doc(bob, "media/mdStatusLive00000001")));
+    await assertSucceeds(getDoc(doc(bob, "media/mdStatusLive00000001/chunks/0")));
+    await assertFails(getDoc(doc(carol, "media/mdStatusLive00000001")));
+    await assertFails(getDoc(doc(carol, "media/mdStatusLive00000001/chunks/0")));
+
+    await assertSucceeds(setDoc(doc(alice, "media/mdStatusExp000000001"), meta("alice", { scope: "status", statusId: "st_expired" })));
+    await assertFails(getDoc(doc(bob, "media/mdStatusExp000000001")));
+
+    // 4. Profile photo media: contacts visibility & blocking enforced
+    await assertSucceeds(setDoc(doc(alice, "media/mdProfilePhoto000001"), meta("alice", { scope: "profile" })));
+    await assertSucceeds(setDoc(doc(alice, "media/mdProfilePhoto000001/chunks/0"), chunk("alice")));
+    await assertSucceeds(getDoc(doc(db("bob"), "media/mdProfilePhoto000001")));
+    await assertSucceeds(getDoc(doc(db("bob"), "media/mdProfilePhoto000001/chunks/0")));
+    await assertFails(getDoc(doc(carol, "media/mdProfilePhoto000001")));
+    await seed(async (fs) => setDoc(doc(fs, "users/alice/blocked/bob"), { blockedAt: Timestamp.now() }));
+    await assertFails(getDoc(doc(db("bob"), "media/mdProfilePhoto000001")));
+    await assertFails(getDoc(doc(db("bob"), "media/mdProfilePhoto000001/chunks/0")));
+  });
 });
 
 describe("device linking and linked-device revocation", () => {
@@ -683,4 +752,401 @@ describe("device linking and linked-device revocation", () => {
     // But dev_linked_02 can still read its own linkedDevices doc to observe that it was revoked
     await assertSucceeds(getDoc(doc(aliceLinked, "users/alice/linkedDevices/dev_linked_02")));
   });
+
+  test("requester can cancel a pending session and clean up its pairing code; active codes cannot be deleted and completed sessions cannot be replayed", async () => {
+    await seedPeople();
+    const anonFs = anon();
+    const aliceFs = db("alice");
+    const sessCancel = "sess_cancel_0123456789abc";
+    const cancelCodeHash = await sha256Hex("CNCL2345");
+    const cancelData = await makeSession({ sessionId: sessCancel, manualCodeHash: cancelCodeHash });
+
+    const createBatch = writeBatch(anonFs);
+    createBatch.set(doc(anonFs, `devicePairings/${sessCancel}`), cancelData);
+    createBatch.set(doc(anonFs, `devicePairingCodes/${cancelCodeHash}`), {
+      sessionId: sessCancel,
+      codeVerifier: VERIFIER,
+      keyFingerprint: cancelData.requesterKeyFingerprint,
+      createdAt: serverTimestamp(),
+      expiresAt: cancelData.expiresAt,
+    });
+    await assertSucceeds(createBatch.commit());
+
+    // While session is still pending and unexpired, deleting its pairing code alone is denied
+    await assertFails(deleteDoc(doc(anonFs, `devicePairingCodes/${cancelCodeHash}`)));
+
+    // Cancelling the session (with secretProof) and deleting its pairing code in a cleanup batch succeeds
+    const cancelBatch = writeBatch(anonFs);
+    cancelBatch.update(doc(anonFs, `devicePairings/${sessCancel}`), {
+      status: "cancelled",
+      updatedAt: serverTimestamp(),
+      secretProof: SECRET,
+    });
+    cancelBatch.delete(doc(anonFs, `devicePairingCodes/${cancelCodeHash}`));
+    await assertSucceeds(cancelBatch.commit());
+
+    // A previously completed session cannot be replayed in a later write to register another linked device
+    const sessDone = "sess_done_0123456789abcdef";
+    const doneData = await makeSession({
+      sessionId: sessDone,
+      status: "completed",
+      consumed: true,
+      ownerUid: "alice",
+      approvedByDeviceId: "dev_primary_01",
+      approvedAt: Timestamp.fromMillis(Date.now() - 10_000),
+      completedAt: Timestamp.fromMillis(Date.now() - 5_000),
+    });
+    await seed(async (fs) => setDoc(doc(fs, `devicePairings/${sessDone}`), doneData));
+    await assertFails(setDoc(doc(aliceFs, "users/alice/linkedDevices/dev_new_0001"), {
+      deviceId: "dev_new_0001",
+      uid: "alice",
+      deviceName: "Pixel 8 Pro",
+      deviceType: "android_phone",
+      platform: "android",
+      publicKey: doneData.requesterPublicKey,
+      keyFingerprint: doneData.requesterKeyFingerprint,
+      authMethod: "qr_linked",
+      status: "active",
+      online: true,
+      linkedAt: serverTimestamp(),
+      lastActiveAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      revokedAt: null,
+      revokedByDeviceId: null,
+      pairedByDeviceId: "dev_primary_01",
+      sessionId: sessDone,
+    }));
+  });
 });
+
+describe("Cloud Storage rules (storage.rules)", () => {
+  const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  test("direct and group chat media: only conversation participants can read; only the sender can upload or delete", async () => {
+    const aliceSt = st("alice");
+    const bobSt = st("bob");
+    const carolSt = st("carol");
+    const daveSt = st("dave");
+
+    // Direct chat media (dm_alice_bob): alice uploads, bob can read, carol and unauthenticated cannot
+    const dmPath = `chat-media/${DM}/alice/m1.png`;
+    await assertFails(uploadBytes(sRef(bobSt, dmPath), bytes, { contentType: "image/png" }));
+    await assertFails(uploadBytes(sRef(carolSt, `chat-media/${DM}/carol/m1.png`), bytes, { contentType: "image/png" }));
+    await assertSucceeds(uploadBytes(sRef(aliceSt, dmPath), bytes, { contentType: "image/png", customMetadata: { participants: "alice,bob" } }));
+    await assertSucceeds(getBytes(sRef(aliceSt, dmPath)));
+    await assertSucceeds(getBytes(sRef(bobSt, dmPath)));
+    await assertFails(getBytes(sRef(carolSt, dmPath)));
+    await assertFails(getBytes(sRef(anonSt(), dmPath)));
+    await assertFails(deleteObject(sRef(bobSt, dmPath)));
+    await assertSucceeds(deleteObject(sRef(aliceSt, dmPath)));
+
+    // Group chat media: requires sender in participants metadata; members can read, outsider dave cannot
+    const grpPath = "chat-media/grp_team1/alice/m2.png";
+    await assertFails(uploadBytes(sRef(aliceSt, grpPath), bytes, { contentType: "image/png" }));
+    await assertSucceeds(uploadBytes(sRef(aliceSt, grpPath), bytes, {
+      contentType: "image/png",
+      customMetadata: { participants: "alice,bob,carol" },
+    }));
+    await assertSucceeds(getBytes(sRef(carolSt, grpPath)));
+    await assertFails(getBytes(sRef(daveSt, grpPath)));
+  });
+
+  test("group photos: only group members in metadata can read or upload", async () => {
+    const aliceSt = st("alice");
+    const bobSt = st("bob");
+    const daveSt = st("dave");
+    const path = "group-photos/grp_team1/avatar.jpg";
+
+    await assertFails(uploadBytes(sRef(daveSt, path), bytes, {
+      contentType: "image/jpeg",
+      customMetadata: { participants: "alice,bob" },
+    }));
+    await assertSucceeds(uploadBytes(sRef(aliceSt, path), bytes, {
+      contentType: "image/jpeg",
+      customMetadata: { participants: "alice,bob" },
+    }));
+    await assertSucceeds(getBytes(sRef(bobSt, path)));
+    await assertFails(getBytes(sRef(daveSt, path)));
+  });
+
+  test("status media: only audience members before expiry can read; only the owner can upload or delete", async () => {
+    const aliceSt = st("alice");
+    const bobSt = st("bob");
+    const carolSt = st("carol");
+    const livePath = "status-media/alice/st_live.jpg";
+    const expPath = "status-media/alice/st_exp.jpg";
+
+    await assertFails(uploadBytes(sRef(bobSt, livePath), bytes, {
+      contentType: "image/jpeg",
+      customMetadata: { audience: "alice,bob", expiresAt: String(Date.now() + 3600_000) },
+    }));
+    await assertSucceeds(uploadBytes(sRef(aliceSt, livePath), bytes, {
+      contentType: "image/jpeg",
+      customMetadata: { audience: "alice,bob", expiresAt: String(Date.now() + 3600_000) },
+    }));
+    await assertSucceeds(getBytes(sRef(bobSt, livePath)));
+    await assertFails(getBytes(sRef(carolSt, livePath)));
+    await assertFails(deleteObject(sRef(bobSt, livePath)));
+
+    // Expired status media cannot be read by non-owners
+    await seedSt(async (s) => {
+      await uploadBytes(sRef(s, expPath), bytes, {
+        contentType: "image/jpeg",
+        customMetadata: { audience: "alice,bob", expiresAt: String(Date.now() - 60_000) },
+      });
+    });
+    await assertFails(getBytes(sRef(bobSt, expPath)));
+    await assertSucceeds(getBytes(sRef(aliceSt, expPath)));
+  });
+
+  test("profile photos: visibility (everyone, contacts, nobody) and blocked lists are enforced", async () => {
+    const aliceSt = st("alice");
+    const bobSt = st("bob");
+    const carolSt = st("carol");
+    const daveSt = st("dave");
+    const path = "profile-photos/alice/avatar.jpg";
+
+    // 1. visibility = contacts, blocked = dave
+    await assertSucceeds(uploadBytes(sRef(aliceSt, path), bytes, {
+      contentType: "image/jpeg",
+      customMetadata: { visibility: "contacts", contacts: "bob", blocked: "dave" },
+    }));
+    await assertSucceeds(getBytes(sRef(aliceSt, path)));
+    await assertSucceeds(getBytes(sRef(bobSt, path)));
+    await assertFails(getBytes(sRef(carolSt, path)));
+    await assertFails(getBytes(sRef(daveSt, path)));
+
+    // 2. visibility = everyone, blocked = dave
+    await assertSucceeds(uploadBytes(sRef(aliceSt, path), bytes, {
+      contentType: "image/jpeg",
+      customMetadata: { visibility: "everyone", contacts: "bob", blocked: "dave" },
+    }));
+    await assertSucceeds(getBytes(sRef(carolSt, path)));
+    await assertFails(getBytes(sRef(daveSt, path)));
+
+    // 3. visibility = nobody: only owner can read
+    await assertSucceeds(uploadBytes(sRef(aliceSt, path), bytes, {
+      contentType: "image/jpeg",
+      customMetadata: { visibility: "nobody", contacts: "bob", blocked: "" },
+    }));
+    await assertSucceeds(getBytes(sRef(aliceSt, path)));
+    await assertFails(getBytes(sRef(bobSt, path)));
+  });
+
+  test("status audio track uploads are permitted for status owner and readable by audience before expiry", async () => {
+    const aliceSt = st("alice");
+    const bobSt = st("bob");
+    const carolSt = st("carol");
+    const audioPath = "status-media/alice/st_music_1_music.wav";
+
+    await assertSucceeds(uploadBytes(sRef(aliceSt, audioPath), bytes, {
+      contentType: "audio/wav",
+      customMetadata: { audience: "alice,bob", expiresAt: String(Date.now() + 3600_000) },
+    }));
+    await assertSucceeds(getBytes(sRef(bobSt, audioPath)));
+    await assertFails(getBytes(sRef(carolSt, audioPath)));
+  });
+});
+
+describe("advanced statuses (music, mentions, likes, resharing), group @all mentions, advanced polls, and media quality", () => {
+  async function sha256Hex(str) {
+    const { createHash } = await import("node:crypto");
+    return createHash("sha256").update(str, "utf8").digest("hex");
+  }
+
+  test("status music, mentions subset of audience, likes privacy, and resharing rules are enforced", async () => {
+    await seedPeople();
+    const alice = db("alice");
+    const bob = db("bob");
+    const carol = db("carol");
+    const exp = Timestamp.fromMillis(Date.now() + 3600_000);
+
+    // 1. Mentions cannot include users outside audience or self
+    await assertFails(setDoc(doc(alice, "statuses/st_bad_mention"), {
+      ownerId: "alice", type: "TEXT", text: "hi", bgColor: "#000000", font: "sans",
+      audience: ["bob"], mentions: ["carol"], allowReshare: true,
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+    await assertFails(setDoc(doc(alice, "statuses/st_self_mention"), {
+      ownerId: "alice", type: "TEXT", text: "hi", bgColor: "#000000", font: "sans",
+      audience: ["bob"], mentions: ["alice"], allowReshare: true,
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+
+    // 2. Valid status with music metadata, mentions subset of audience, and allowReshare=true
+    await assertSucceeds(setDoc(doc(alice, "statuses/st_music"), {
+      ownerId: "alice", type: "TEXT", text: "morning vibes", bgColor: "#0F766E", font: "sans",
+      audience: ["bob", "carol"], mentions: ["bob"], allowReshare: true,
+      music: {
+        trackId: "sunrise_acoustic", title: "Sunrise Acoustic", artist: "PulseChat Studio",
+        url: null, startMs: 2000, durationMs: 15000,
+      },
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+
+    // 3. Status likes: audience member can like/unlike; non-audience cannot; bob cannot read carol's like; owner (alice) can read all likes
+    const dave = db("dave");
+    await assertFails(setDoc(doc(dave, "statuses/st_music/likes/dave"), { likedAt: serverTimestamp() }));
+    await assertSucceeds(setDoc(doc(bob, "statuses/st_music/likes/bob"), { likedAt: serverTimestamp() }));
+    await assertSucceeds(setDoc(doc(carol, "statuses/st_music/likes/carol"), { likedAt: serverTimestamp() }));
+    await assertSucceeds(getDoc(doc(bob, "statuses/st_music/likes/bob")));
+    await assertFails(getDoc(doc(bob, "statuses/st_music/likes/carol")));
+    await assertSucceeds(getDoc(doc(alice, "statuses/st_music/likes/bob")));
+    await assertSucceeds(getDoc(doc(alice, "statuses/st_music/likes/carol")));
+    await assertSucceeds(deleteDoc(doc(bob, "statuses/st_music/likes/bob")));
+
+    // 4. Status resharing: allowed when allowReshare=true and audience is a subset of original audience
+    await assertFails(setDoc(doc(bob, "statuses/st_reshare_wider"), {
+      ownerId: "bob", type: "TEXT", text: "morning vibes", bgColor: "#0F766E", font: "sans",
+      audience: ["alice", "carol", "dave"], allowReshare: false,
+      resharedFrom: { statusId: "st_music", ownerId: "alice", authorName: "Alice" },
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+    await assertSucceeds(setDoc(doc(bob, "statuses/st_reshare_ok"), {
+      ownerId: "bob", type: "TEXT", text: "morning vibes", bgColor: "#0F766E", font: "sans",
+      audience: ["carol"], allowReshare: false,
+      resharedFrom: { statusId: "st_music", ownerId: "alice", authorName: "Alice" },
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+
+    // 5. Status resharing rejected when allowReshare=false or when resharing a reshare
+    await assertFails(setDoc(doc(carol, "statuses/st_chain_reshare"), {
+      ownerId: "carol", type: "TEXT", text: "morning vibes", bgColor: "#0F766E", font: "sans",
+      audience: ["bob"], allowReshare: false,
+      resharedFrom: { statusId: "st_reshare_ok", ownerId: "bob", authorName: "Bob" },
+      createdAt: serverTimestamp(), expiresAt: exp,
+    }));
+  });
+
+  test("group @all mentions enforce onlyAdminsCanMentionAll and 5-minute cooldown", async () => {
+    await seedPeople();
+    await seedGroup({ onlyAdminsCanMentionAll: true });
+    const alice = db("alice");
+    const bob = db("bob");
+
+    // 1. Non-admin bob cannot send @all when onlyAdminsCanMentionAll is true
+    await assertFails(setDoc(doc(bob, "conversations/g1/messages/m_bob_all"), {
+      ...messageData("bob", { mentions: ["all"] }),
+    }));
+
+    // 2. Admin alice can send @all and bump lastMentionAllAt
+    const batch1 = writeBatch(alice);
+    batch1.set(doc(alice, "conversations/g1/messages/m_alice_all_1"), messageData("alice", { mentions: ["all"] }));
+    batch1.update(doc(alice, "conversations/g1"), {
+      lastMessage: { id: "m_alice_all_1", senderId: "alice", type: "TEXT", preview: "@all hi", createdAt: serverTimestamp() },
+      lastMessageAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      lastMentionAllAt: serverTimestamp(),
+    });
+    await assertSucceeds(batch1.commit());
+
+    // 3. Immediate second @all within 5-minute cooldown is rejected by rules
+    await assertFails(setDoc(doc(alice, "conversations/g1/messages/m_alice_all_2"), {
+      ...messageData("alice", { mentions: ["all"] }),
+    }));
+  });
+
+  test("anonymous polls, poll expiration, poll editing before votes, and HD/ORIGINAL media quality are enforced", async () => {
+    await seedPeople();
+    await seedGroup();
+    const alice = db("alice");
+    const bob = db("bob");
+    const pollExp = Timestamp.fromMillis(Date.now() + 3600_000);
+
+    // 1. Create an anonymous poll with expiration
+    await assertSucceeds(setDoc(doc(alice, "conversations/g1/messages/m_poll_1"), messageData("alice", {
+      type: "POLL",
+      text: "Where should we meet?",
+      poll: {
+        question: "Where should we meet?",
+        options: ["Zürich HB", "Bahnhofstrasse"],
+        votes: {},
+        anonymous: true,
+        expiresAt: pollExp,
+      },
+    })));
+
+    // 2. Creator alice can edit poll question/options before any votes are cast
+    await assertSucceeds(updateDoc(doc(alice, "conversations/g1/messages/m_poll_1"), {
+      text: "Where should we meet today?",
+      "poll.question": "Where should we meet today?",
+      "poll.options": ["Zürich HB", "Bahnhofstrasse", "Lake Geneva"],
+      editedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+
+    // 3. In an anonymous poll, voting with raw UID is rejected; voting with sha256("poll:" + mid + ":" + uid) succeeds
+    await assertFails(updateDoc(doc(bob, "conversations/g1/messages/m_poll_1"), {
+      "poll.votes.bob": 1,
+      updatedAt: serverTimestamp(),
+    }));
+    const bobAnonKey = await sha256Hex("poll:m_poll_1:bob");
+    const carolAnonKey = await sha256Hex("poll:m_poll_1:carol");
+    await assertFails(updateDoc(doc(bob, "conversations/g1/messages/m_poll_1"), {
+      [`poll.votes.${carolAnonKey}`]: 1,
+      updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(updateDoc(doc(bob, "conversations/g1/messages/m_poll_1"), {
+      [`poll.votes.${bobAnonKey}`]: 1,
+      updatedAt: serverTimestamp(),
+    }));
+
+    // 4. Once a vote has been cast, creator can no longer edit the poll
+    await assertFails(updateDoc(doc(alice, "conversations/g1/messages/m_poll_1"), {
+      text: "Changed after vote?",
+      "poll.question": "Changed after vote?",
+      "poll.options": ["A", "B"],
+      editedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+
+    // 5. Expired poll rejects new votes
+    await seed(async (fs) => {
+      await setDoc(doc(fs, "conversations/g1/messages/m_poll_exp"), {
+        ...messageData("alice", {
+          type: "POLL",
+          text: "Expired poll",
+          poll: {
+            question: "Expired poll",
+            options: ["Yes", "No"],
+            votes: {},
+            anonymous: false,
+            expiresAt: Timestamp.fromMillis(Date.now() - 60_000),
+          },
+        }),
+        createdAt: Timestamp.fromMillis(Date.now() - 120_000),
+        updatedAt: Timestamp.fromMillis(Date.now() - 120_000),
+      });
+    });
+    await assertFails(updateDoc(doc(bob, "conversations/g1/messages/m_poll_exp"), {
+      "poll.votes.bob": 0,
+      updatedAt: serverTimestamp(),
+    }));
+
+    // 6. Media quality validation: HD and ORIGINAL are accepted; bogus quality is rejected
+    await assertSucceeds(setDoc(doc(alice, "conversations/g1/messages/m_img_hd"), messageData("alice", {
+      type: "IMAGE",
+      text: "HD photo",
+      media: {
+        url: "pulsemedia://md000000000000000001",
+        path: "chat-media/g1/alice/m_img_hd.jpg",
+        mime: "image/jpeg",
+        size: 1024000,
+        originalSize: 2048000,
+        quality: "HD",
+      },
+    })));
+    await assertFails(setDoc(doc(alice, "conversations/g1/messages/m_img_badq"), messageData("alice", {
+      type: "IMAGE",
+      text: "Bad quality",
+      media: {
+        url: "pulsemedia://md000000000000000001",
+        path: "chat-media/g1/alice/m_img_badq.jpg",
+        mime: "image/jpeg",
+        size: 1024000,
+        quality: "ULTRA_8K",
+      },
+    })));
+  });
+});
+

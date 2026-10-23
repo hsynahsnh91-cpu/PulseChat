@@ -30,6 +30,14 @@ data class StatusView(
     val viewedAt: Long,
 )
 
+/** Who liked one of my statuses (or my own like on someone else's status). */
+@Entity(tableName = "status_likes", primaryKeys = ["statusId", "userId"])
+data class StatusLike(
+    val statusId: String,
+    val userId: String,
+    val likedAt: Long,
+)
+
 /** Chat-list row: conversation + resolved peer profile + last message state. */
 data class ChatListRow(
     @Embedded val conversation: Conversation,
@@ -99,6 +107,14 @@ data class MessageSearchRow(
 data class StatusViewRow(
     val viewerId: String,
     val viewedAt: Long,
+    val displayName: String?,
+    val avatarUrl: String?,
+    val avatarColorHex: String?,
+)
+
+data class StatusLikeRow(
+    val userId: String,
+    val likedAt: Long,
     val displayName: String?,
     val avatarUrl: String?,
     val avatarColorHex: String?,

@@ -7,6 +7,8 @@ data class GroupRoster(
     val createdBy: String?,
     val onlyAdminsCanSend: Boolean = false,
     val onlyAdminsCanEditInfo: Boolean = true,
+    val onlyAdminsCanMentionAll: Boolean = true,
+    val lastMentionAllAt: Long = 0L,
 )
 
 enum class GroupError { NAME_EMPTY, NAME_TOO_LONG, DESCRIPTION_TOO_LONG, NO_MEMBERS, TOO_MANY_MEMBERS }
@@ -15,6 +17,7 @@ object GroupPolicy {
     const val MAX_MEMBERS = 256
     const val MAX_NAME = 100
     const val MAX_DESCRIPTION = 512
+    const val MENTION_ALL_COOLDOWN_MS = 5 * 60 * 1000L
 
     fun isMember(r: GroupRoster, uid: String) = uid in r.participants
     fun isAdmin(r: GroupRoster, uid: String) = uid in r.participants && uid in r.admins
@@ -22,6 +25,33 @@ object GroupPolicy {
     fun canSend(r: GroupRoster, uid: String) = isMember(r, uid) && (!r.onlyAdminsCanSend || isAdmin(r, uid))
     fun canEditInfo(r: GroupRoster, uid: String) = isMember(r, uid) && (!r.onlyAdminsCanEditInfo || isAdmin(r, uid))
     fun canChangeSettings(r: GroupRoster, uid: String) = isAdmin(r, uid)
+
+    /** Whether [uid] has permission to use `@all` in this group based on the group's setting. */
+    fun canMentionAll(r: GroupRoster, uid: String): Boolean =
+        canSend(r, uid) && (!r.onlyAdminsCanMentionAll || isAdmin(r, uid))
+
+    /** Whether [uid] can use `@all` right now (permission + cooldown check against abuse). */
+    fun canMentionAllNow(r: GroupRoster, uid: String, now: Long): Boolean =
+        canMentionAll(r, uid) && (r.lastMentionAllAt <= 0L || now - r.lastMentionAllAt >= MENTION_ALL_COOLDOWN_MS)
+
+    /** Remaining cooldown milliseconds before `@all` can be used again in this group (0 if ready). */
+    fun mentionAllCooldownRemainingMs(r: GroupRoster, now: Long): Long =
+        if (r.lastMentionAllAt <= 0L) 0L else (MENTION_ALL_COOLDOWN_MS - (now - r.lastMentionAllAt)).coerceAtLeast(0L)
+
+    /**
+     * Filters members from an existing group when creating a new independent group from existing
+     * members: excludes the creator (who is added automatically as the sole initial admin),
+     * blocked users, and AI assistant IDs. Old admin roles and history are never carried over.
+     */
+    fun eligibleMembersFromGroup(
+        existingParticipants: Collection<String>,
+        creatorUid: String,
+        blockedIds: Set<String>,
+    ): List<String> = existingParticipants
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && it != creatorUid && it !in blockedIds && it != Ids.AI_ASSISTANT_ID }
+        .distinct()
+        .take(MAX_MEMBERS - 1)
 
     fun canAdd(r: GroupRoster, actor: String, newMembers: Collection<String>): Boolean {
         val fresh = newMembers.filter { it !in r.participants }.toSet()

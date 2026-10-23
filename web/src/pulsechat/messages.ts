@@ -145,7 +145,7 @@ export async function sendMedia(
   let url: string | null = null;
   if (options.store !== "builtin" && storageLikelyAvailable(pc)) {
     try {
-      url = await uploadToStorage(pc, path, input, options.onProgress);
+      url = await uploadToStorage(pc, path, input, conv.participants, options.onProgress);
     } catch (e) {
       if (!isStorageUnavailable(e)) throw e;
       markStorageUnavailable(pc);
@@ -153,7 +153,7 @@ export async function sendMedia(
   }
   if (url === null) {
     if (size > MEDIA_MAX_BYTES) throw new PulseChatError("TOO_LARGE");
-    url = await uploadToStore(pc, await toBytes(input.data), input.mime, mediaIdFor(id), options.onProgress);
+    url = await uploadToStore(pc, await toBytes(input.data), input.mime, mediaIdFor(id), options.onProgress, path);
     path = url;
   }
   const now = Date.now();
@@ -175,9 +175,15 @@ export async function sendMedia(
   return id;
 }
 
-async function uploadToStorage(pc: PulseChat, path: string, input: MediaInput, onProgress?: (percent: number) => void): Promise<string> {
+async function uploadToStorage(
+  pc: PulseChat,
+  path: string,
+  input: MediaInput,
+  participants: string[],
+  onProgress?: (percent: number) => void,
+): Promise<string> {
   const fileRef = storageRef(pc.storage, path);
-  const metadata = { contentType: input.mime };
+  const metadata = { contentType: input.mime, customMetadata: { participants: participants.join(",") } };
   if (onProgress) {
     await new Promise<void>((resolve, reject) => {
       uploadBytesResumable(fileRef, input.data, metadata).on(

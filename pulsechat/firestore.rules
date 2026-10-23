@@ -111,7 +111,7 @@ service cloud.firestore {
                'pairedByDeviceId', 'sessionId'])
             && d.deviceId == deviceId && d.uid == userId
             && d.deviceName is string && d.deviceName.size() > 0 && d.deviceName.size() <= 80
-            && d.deviceType in ['android_phone', 'android_tablet', 'web', 'unknown']
+            && d.deviceType in ['android_phone', 'android_tablet', 'web', 'other', 'unknown']
             && d.platform in ['android', 'web']
             && d.publicKey is string && d.publicKey.size() >= 32 && d.publicKey.size() <= 512
             && d.keyFingerprint is string && d.keyFingerprint.matches('^[0-9a-f]{16,64}$')
@@ -121,15 +121,20 @@ service cloud.firestore {
             && d.updatedAt == request.time;
         }
         function validActiveCreate(d) {
+          let claimDid = request.auth.token.get('linkedDeviceId', null);
           return validDeviceFields(d)
             && d.status == 'active'
             && d.linkedAt == request.time && d.lastActiveAt == request.time
             && d.get('revokedAt', null) == null
+            && (claimDid == null || (claimDid == deviceId && d.authMethod == 'qr_linked'))
             && (d.authMethod == 'primary_login' || (
                  d.authMethod == 'qr_linked'
                  && d.get('sessionId', null) is string
                  && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.ownerUid == userId
                  && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.requesterDeviceId == deviceId
+                 && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.status == 'completed'
+                 && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.consumed == true
+                 && getAfter(/databases/$(database)/documents/devicePairings/$(d.sessionId)).data.completedAt == request.time
                ));
         }
 
@@ -206,11 +211,22 @@ service cloud.firestore {
       }
 
       // Sending a message / mutating one bumps preview + timestamps; receipts and typing are per user.
+      function validMentionAllBump() {
+        return !changed().hasAny(['lastMentionAllAt']) || (
+          resource.data.type == 'group'
+          && (isAdmin() || !resource.data.get('onlyAdminsCanMentionAll', true))
+          && request.resource.data.lastMentionAllAt == request.time
+          && (resource.data.get('lastMentionAllAt', null) == null
+              || request.time >= resource.data.lastMentionAllAt + duration.value(5, 'm'))
+        );
+      }
+
       function activityUpdate() {
-        return changed().hasOnly(['lastMessage', 'lastMessageAt', 'updatedAt', 'typing', 'receipts'])
+        return changed().hasOnly(['lastMessage', 'lastMessageAt', 'updatedAt', 'typing', 'receipts', 'lastMentionAllAt'])
           && (!changed().hasAny(['lastMessage']) || request.resource.data.lastMessage.senderId == uid())
           && ownKeyOnly('typing')
-          && ownKeyOnly('receipts');
+          && ownKeyOnly('receipts')
+          && validMentionAllBump();
       }
 
       function directSettingsUpdate() {
@@ -237,7 +253,7 @@ service cloud.firestore {
         let after = request.resource.data;
         let removed = before.participants.toSet().difference(after.participants.toSet());
         return before.type == 'group' && isAdmin()
-          && changed().hasOnly(['participants', 'admins', 'onlyAdminsCanSend', 'onlyAdminsCanEditInfo', 'updatedAt', 'lastMessage', 'lastMessageAt'])
+          && changed().hasOnly(['participants', 'admins', 'onlyAdminsCanSend', 'onlyAdminsCanEditInfo', 'onlyAdminsCanMentionAll', 'updatedAt', 'lastMessage', 'lastMessageAt'])
           && after.participants.size() <= 256
           && after.admins.toSet().difference(after.participants.toSet()).size() == 0
           && after.admins.size() > 0
@@ -283,7 +299,7 @@ service cloud.firestore {
           && request.resource.data.get('description', '').size() <= 512
           && validTimer(request.resource.data.get('disappearingSeconds', 0))
           && request.resource.data.keys().hasOnly(['type', 'participants', 'admins', 'createdBy', 'createdAt', 'updatedAt', 'title', 'description',
-               'photoUrl', 'onlyAdminsCanSend', 'onlyAdminsCanEditInfo', 'disappearingSeconds', 'lastMessageAt', 'lastMessage']))
+               'photoUrl', 'onlyAdminsCanSend', 'onlyAdminsCanEditInfo', 'onlyAdminsCanMentionAll', 'lastMentionAllAt', 'disappearingSeconds', 'lastMessageAt', 'lastMessage']))
       );
 
       allow update: if signedIn() && uid() in resource.data.participants
@@ -294,6 +310,17 @@ service cloud.firestore {
       // ---------------------------------------------------------------- messages
       match /messages/{mid} {
         function mchanged() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+        function validMentionAllInMessage(m, after) {
+          let mentions = m.get('mentions', []);
+          return !('all' in mentions) || (
+            after.type == 'group'
+            && (uid() in after.get('admins', []) || !after.get('onlyAdminsCanMentionAll', true))
+            && (!exists(convPath(cid))
+                || get(convPath(cid)).data.get('lastMentionAllAt', null) == null
+                || request.time >= get(convPath(cid)).data.lastMentionAllAt + duration.value(5, 'm'))
+          );
+        }
 
         function validNewMessage() {
           let m = request.resource.data;
@@ -311,12 +338,20 @@ service cloud.firestore {
             && m.editedAt == null && m.deletedForEveryone == false
             && m.reactions.size() == 0
             && m.get('mentions', []).size() <= 50
+            && validMentionAllInMessage(m, after)
             && (m.type != 'SYSTEM' || m.system.actor == uid())
             && (m.type == 'SYSTEM' || after.type != 'group' || !after.get('onlyAdminsCanSend', false) || uid() in after.get('admins', []))
             && (after.type != 'direct' || (!hasBlocked(after.participants[0], uid()) && !hasBlocked(after.participants[1], uid())))
-            && (!('poll' in m) || (m.poll.votes.size() == 0 && m.poll.options.size() >= 2 && m.poll.options.size() <= 12))
-            // A video's cover travels with the message as a small image.
-            && (!('media' in m) || !('thumb' in m.media) || (m.media.thumb is bytes && m.media.thumb.size() <= 65536))
+            && (!('poll' in m) || (
+                 m.poll.votes.size() == 0
+                 && m.poll.options.size() >= 2 && m.poll.options.size() <= 12
+                 && (m.poll.get('expiresAt', null) == null || (m.poll.expiresAt is timestamp && m.poll.expiresAt > request.time))
+               ))
+            // A video's cover travels with the message as a small image; media quality is validated when present.
+            && (!('media' in m) || (
+                 (!('thumb' in m.media) || (m.media.thumb is bytes && m.media.thumb.size() <= 65536))
+                 && (!('quality' in m.media) || m.media.quality in ['STANDARD', 'HD', 'ORIGINAL'])
+               ))
             && (m.get('expiresAt', null) == null || m.expiresAt > request.time);
         }
 
@@ -368,21 +403,63 @@ service cloud.firestore {
                 || (request.resource.data.reactions[uid()] is string && request.resource.data.reactions[uid()].size() <= 16));
         }
 
-        // Each participant controls only their own poll vote.
+        // Each participant controls only their own poll vote (direct UID key for standard polls,
+        // or salted SHA-256 voter key `sha256("poll:" + mid + ":" + uid())` for anonymous polls).
+        // Voting is rejected once `poll.expiresAt` has passed.
         function voteUpdate() {
+          let anon = resource.data.poll.get('anonymous', false) == true;
+          let voterKey = anon
+            ? hashing.sha256(('poll:' + mid + ':' + uid()).toUtf8()).toHexString().lower()
+            : uid();
+          let exp = resource.data.poll.get('expiresAt', null);
           return resource.data.type == 'POLL' && resource.data.deletedForEveryone == false
+            && (exp == null || request.time < exp)
             && mchanged().hasOnly(['poll', 'updatedAt'])
             && request.resource.data.updatedAt == request.time
             && request.resource.data.poll.diff(resource.data.poll).affectedKeys().hasOnly(['votes'])
-            && request.resource.data.poll.votes.diff(resource.data.poll.votes).affectedKeys().hasOnly([uid()])
-            && (!(uid() in request.resource.data.poll.votes)
-                || (request.resource.data.poll.votes[uid()] is int && request.resource.data.poll.votes[uid()] >= 0
-                    && request.resource.data.poll.votes[uid()] < resource.data.poll.options.size()));
+            && request.resource.data.poll.votes.diff(resource.data.poll.votes).affectedKeys().hasOnly([voterKey])
+            && (!(voterKey in request.resource.data.poll.votes)
+                || (request.resource.data.poll.votes[voterKey] is int
+                    && request.resource.data.poll.votes[voterKey] >= 0
+                    && request.resource.data.poll.votes[voterKey] < resource.data.poll.options.size()));
+        }
+
+        // Poll creators may edit a poll's question and options within 15 minutes before any votes
+        // have been cast and before the poll expires.
+        function pollEditByAuthor() {
+          let exp = resource.data.poll.get('expiresAt', null);
+          return resource.data.senderId == uid()
+            && resource.data.type == 'POLL'
+            && resource.data.deletedForEveryone == false
+            && resource.data.poll.votes.size() == 0
+            && (exp == null || request.time < exp)
+            && request.time < resource.data.createdAt + duration.value(15, 'm')
+            && mchanged().hasOnly(['text', 'poll', 'editedAt', 'updatedAt'])
+            && request.resource.data.editedAt == request.time
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 300
+            && request.resource.data.poll.diff(resource.data.poll).affectedKeys().hasOnly(['question', 'options'])
+            && request.resource.data.poll.question == request.resource.data.text
+            && request.resource.data.poll.options is list
+            && request.resource.data.poll.options.size() >= 2
+            && request.resource.data.poll.options.size() <= 12
+            && request.resource.data.poll.votes.size() == 0;
+        }
+
+        // Allows an idempotent retry of a new-message write by its author when a write stream
+        // drops after server commit before the client receives the acknowledgement.
+        function retryCreateByAuthor() {
+          return resource.data.senderId == uid()
+            && resource.data.editedAt == null
+            && resource.data.deletedForEveryone == false
+            && mchanged().hasOnly(['createdAt', 'updatedAt'])
+            && validNewMessage();
         }
 
         allow read: if isParticipantNow(cid);
         allow create: if signedIn() && validNewMessage();
-        allow update: if isParticipantNow(cid) && (editByAuthor() || deleteForEveryone() || reactionUpdate() || voteUpdate());
+        allow update: if isParticipantNow(cid) && (retryCreateByAuthor() || editByAuthor() || pollEditByAuthor() || deleteForEveryone() || reactionUpdate() || voteUpdate());
         // Expired disappearing messages may be cleaned up by participants (TTL also removes them).
         allow delete: if isParticipantNow(cid) && resource.data.get('expiresAt', null) != null && resource.data.expiresAt < request.time;
       }
@@ -425,16 +502,60 @@ service cloud.firestore {
 
     // ------------------------------------------------------------------ statuses
     match /statuses/{sid} {
+      function validStatusMusic(d) {
+        let m = d.get('music', null);
+        return m == null || (
+          m is map
+          && m.keys().hasOnly(['trackId', 'title', 'artist', 'url', 'startMs', 'durationMs'])
+          && m.trackId is string && m.trackId.size() > 0 && m.trackId.size() <= 100
+          && m.title is string && m.title.size() > 0 && m.title.size() <= 120
+          && m.artist is string && m.artist.size() <= 120
+          && m.startMs is int && m.startMs >= 0
+          && m.durationMs is int && m.durationMs > 0 && m.durationMs <= 30000
+        );
+      }
+
+      function validStatusMentions(d) {
+        let mentions = d.get('mentions', []);
+        return mentions is list
+          && mentions.size() <= 20
+          && !(uid() in mentions)
+          && mentions.toSet().difference(d.audience.toSet()).size() == 0;
+      }
+
+      function validStatusReshare(d) {
+        let rf = d.get('resharedFrom', null);
+        return rf == null || (
+          rf is map
+          && rf.keys().hasOnly(['statusId', 'ownerId', 'authorName'])
+          && rf.statusId is string && rf.statusId.size() > 0 && rf.statusId != sid
+          && rf.ownerId is string && rf.ownerId.size() > 0
+          && exists(/databases/$(database)/documents/statuses/$(rf.statusId))
+          && get(/databases/$(database)/documents/statuses/$(rf.statusId)).data.ownerId == rf.ownerId
+          && get(/databases/$(database)/documents/statuses/$(rf.statusId)).data.get('allowReshare', true) == true
+          && get(/databases/$(database)/documents/statuses/$(rf.statusId)).data.get('resharedFrom', null) == null
+          && get(/databases/$(database)/documents/statuses/$(rf.statusId)).data.expiresAt > request.time
+          && uid() in get(/databases/$(database)/documents/statuses/$(rf.statusId)).data.audience
+          && !hasBlocked(rf.ownerId, uid())
+          && d.expiresAt <= get(/databases/$(database)/documents/statuses/$(rf.statusId)).data.expiresAt
+          && d.audience.toSet().difference(get(/databases/$(database)/documents/statuses/$(rf.statusId)).data.audience.toSet()).size() == 0
+        );
+      }
+
       allow get: if signedIn() && (resource.data.ownerId == uid()
         || (uid() in resource.data.audience && resource.data.expiresAt > request.time && !hasBlocked(resource.data.ownerId, uid())));
       allow list: if signedIn() && (resource.data.ownerId == uid() || uid() in resource.data.audience);
       allow create: if signedIn() && request.resource.data.ownerId == uid()
-        && request.resource.data.keys().hasOnly(['ownerId', 'type', 'text', 'bgColor', 'font', 'media', 'createdAt', 'expiresAt', 'audience'])
+        && request.resource.data.keys().hasOnly(['ownerId', 'type', 'text', 'bgColor', 'font', 'media', 'music', 'mentions', 'allowReshare', 'resharedFrom', 'createdAt', 'expiresAt', 'audience'])
         && request.resource.data.type in ['TEXT', 'IMAGE', 'VIDEO']
         && request.resource.data.createdAt == request.time
         && request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt <= request.time + duration.value(25, 'h')
         && request.resource.data.audience is list && request.resource.data.audience.size() <= 500
-        && (request.resource.data.text == null || (request.resource.data.text is string && request.resource.data.text.size() <= 700));
+        && (request.resource.data.text == null || (request.resource.data.text is string && request.resource.data.text.size() <= 700))
+        && (!('allowReshare' in request.resource.data) || request.resource.data.allowReshare is bool)
+        && validStatusMusic(request.resource.data)
+        && validStatusMentions(request.resource.data)
+        && validStatusReshare(request.resource.data);
       allow update: if false;
       allow delete: if signedIn() && resource.data.ownerId == uid();
 
@@ -444,6 +565,23 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['viewedAt']) && request.resource.data.viewedAt == request.time;
         allow read: if signedIn() && (viewerId == uid() || get(/databases/$(database)/documents/statuses/$(sid)).data.ownerId == uid());
         allow update, delete: if false;
+      }
+
+      match /likes/{likerId} {
+        function statusDoc() {
+          return get(/databases/$(database)/documents/statuses/$(sid)).data;
+        }
+        function canAccessStatusForLike() {
+          let s = statusDoc();
+          return s.ownerId == uid()
+            || (uid() in s.audience && s.expiresAt > request.time && !hasBlocked(s.ownerId, uid()));
+        }
+        allow create, update: if signedIn() && likerId == uid()
+          && canAccessStatusForLike()
+          && request.resource.data.keys().hasOnly(['likedAt'])
+          && request.resource.data.likedAt == request.time;
+        allow read: if signedIn() && (likerId == uid() || statusDoc().ownerId == uid());
+        allow delete: if signedIn() && (likerId == uid() || statusDoc().ownerId == uid());
       }
     }
 
@@ -502,28 +640,76 @@ service cloud.firestore {
     // Used for photos, voice notes, videos, documents, statuses and profile/group photos whenever
     // the project has no usable Cloud Storage bucket (see MediaRefs.kt). A file is a metadata
     // document plus numbered chunks of at most 512 KB (64 chunks, i.e. 32 MB, at most).
-    // Like Storage objects, media can be read by signed-in users who know its random ID, which
-    // only appears in documents the reader is already allowed to see; it can never be listed.
-    // Only the uploader can write or delete it.
+    // Scoped media documents enforce conversation participation, group membership, status audience
+    // and expiry, or profile photo visibility + block list; legacy unscoped documents remain
+    // readable by non-blocked signed-in users holding the unguessable ID.
     match /media/{mediaId} {
       function validMediaId() { return mediaId.matches('^[A-Za-z0-9_-]{8,64}$'); }
       function mediaOwnedByMe() { return resource == null || resource.data.owner == uid(); }
+      function validMediaScope(d) {
+        let sc = d.get('scope', null);
+        let cid = d.get('conversationId', null);
+        let sid = d.get('statusId', null);
+        return (sc == null || sc in ['chat', 'group', 'status', 'profile'])
+          && (cid == null || (cid is string && cid.size() > 0 && cid.size() <= 128))
+          && (sid == null || (sid is string && sid.size() > 0 && sid.size() <= 128))
+          && (sc != 'chat' || (
+               cid is string && cid.size() > 0 && (
+                 (cid.matches('^dm_.*') && (cid.matches('^dm_' + uid() + '_.*') || cid.matches('^dm_.*_' + uid() + '$')))
+                 || (exists(convPath(cid)) && uid() in get(convPath(cid)).data.participants)
+               )
+             ))
+          && (sc != 'group' || (
+               cid is string && cid.size() > 0
+               && (!exists(convPath(cid)) || uid() in get(convPath(cid)).data.participants)
+             ))
+          && (sc != 'status' || (sid is string && sid.size() > 0))
+          && (resource == null || (
+               sc == resource.data.get('scope', null)
+               && cid == resource.data.get('conversationId', null)
+               && sid == resource.data.get('statusId', null)
+             ));
+      }
+      function canReadMedia(m) {
+        let sc = m.get('scope', null);
+        return signedIn() && (
+          m.owner == uid()
+          || (sc == 'chat' && m.get('conversationId', '') is string && (
+                (m.conversationId.matches('^dm_.*') && (
+                  m.conversationId.matches('^dm_' + uid() + '_.*') || m.conversationId.matches('^dm_.*_' + uid() + '$')
+                ))
+                || (exists(convPath(m.conversationId)) && uid() in get(convPath(m.conversationId)).data.participants)
+             ))
+          || (sc == 'group' && m.get('conversationId', '') is string
+                && exists(convPath(m.conversationId)) && uid() in get(convPath(m.conversationId)).data.participants)
+          || (sc == 'status' && m.get('statusId', '') is string
+                && exists(/databases/$(database)/documents/statuses/$(m.statusId))
+                && uid() in get(/databases/$(database)/documents/statuses/$(m.statusId)).data.audience
+                && get(/databases/$(database)/documents/statuses/$(m.statusId)).data.expiresAt > request.time
+                && !hasBlocked(m.owner, uid()))
+          || (sc == 'profile'
+                && (!exists(/databases/$(database)/documents/users/$(m.owner)) || visibilityAllows(m.owner, 'photoVisibility'))
+                && !hasBlocked(m.owner, uid()))
+          || (sc == null && !hasBlocked(m.owner, uid()))
+        );
+      }
 
-      allow get: if signedIn();
+      allow get: if canReadMedia(resource.data);
       allow list: if false;
       allow create, update: if signedIn() && validMediaId() && mediaOwnedByMe()
-        && request.resource.data.keys().hasOnly(['owner', 'mime', 'size', 'chunks', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['owner', 'mime', 'size', 'chunks', 'createdAt', 'scope', 'conversationId', 'statusId'])
         && request.resource.data.owner == uid()
         && request.resource.data.mime is string && request.resource.data.mime.size() <= 128
         && request.resource.data['size'] is int && request.resource.data['size'] > 0 && request.resource.data['size'] <= 33554432
         && request.resource.data.chunks is int && request.resource.data.chunks > 0 && request.resource.data.chunks <= 64
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && validMediaScope(request.resource.data);
       allow delete: if signedIn() && resource.data.owner == uid();
 
       match /chunks/{index} {
         function parent() { return get(/databases/$(database)/documents/media/$(mediaId)).data; }
 
-        allow get: if signedIn();
+        allow get: if canReadMedia(parent());
         allow list: if false;
         allow create, update: if signedIn()
           && (resource == null || resource.data.owner == uid())
@@ -574,7 +760,7 @@ service cloud.firestore {
         && request.resource.data.completedAt == null
         && request.resource.data.requesterDeviceId is string && request.resource.data.requesterDeviceId.size() >= 8 && request.resource.data.requesterDeviceId.size() <= 64
         && request.resource.data.requesterDeviceName is string && request.resource.data.requesterDeviceName.size() > 0 && request.resource.data.requesterDeviceName.size() <= 80
-        && request.resource.data.requesterDeviceType in ['android_phone', 'android_tablet', 'web', 'unknown']
+        && request.resource.data.requesterDeviceType in ['android_phone', 'android_tablet', 'web', 'other', 'unknown']
         && request.resource.data.requesterPlatform in ['android', 'web']
         && request.resource.data.requesterPublicKey is string && request.resource.data.requesterPublicKey.size() >= 32 && request.resource.data.requesterPublicKey.size() <= 512
         && request.resource.data.requesterKeyFingerprint is string && request.resource.data.requesterKeyFingerprint.matches('^[0-9a-f]{16,64}$')
@@ -613,7 +799,7 @@ service cloud.firestore {
         // 3. Requesting device cancels or expires its own pending session by proving possession of sessionSecret
         (resource.data.status == 'pending' && resource.data.consumed == false
           && pchanged().hasOnly(['status', 'updatedAt', 'secretProof'])
-          && request.resource.data.status in ['expired', 'revoked']
+          && request.resource.data.status in ['expired', 'revoked', 'cancelled']
           && request.resource.data.updatedAt == request.time
           && validSecretProof())
         ||
@@ -671,7 +857,10 @@ service cloud.firestore {
         && request.resource.data.expiresAt > request.time
         && request.resource.data.expiresAt <= request.time + duration.value(3, 'm')
         && getAfter(/databases/$(database)/documents/devicePairings/$(request.resource.data.sessionId)).data.manualCodeHash == codeHash;
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if codeHash.matches('^[0-9a-f]{64}$')
+        && (request.time >= resource.data.expiresAt
+            || getAfter(/databases/$(database)/documents/devicePairings/$(resource.data.sessionId)).data.status in ['revoked', 'expired', 'cancelled', 'rejected', 'completed']);
     }
 
     // ------------------------------------------------------------------ admin-managed config (e.g. TURN servers)
