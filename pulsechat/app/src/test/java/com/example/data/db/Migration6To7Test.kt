@@ -122,15 +122,15 @@ class Migration6To7Test {
             assertEquals(0L, msg.originalSizeBytes)
 
             val status = db.statusDao().get("s1")!!
-            assertEquals("Sunny day", status.contentText)
+            assertEquals("Sunny day", status.text)
             assertTrue(status.allowReshare)
             assertNull(status.musicTrackId)
             assertEquals(0, status.likeCount)
             assertFalse(status.isLikedByMe)
 
             // Verify status_likes table and status like counters work after migration
-            db.statusDao().insertLike(StatusLike(statusId = "s1", userId = "u1", likedAt = 2500L))
-            db.statusDao().setLikeState("s1", likeCount = 1, isLikedByMe = true)
+            db.statusDao().upsertLike(StatusLike(statusId = "s1", userId = "u1", likedAt = 2500L))
+            db.statusDao().setLikedState("s1", liked = true, count = 1)
             val updatedStatus = db.statusDao().get("s1")!!
             assertEquals(1, updatedStatus.likeCount)
             assertTrue(updatedStatus.isLikedByMe)

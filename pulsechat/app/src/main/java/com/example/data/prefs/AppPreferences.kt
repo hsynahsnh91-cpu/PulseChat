@@ -196,6 +196,16 @@ class AppPreferences(context: Context) {
         prefs.edit().putString("recent_accounts", recentAccounts().filter { it != username }.joinToString("\n")).apply()
     }
 
+    fun recentSearches(): List<String> =
+        prefs.getString("recent_searches", "")!!.split("\n").filter { it.isNotBlank() }
+
+    fun rememberSearch(query: String) {
+        val q = query.trim()
+        if (q.isBlank()) return
+        val list = (listOf(q) + recentSearches().filter { it != q }).take(10)
+        prefs.edit().putString("recent_searches", list.joinToString("\n")).apply()
+    }
+
     /** Random per-installation ID used to key this device's push token (not a hardware ID). */
     val deviceId: String
         get() = secure.getString("device_id", null) ?: java.util.UUID.randomUUID().toString().also {

@@ -32,8 +32,8 @@ class AdvancedGroupAndPollTest {
         assertEquals(listOf("bob"), resolvedDenied)
 
         val roster = GroupRoster(
-            participants = setOf("alice", "bob", "carol"),
-            admins = setOf("alice"),
+            participants = listOf("alice", "bob", "carol"),
+            admins = listOf("alice"),
             createdBy = "alice",
             onlyAdminsCanSend = false,
             onlyAdminsCanEditInfo = true,
@@ -46,8 +46,8 @@ class AdvancedGroupAndPollTest {
         assertTrue(GroupPolicy.canMentionAllNow(roster, "alice", 10_000L + GroupPolicy.MENTION_ALL_COOLDOWN_MS))
 
         val eligible = GroupPolicy.eligibleMembersFromGroup(
-            sourceParticipants = listOf("alice", "bob", "carol", Ids.AI_ASSISTANT_ID),
-            creatorId = "alice",
+            existingParticipants = listOf("alice", "bob", "carol", Ids.AI_ASSISTANT_ID),
+            creatorUid = "alice",
             blockedIds = setOf("carol"),
         )
         assertEquals(listOf("bob"), eligible)
@@ -63,8 +63,8 @@ class AdvancedGroupAndPollTest {
         assertEquals("bob", PollPolicy.voterKey(messageId = "m_poll_1", uid = "bob", anonymous = false))
 
         val votes = mapOf(anonKeyBob to 1)
-        assertEquals(1, PollPolicy.myVote("m_poll_1", "bob", anonymous = true, votes = votes))
-        assertEquals(null, PollPolicy.myVote("m_poll_1", "carol", anonymous = true, votes = votes))
+        assertEquals(1, PollPolicy.myVote("m_poll_1", "bob", anonymous = true, votesMap = votes))
+        assertEquals(null, PollPolicy.myVote("m_poll_1", "carol", anonymous = true, votesMap = votes))
 
         val exp = PollPolicy.expiresAt(createdAtMs = 1_000L, durationSeconds = 3600L)
         assertEquals(3_601_000L, exp)
